@@ -149,3 +149,17 @@ This is the single build order. It absorbs the former `BUILD_ORDER.md`. Update t
 - [x] Replay audit (repeat / wall clock +5 years / reversed input order) and a 60-day synthetic history whose rebuild reproduces all 60 daily skill + readiness snapshots (D-076).
 - [x] Domain purity AST test (no clock/random/uuid/time/os/I/O/float literals); security sweep (no v-html, no string-built SQL, all inputs `extra=forbid`, no secrets in the built bundle); index review with EXPLAIN on 9 hot queries; a11y + 390 px (Slice 9); dependency audit: `npm audit --omit=dev` 0 vulnerabilities, `pip-audit -r requirements.txt` no known vulnerabilities.
 - [x] Final user journey through the real app and final audit report.
+
+## UI/UX V2 redesign (after Slice 12)
+
+- [x] Design system (tokens, semantic states, skeleton/empty/error), app shell (sidebar, tablet rail, phone bottom bar), focused navigation; developer tools under Settings → Developer (D-078).
+- [x] Today (calibration hero, readiness, missions, gaps, mentor message, week, revision), mission card states, Prepare hub + area pages + DSA home, focused solving flow, Revise, skill detail, Roadmap, Mocks, Progress, Weekly review, Settings, Baseline, Log.
+- [x] Read-only `GET /today/week` (+ unit and API tests); frontend tests 51 → 117 (fixtures typed against the API contract); axe-core audit 0 violations on every page at 1440 and 390; keyboard path verified; no horizontal overflow at 390 px; 1280×720, 1440×900, 1920×1080 and 390×844 screenshots reviewed; API calls per page de-duplicated and cached.
+
+## Starting profile + calibration (after UI V2)
+
+- [x] Migration `0011_starting_profile`; `/profile`, `/onboarding/complete`; self-report stored apart from evidence (tests prove scores, gaps and readiness are unchanged by it).
+- [x] Calibration phase + effort (`/baseline`), personal roadmap and current state read models (pure domain + tests), declared-unknown labelling.
+- [x] Onboarding wizard (first-run guard), calibration hub, calibration-first Today, personal roadmap, current state with self-report vs measured on Progress, edit from Settings.
+- [x] Verified in a real browser as a brand-new user at 1280×720, 1440×900 and 390×844 (33 + 14 checks each, no console errors, no horizontal overflow); backend 474 tests, frontend 157 tests.
+

@@ -116,3 +116,7 @@ The tests found three contradictions in the spec. Each was fixed in the spec fir
 | `./scripts/make-in-docker.sh check` | exit 0: ruff "All checks passed!", mypy "no issues found in 132 source files", vue-tsc + eslint clean, **pytest 418 passed** (208 s), **vitest 51 passed** (15 files) |
 | `./scripts/make-in-docker.sh backup-verify` | exit 0: "RESTORE VERIFIED: mastermentor-20261005T050139Z.sql.gz", tables restored = 38, live = 38, row counts and checksums equal |
 | `alembic upgrade head` on an empty DB | covered by `tests/db/test_migrations.py` (8 passed): from-empty upgrade, model/schema diff = [], downgrade −1 / base and upgrade again |
+
+## 9. Post-audit fix: backup visibility (D-077)
+
+After this audit, the app showed "No backup found" although backups were verified. The cause was a stale backend container that predated its `./backups:/backups:ro` mount. The fix was to recreate the stack. `tests/api/test_backup_status_api.py` and `make backup-status-check` now cover this case.

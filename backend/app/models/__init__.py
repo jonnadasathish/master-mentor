@@ -35,7 +35,7 @@ from app.models.derived import (
     SkillState,
 )
 from app.models.plan import DailyPlanRow, PlanItemRow, WeeklyReviewRow
-from app.models.profile import Goal
+from app.models.profile import Goal, StartingProfile
 from app.models.system import AppSettings, AuditLog, MentorRun
 
 __all__ = [
@@ -59,6 +59,7 @@ __all__ = [
     "Evidence",
     "GapState",
     "Goal",
+    "StartingProfile",
     "MentorRun",
     "MissionTemplate",
     "PlanItemRow",

@@ -81,6 +81,25 @@ def test_dev_reset_requires_confirmation_and_keeps_the_catalog(
     assert populated.scalar(select(AuditLog.action).where(AuditLog.action == "DEV_RESET")) == "DEV_RESET"
 
 
+def test_dev_reset_keeps_the_starting_profile_as_configuration(populated: Session) -> None:
+    from app.models import StartingProfile
+
+    row = populated.get(StartingProfile, 1)
+    if row is None:  # the test database starts from the bootstrap row; create it when a restore left none
+        row = StartingProfile(
+            id=1, technologies_json=[], self_report_json={}, updated_at=datetime(2026, 10, 4)
+        )
+        populated.add(row)
+    row.current_role = "Backend Engineer"
+    row.technologies_json = ["Python"]
+    populated.commit()
+    devtools.reset_prep(populated)
+    kept = populated.get(StartingProfile, 1)
+    assert (
+        kept is not None and kept.current_role == "Backend Engineer" and kept.technologies_json == ["Python"]
+    )
+
+
 def test_s01_cold_start_all_unassessed_and_calibrating(catalog_session: Session) -> None:
     """S01 skill-state part: no observations -> 133 UNASSESSED, 0/123 required, battery at B01."""
     from app.services.skill_service import SkillService

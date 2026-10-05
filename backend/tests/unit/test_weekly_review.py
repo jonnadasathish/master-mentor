@@ -87,3 +87,23 @@ def test_empty_week_has_no_rates() -> None:
     )
     assert (metrics["plan_completion_pct"], metrics["revision_completion_pct"]) == (None, None)
     assert metrics["strongest_improvement"] is None and metrics["biggest_regression"] is None
+
+
+def test_summarize_week_counts_recorded_minutes_monday_to_today_inclusive() -> None:
+    from app.domain.mentor.practice import PracticeObservation, summarize_week
+    from tests.golden.harness import graph
+
+    g, p = graph(), profile()
+    monday, wednesday = date(2026, 11, 2), date(2026, 11, 4)
+    observations = [
+        PracticeObservation(date(2026, 11, 1), ("graph.traversal",), time_seconds=3600),  # last Sunday
+        PracticeObservation(monday, ("graph.traversal",), time_seconds=1800),
+        PracticeObservation(wednesday, ("graph.traversal",), time_seconds=1200),  # today counts
+        PracticeObservation(wednesday, ("sd.caching",), study_minutes=45, is_study=True),
+        PracticeObservation(date(2026, 11, 5), ("graph.traversal",), time_seconds=600),  # future: excluded
+        PracticeObservation(monday, (), time_seconds=0),  # nothing recorded: not an active day
+    ]
+    week = summarize_week(observations, monday, wednesday, g, p)
+    assert (week.total_minutes, week.active_days) == (30 + 20 + 45, 2)
+    assert week.track_minutes["dsa_coding"] == 50 and week.track_minutes["system_design"] == 45
+    assert summarize_week([], monday, wednesday, g, p).total_minutes == 0

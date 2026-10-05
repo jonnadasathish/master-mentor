@@ -114,6 +114,32 @@ class TodayOut(BaseModel):
     plan: PlanOut
 
 
+class WeekTrackOut(BaseModel):
+    track: str
+    minutes: int
+    weekly_target: int
+
+
+class WeekRevisionOut(BaseModel):
+    planned: int
+    done: int
+    completion_pct: int | None
+
+
+class WeekOut(BaseModel):
+    """Week-to-date context for the Today page (read-only; recorded practice, not plan minutes)."""
+
+    plan_date: date
+    week_start: date
+    week_end: date
+    preparation_day: int | None
+    target_minutes: int | None
+    practice_minutes: int
+    active_days: int
+    minutes_by_track: list[WeekTrackOut]
+    revision: WeekRevisionOut
+
+
 class ObservationIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

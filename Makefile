@@ -10,7 +10,7 @@ BACKEND_NODB := $(COMPOSE) run --rm --no-deps -T backend
 FRONTEND_RUN := $(COMPOSE) run --rm --no-deps -T frontend
 
 .DEFAULT_GOAL := help
-.PHONY: help env dev down db-up db-migrate backup backup-verify restore-live export dev-reset seed-validate seed seed-lock seed-status lint typecheck test check format frontend-deps logs
+.PHONY: help env dev down db-up db-migrate backup backup-verify backup-status-check restore-live export dev-reset seed-validate seed seed-lock seed-status lint typecheck test check format frontend-deps logs
 
 help: ## List targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -40,6 +40,9 @@ backup-verify: db-up ## Backup now, restore it into a scratch DB and compare eve
 	$(COMPOSE) run --rm -T --entrypoint /scripts/backup-once.sh backup
 	$(COMPOSE) run --rm -T -e MYSQL_ROOT_PASSWORD --entrypoint /bin/bash backup -c \
 		'/scripts/restore-verify.sh /backups/$$(cut -d" " -f2 /backups/LATEST)'
+
+backup-status-check: ## Check the running backup + backend containers share ./backups and the status endpoint sees LATEST
+	COMPOSE="$(COMPOSE)" ./scripts/backup-status-check.sh
 
 restore-live: db-up ## DESTRUCTIVE: replace the live DB with FILE=backups/x.sql.gz (needs CONFIRM=RESTORE-LIVE-DATABASE)
 	@test -n "$(FILE)" || { echo "usage: make restore-live FILE=backups/<file>.sql.gz CONFIRM=RESTORE-LIVE-DATABASE"; exit 2; }

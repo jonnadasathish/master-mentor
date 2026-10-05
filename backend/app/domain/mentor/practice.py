@@ -72,3 +72,42 @@ def summarize_practice(
         study_minutes_7d=study7,
         total_minutes_14d=total14,
     )
+
+
+@dataclass(frozen=True)
+class WeekSummary:
+    """Recorded practice from Monday of ``as_of``'s week up to and including ``as_of`` (read-only context)."""
+
+    total_minutes: int
+    track_minutes: dict[str, int]
+    active_days: int
+
+
+def summarize_week(
+    observations: Sequence[PracticeObservation],
+    week_start: date,
+    as_of: date,
+    graph: SkillGraph,
+    profile: ProfileSpec,
+) -> WeekSummary:
+    """Same minute attribution as :func:`summarize_practice` (recorded time, split across skills), but over
+    the current calendar week including today. An observation with no skill counts toward the total only.
+    """
+    track_of = {c.key: c.track for c in profile.components}
+    tracks: dict[str, int] = dict.fromkeys(profile.track_minutes, 0)
+    total = 0
+    days: set[date] = set()
+    for o in observations:
+        if not week_start <= o.observed_on <= as_of:
+            continue
+        minutes = observation_minutes(o)
+        if minutes <= 0:
+            continue
+        total += minutes
+        days.add(o.observed_on)
+        for skill, share in split_minutes(o).items():
+            spec = graph.skills.get(skill)
+            track = track_of.get(spec.component) if spec else None
+            if track is not None:
+                tracks[track] = tracks.get(track, 0) + share
+    return WeekSummary(total_minutes=total, track_minutes=tracks, active_days=len(days))

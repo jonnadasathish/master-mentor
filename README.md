@@ -21,11 +21,12 @@ cp .env.example .env        # then replace every CHANGE_ME value
 make dev                    # build, start mysql + backend + frontend, wait for healthy, run migrations
 ```
 
-- Frontend: http://127.0.0.1:5173 (the Status page shows backend connectivity)
-- API health: http://127.0.0.1:8000/api/v1/health · catalog: http://127.0.0.1:8000/api/v1/catalog
-- Log DSA attempts: http://127.0.0.1:5173/log (problems → problem → Start attempt → Save)
-- Skills (state + evidence trail): http://127.0.0.1:5173/skills · baseline battery: http://127.0.0.1:5173/baseline
-- Internal catalog check: http://127.0.0.1:5173/catalog
+- App: http://127.0.0.1:5173 opens **Today** (what to do today, why, how long, and how you are doing)
+- First run: `/onboarding` (starting profile) → `/calibrate` (calibration hub) → `/roadmap` (your personal roadmap)
+- Prepare (DSA, CS, System Design, LLD, Behavioral): `/prepare` · Revise: `/revise` · Mocks: `/mocks` · Progress: `/progress` · Roadmap: `/roadmap`
+- Log practice: `/log` · baseline assessments: `/baseline` · weekly review: `/review`
+- Developer / System tools (health, versions, catalog check, reset procedure) live under Settings → Developer: `/settings/developer`
+- API health: http://127.0.0.1:8000/api/v1/health
 - MySQL: 127.0.0.1:3307 (`MYSQL_HOST_PORT`)
 
 Everything binds to 127.0.0.1 only. There is no authentication; do not expose these ports.
@@ -45,6 +46,7 @@ Everything binds to 127.0.0.1 only. There is no authentication; do not expose th
 | `make check` | lint + typecheck + test: required before a slice is done |
 | `make format` | auto-format backend and frontend |
 | `make backup` | dump the DB now into `./backups` (the `backup` service also does this nightly at `BACKUP_HOUR_UTC`, keeping 14 days) |
+| `make backup-status-check` | check that the running backup and backend containers share `./backups` and the backup-status endpoint reports the latest file (after changing `docker-compose.yml`, recreate containers with `make dev`) |
 | `make backup-verify` | back up, restore into a scratch DB and compare row counts + checksums of every table |
 | `make restore-live FILE=backups/<f>.sql.gz CONFIRM=RESTORE-LIVE-DATABASE` | **destructive**: replace the live DB (takes a safety backup first) |
 | `make export` | JSON export + CSV zip of all preparation data into `./exports` (also `GET /api/v1/export/json`, `/export/csv`) |

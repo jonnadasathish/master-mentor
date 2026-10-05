@@ -7,7 +7,7 @@ MySQL 8, InnoDB, `utf8mb4`. Every schema change is an Alembic migration. Single 
 | Class | Tables | Mutability | Rebuild |
 |---|---|---|---|
 | **Catalog** | `skill_groups`, `skills`, `skill_prerequisites`, `role_profiles`, `role_skill_targets`, `problems`, `problem_skills`, `mission_templates`, `roadmap_milestones`, `roadmap_milestone_skills`, `baseline_items`, `catalog_loads` | written only by the seed loader (`make seed`): validate first, then upsert by natural key in one transaction | from `seed/*.yaml` |
-| **Profile** | `app_settings`, `goals` | `app_settings` updated with an audit event; `goals` are **versioned**: any change inserts a new version row | — |
+| **Profile** | `app_settings`, `starting_profile`, `goals` | `app_settings` updated with an audit event; `goals` are **versioned**: any change inserts a new version row | — |
 | **Content** | `behavioral_stories`, `story_competencies`, `projects`, `assessment_prompts` | editable content with an audit event; never evidence by itself | — |
 | **Activity** (authoritative) | `problem_attempts`, `attempt_mistakes`, `assessments`, `assessment_skills`, `mocks`, `mock_rounds`, `mock_round_skills`, `revision_item_actions` | **append-only**; corrections insert a row with `supersedes_id` | — |
 | **Decisions** | `mentor_runs`, `daily_plans`, `plan_items`, `weekly_reviews` | written once; status changes on `plan_items` and reflections are audited | not rebuilt (they are history) |
@@ -40,6 +40,7 @@ Personal problems are added at runtime (`POST /problems`, `platform = OTHER` or 
 | Table | Columns | Notes |
 |---|---|---|
 | `app_settings` | `id` = 1, `timezone` (IANA), `display_name`, `created_at` | CHECK `id = 1` |
+| `starting_profile` | `id` = 1, `onboarding_completed_at` (first-run flag), `experience_years`, `current_role`, `previous_role`, `technologies_json` (≤ 30), `company_profile`, `self_report_json` `{strengths, weaknesses, never_studied, recently_studied}` (skill-group keys), `updated_at` | CHECK `id = 1`. Configuration like `app_settings` (kept by dev-reset, exported, imported separately). **Never evidence**; no engine reads it. Bootstrapped by migration `0011` (marked complete when a goal already exists). Changes audited with before/after (`UPDATE_STARTING_PROFILE`, `COMPLETE_ONBOARDING`, `REDO_ONBOARDING`). |
 | `goals` (migration `0005`) | `id`, `role_profile_id` FK, `target_date` DATE NULL, `weekday_budgets_json` (7 ints, Mon..Sun; default 90,90,90,90,90,75,75 = 600), `valid_from` DATE, `valid_to` DATE NULL, `created_at` | Never updated except to close `valid_to`. A change inserts a new row valid from the change date and closes the previous one. Engines use the version valid on `as_of_date` (`valid_from ≤ as_of < valid_to`), so replays of past dates see past goals. Validator: no overlapping versions |
 | `behavioral_stories` | `id`, `title`, `situation`, `task`, `action`, `result`, `metric`, `learning`, `created_at`, `updated_at`, `archived_at` | edits audited |
 | `story_competencies` | `story_id`, `skill_id`, `position` | PK (story_id, skill_id); UNIQUE (story_id, position); skill must be behavioral/communication; position 1 = owning skill for revision |

@@ -15,7 +15,10 @@ from app.infrastructure.db import get_session
 from app.models.system import MentorRunTrigger
 from app.schemas.envelope import Meta, success
 from app.schemas.profile import GoalInput, GoalPatch, SettingsPatch
+from app.schemas.starting import OnboardingIn, StartingProfileIn
+from app.services.personal_service import PersonalService
 from app.services.profile_service import ProfileService
+from app.services.starting_profile_service import StartingProfileService
 
 router = APIRouter(tags=["profile"])
 DbSession = Annotated[Session, Depends(get_session)]
@@ -59,3 +62,42 @@ def create_goal(session: DbSession, clock: ClockDep, payload: GoalInput) -> dict
 def patch_goal(session: DbSession, clock: ClockDep, payload: GoalPatch) -> dict[str, Any]:
     """Change target date / weekday budgets / profile: inserts a new version valid from today (audited)."""
     return with_effects(session, clock, service(session, clock).patch_goal(payload), MentorRunTrigger.GOAL)
+
+
+# ---------------------------------------------------------------------- starting profile (D-080)
+
+
+def starting(session: Session, clock: Clock) -> StartingProfileService:
+    return StartingProfileService(session, clock, get_settings().ruleset_version)
+
+
+@router.get("/profile")
+def get_profile(session: DbSession, clock: ClockDep) -> dict[str, Any]:
+    """Self-reported context + the target (goal) + the first-run flag. Context never feeds an engine."""
+    return success(starting(session, clock).get())
+
+
+@router.put("/profile")
+def put_profile(session: DbSession, clock: ClockDep, payload: StartingProfileIn) -> dict[str, Any]:
+    """Fields not given keep their value. Audited with before/after."""
+    return success(starting(session, clock).update(payload))
+
+
+@router.post("/onboarding/complete")
+def complete_onboarding(session: DbSession, clock: ClockDep, payload: OnboardingIn) -> dict[str, Any]:
+    """The wizard's last step: profile + goal (new goal version when changed) + first-run flag; then a run."""
+    return with_effects(session, clock, starting(session, clock).complete(payload), MentorRunTrigger.GOAL)
+
+
+@router.get("/roadmap/personal")
+def personal_roadmap(session: DbSession, clock: ClockDep) -> dict[str, Any]:
+    """Build / consolidate / sharpen / maintain / parked / unmeasured, derived from the engines' output."""
+    service_ = PersonalService(session, clock, get_settings().ruleset_version)
+    return success(service_.roadmap())
+
+
+@router.get("/profile/state")
+def current_state(session: DbSession, clock: ClockDep) -> dict[str, Any]:
+    """What was measured (strong / developing / critical / unknown) beside what the user reported."""
+    service_ = PersonalService(session, clock, get_settings().ruleset_version)
+    return success(service_.state())

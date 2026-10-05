@@ -4,8 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const api = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn() }))
 vi.mock('../src/api', () => ({ api }))
 
-import BackupBanner from '../src/components/BackupBanner.vue'
-import ImportPanel from '../src/components/ImportPanel.vue'
+import BackupBanner from '../src/components/settings/BackupBanner.vue'
+import ImportPanel from '../src/components/settings/ImportPanel.vue'
 
 beforeEach(() => vi.clearAllMocks())
 

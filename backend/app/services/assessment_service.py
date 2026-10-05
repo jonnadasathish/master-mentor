@@ -147,7 +147,9 @@ class AssessmentService:
         self._commit()
         return self.get(assessment.id)
 
-    def sweep(self, payload: SelfAssessmentSweepInput) -> list[AssessmentOut]:
+    def sweep(
+        self, payload: SelfAssessmentSweepInput, *, plan_item_id: int | None = None
+    ) -> list[AssessmentOut]:
         """Battery item M0-B01: one SELF_ASSESSMENT per skill, all in one transaction."""
         keys = [e.skill for e in payload.entries]
         if len(set(keys)) != len(keys):
@@ -169,6 +171,7 @@ class AssessmentService:
                 else None,
             )
             assessment, links = self._build(item, supersedes_id=None)
+            assessment.plan_item_id = plan_item_id
             self._repo.add(assessment, links)
             self._audit(assessment, "CREATE_ASSESSMENT", item.model_dump(mode="json"))
             created.append(assessment)

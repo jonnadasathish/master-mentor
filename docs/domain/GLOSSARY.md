@@ -43,6 +43,8 @@ Conventions: `snake_case` is a field or code identifier; `UPPER_CASE` is an enum
 | **Outcome Points** | Integer 0–100 measuring how well one observation succeeded for one skill (table in `EVIDENCE_MODEL.md` §4). |
 | **Self-rating** | The user's own 1–5 rating (`self_rating_before`, `self_rating_after`). Stored on observations. **Never** contributes to score, level, or evidence confidence. Used only for the CONFIDENCE gap type and messages. |
 | **Declared Unknown** | A self-assessment with `familiarity = NONE`. The only self-report that changes state: it marks a skill assessed at score 0 (self-reports may lower state, never raise it). |
+| **Starting Profile** | The user's own context: experience, current stack, target company note, and self-reported topic claims (strong, weak, never studied, recently studied). Configuration (`starting_profile`), **not evidence**: no engine reads it. The goal (target role, date, weekday budgets) stays in `goals`. |
+| **Self-reported Context** | Everything in the Starting Profile that describes skill. Always labelled "not yet verified" and shown beside measured values. Distinct from a Declared Unknown, which is an observation. |
 | **Evidence** | A derived, rebuildable row: the contribution of one observation to one skill under one ruleset version (`evidence` table). Carries `level`, `outcome_points`, weights, `source_key`. Evidence is a projection, never edited by hand. |
 | **Evidence Level** (Level) | The L0–L7 rung an evidence row demonstrates (L0 Exposed, L1 Recall, L2 Guided, L3 Independent, L4 Timed, L5 Explain, L6 Transfer, L7 Interview). A skill's Level is the highest rung it has *qualified* for. See `EVIDENCE_MODEL.md`. |
 | **Source Key** | The identity used for diversity: `problem:<id>`, `prompt:<key>`, `story:<id>`, `project:<key>`, `exercise:<key>`, `drill:<key>`, `battery:<key>`, `mock_round:<id>`. Two evidence rows with the same source key are not diverse. |
@@ -57,6 +59,8 @@ Conventions: `snake_case` is a field or code identifier; `UPPER_CASE` is an enum
 | **Confidence** | Evidence confidence: `NONE`, `LOW`, `MEDIUM`, `HIGH`, measuring how much evidence backs the score. It never means self-rating. |
 | **Effective Score** | `max(score − uncertainty_penalty[confidence], 0)`. The value used by gaps, floors, components, and gates. |
 | **Peak Score** | The score computed from all-time evidence with no recency window. Used for RETENTION. |
+| **Calibration Phase** | The user-facing status of the baseline: `NOT_STARTED`, `IN_PROGRESS`, `ENOUGH_MEASURED` (battery open but at least `CALIBRATION_MIN_ASSESSED_PCT` of required skills assessed), `COMPLETE` (every battery item done). Derived; it does not change the mentor's rules. |
+| **Personal Roadmap** | A read-only grouping of the gap engine's output: build, consolidate, sharpen, maintain, parked, not measured; plus "focus now" (top 5 actionable, unblocked). No second roadmap engine exists. |
 | **Gap** | The derived shortfall of one skill against its target for the active goal, with severity, priority, status, types, and reasons (`gap_states`). |
 | **Raw Gap** | `max(target_score − effective_score, 0)`. |
 | **Severity** | `raw_gap × importance / 100` (Decimal). |

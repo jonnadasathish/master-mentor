@@ -11,7 +11,7 @@ from datetime import UTC
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.domain.baseline.calibration import CalibrationStatus
+from app.domain.baseline.calibration import CalibrationStatus, baseline_effort, calibration_phase
 from app.domain.catalog.templates import resolve_template
 from app.domain.clock import Clock
 from app.domain.rulesets import get_ruleset
@@ -20,6 +20,7 @@ from app.models import GapState, MentorRun, MissionTemplate, RevisionItemRow, Sk
 from app.models.system import MentorRunTrigger
 from app.repositories.catalog_repository import CatalogRepository
 from app.repositories.evidence_repository import EvidenceRepository
+from app.repositories.profile_repository import ProfileRepository
 from app.schemas.catalog import SkillSummary
 from app.schemas.envelope import ErrorCode, Meta
 from app.schemas.skills import (
@@ -286,7 +287,17 @@ class SkillService:
 
     def baseline(self) -> BaselineOut:
         status = self.calibration()
+        ruleset = get_ruleset(self._mentor.ruleset_version)
+        goal = ProfileRepository(self._s).goal_on(self._mentor.as_of_date())
+        effort = baseline_effort(status, list(goal.weekday_budgets_json) if goal else None)
         return BaselineOut(
+            phase=calibration_phase(status, ruleset),
+            personalization_threshold_pct=int(ruleset.CALIBRATION_MIN_ASSESSED_PCT),
+            minutes_total=effort.minutes_total,
+            minutes_done=effort.minutes_done,
+            minutes_remaining=effort.minutes_remaining,
+            typical_daily_minutes=effort.typical_daily_minutes,
+            estimated_days=effort.estimated_days,
             items=[
                 BatteryItemOut(
                     key=i.key,

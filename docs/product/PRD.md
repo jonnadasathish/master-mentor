@@ -59,6 +59,9 @@
 |---|---|---|
 | FR-1 | Create a goal: role profile, target date (optional), per-weekday budget. | Must |
 | FR-2 | Run the baseline battery (M0) with a familiarity sweep; declared unknowns are recorded. | Must |
+| FR-20 | First-run **Starting Profile** (experience, stack, target, time, optional self-reported strengths/weaknesses/never-studied/recently-studied topics). Self-reported context is stored apart from evidence and never enters an engine (D-080). | Must |
+| FR-21 | A **calibration** entry point and status (not started / in progress / enough measured / complete) with progress, minutes and an estimate; the baseline is spread across the normal daily budget, never demanded at once. | Must |
+| FR-22 | A **personal roadmap** (build / consolidate / sharpen / maintain / parked, plus not-yet-measured) and a **current state** that shows self-reported context beside measured values, both derived from the engines' output. | Must |
 
 ### Capture (observations)
 

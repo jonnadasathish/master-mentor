@@ -113,6 +113,12 @@ def wipe(engine: Engine) -> None:
     ]
     with engine.begin() as c:
         c.execute(text("SET FOREIGN_KEY_CHECKS = 0"))
+        c.execute(  # the profile is configuration: a fresh install starts from the bootstrap row
+            text(
+                "UPDATE starting_profile SET experience_years = NULL, current_role = NULL, "
+                "technologies_json = JSON_ARRAY(), onboarding_completed_at = NULL WHERE id = 1"
+            )
+        )
         for t in tables:
             c.execute(text(f"DELETE FROM `{t}`"))
         c.execute(text("SET FOREIGN_KEY_CHECKS = 1"))
@@ -120,6 +126,10 @@ def wipe(engine: Engine) -> None:
 
 def test_round_trip_reproduces_all_derived_state(activity_client: TestClient, catalog_engine: Engine) -> None:
     populate(activity_client)
+    activity_client.put(
+        "/api/v1/profile",
+        json={"experience": {"years": 6, "current_role": "Engineer"}, "technologies": ["Python"]},
+    )
     post(activity_client, "/admin/rebuild", {}, status=200)
     before = derived(catalog_engine)
     doc = json.loads(activity_client.get("/api/v1/export/json").content)
@@ -139,6 +149,8 @@ def test_round_trip_reproduces_all_derived_state(activity_client: TestClient, ca
     ]
     assert result["inserted"]["problem_attempts"] == 2 and result["rebuild"]["runs"] >= 1
     assert derived(catalog_engine) == before
+    restored = get(activity_client, "/profile")["data"]
+    assert restored["experience"]["years"] == 6 and restored["technologies"] == ["Python"]
     attempts = get(activity_client, "/problem-attempts")["data"]
     assert sorted(a["attempted_on"] for a in attempts) == ["2026-10-01", "2026-10-02"]
     with catalog_engine.connect() as c:

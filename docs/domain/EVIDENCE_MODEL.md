@@ -8,7 +8,7 @@ Terms are as defined in [`GLOSSARY.md`](GLOSSARY.md). Constants are collected in
 
 1. **Observations are authoritative; evidence is derived.** Attempts, assessments, revision reviews and mock rounds are append-only raw records. `evidence` rows are a deterministic projection of them, rebuilt per ruleset version.
 2. **Self-rating never contributes to score, level, or confidence.** It is stored for the CONFIDENCE gap type and messages only.
-3. **Asymmetric self-report.** A user may lower their state by declaring a skill unknown (§5.7). A user can never raise it by self-report.
+3. **Asymmetric self-report.** A user may lower their state by declaring a skill unknown (§5.7). A user can never raise it by self-report. The Starting Profile's self-reported strengths and weaknesses (D-080) are not even that: they are stored apart (`starting_profile`), read by no engine, and shown beside measured values as "not yet verified".
 4. **Levels, not averages, define what is proven.** A skill's score is bounded by the highest evidence level it has *qualified* for. Many easy wins cannot produce a high score.
 5. **Integer/Decimal arithmetic only.** No floats (§11).
 

@@ -1,8 +1,11 @@
 import { mount, RouterLinkStub } from '@vue/test-utils'
-import { describe, expect, it, vi } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 import { ApiError, type ApiClient } from '../src/api/client'
-import AttemptForm from '../src/components/AttemptForm.vue'
+import AttemptForm from '../src/components/practice/AttemptForm.vue'
+
+beforeEach(() => setActivePinia(createPinia()))
 
 function client(post: ApiClient['post']): ApiClient {
   return { get: vi.fn() as ApiClient['get'], post }
@@ -14,7 +17,7 @@ describe('AttemptForm', () => {
     const post = vi.fn().mockResolvedValue({ data: { id: 7 }, meta: {} })
     const wrapper = mount(AttemptForm, { global: { stubs: { RouterLink: RouterLinkStub } }, props: { problemId: 1, client: client(post), now: () => now } })
 
-    await wrapper.find('[data-testid="confidence-before"]').setValue('4')
+    await wrapper.find('[data-testid="confidence-before-4"]').trigger('click')
     await wrapper.find('[data-testid="start"]').trigger('click')
     now += 18 * 60 * 1000 + 20_000 // 18 min 20 s later
     await wrapper.find('[data-testid="finish"]').trigger('click')

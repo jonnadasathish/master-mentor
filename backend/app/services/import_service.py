@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from app.domain.activity.vocabulary import PERSONAL_PROBLEM_ID_START, PERSONAL_SEED_VERSION
 from app.domain.clock import Clock
 from app.errors import AppError
-from app.models import AppSettings, AuditLog, Base
+from app.models import AppSettings, AuditLog, Base, StartingProfile
 from app.repositories.system_repository import SystemRepository
 from app.schemas.envelope import ErrorCode
 from app.services.export_service import DECISION_TABLES, DERIVED_TABLES, EXPORT_FORMAT, USER_TABLES
@@ -49,8 +49,9 @@ IMPORT_ORDER: Final = (
 )
 SKIPPED: Final = (
     "app_settings",
+    "starting_profile",
     "catalog_loads",
-)  # settings are applied separately; catalog comes from seed/
+)  # settings and the starting profile are applied separately; catalog comes from seed/
 SKILL_FK: Final = {
     "problem_skills",
     "assessment_skills",
@@ -60,7 +61,7 @@ SKILL_FK: Final = {
     "plan_items",
 }
 # Goals are configuration (kept by dev-reset); an export that carries goals replaces them.
-CONFIGURATION_TABLES: Final = ("app_settings", "goals")
+CONFIGURATION_TABLES: Final = ("app_settings", "starting_profile", "goals")
 PREPARATION_TABLES: Final = tuple(
     t for t in (*USER_TABLES, *DECISION_TABLES) if t not in CONFIGURATION_TABLES
 )
@@ -225,6 +226,18 @@ class ImportService:
         if settings and row is not None:
             row.timezone = settings[0].get("timezone", row.timezone)
             row.display_name = settings[0].get("display_name", row.display_name)
+        profile_rows = tables.get("starting_profile") or []
+        profile = self._s.get(StartingProfile, 1)
+        if profile_rows and profile is not None:
+            src = profile_rows[0]
+            for field in ("experience_years", "current_role", "previous_role", "company_profile"):
+                setattr(profile, field, src.get(field))
+            profile.technologies_json = list(src.get("technologies_json") or [])
+            profile.self_report_json = dict(src.get("self_report_json") or profile.self_report_json)
+            for field in ("onboarding_completed_at", "updated_at"):
+                value = src.get(field)
+                if value is not None:
+                    setattr(profile, field, datetime.fromisoformat(str(value)).replace(tzinfo=None))
         inserted: dict[str, int] = {}
         for name in IMPORT_ORDER:
             rows = tables.get(name) or []

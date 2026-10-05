@@ -1,66 +1,87 @@
 <script setup lang="ts">
-import { RouterLink, RouterView } from 'vue-router'
-import BackupBanner from './components/BackupBanner.vue'
-import ErrorBanner from './components/ErrorBanner.vue'
-import ErrorBoundary from './components/ErrorBoundary.vue'
-import { NAV_ROUTES } from './router'
+import { RouterLink, RouterView, useRoute } from 'vue-router'
+import ErrorBanner from './components/common/ErrorBanner.vue'
+import ErrorBoundary from './components/common/ErrorBoundary.vue'
+import AppSidebar from './components/shell/AppSidebar.vue'
+import Logo from './components/shell/Logo.vue'
+import MobileNav from './components/shell/MobileNav.vue'
+import BackupBanner from './components/settings/BackupBanner.vue'
+
+const route = useRoute()
 </script>
 
 <template>
-  <div class="shell">
-    <nav aria-label="Main">
-      <strong class="brand">Master Mentor</strong>
-      <RouterLink
-        v-for="route in NAV_ROUTES"
-        :key="String(route.name)"
-        :to="{ name: route.name }"
+  <RouterView
+    v-if="route.meta.bare"
+    v-slot="{ Component }"
+  >
+    <component :is="Component" />
+  </RouterView>
+  <div
+    v-else
+    class="shell"
+  >
+    <a
+      class="skip-link"
+      href="#main"
+    >Skip to content</a>
+    <AppSidebar class="shell-nav" />
+    <div class="shell-body">
+      <header class="topbar">
+        <RouterLink
+          :to="{ name: 'today' }"
+          class="topbar-brand"
+          aria-label="Master Mentor, go to Today"
+        >
+          <Logo />
+          <strong>Master Mentor</strong>
+        </RouterLink>
+      </header>
+      <main
+        id="main"
+        tabindex="-1"
       >
-        {{ route.meta?.title }}
-      </RouterLink>
-      <RouterLink
-        :to="{ name: 'catalog' }"
-        class="internal-link"
-      >
-        Catalog (internal)
-      </RouterLink>
-      <RouterLink
-        :to="{ name: 'status' }"
-        class="status-link"
-      >
-        Status
-      </RouterLink>
-    </nav>
-    <main>
-      <BackupBanner />
-      <ErrorBanner />
-      <ErrorBoundary>
-        <RouterView />
-      </ErrorBoundary>
-    </main>
+        <BackupBanner />
+        <ErrorBanner />
+        <ErrorBoundary>
+          <RouterView v-slot="{ Component }">
+            <Transition
+              name="page"
+              mode="out-in"
+            >
+              <component
+                :is="Component"
+                :key="route.path"
+              />
+            </Transition>
+          </RouterView>
+        </ErrorBoundary>
+      </main>
+    </div>
+    <MobileNav class="shell-mobile" />
   </div>
 </template>
 
-<style>
-:root { font-family: system-ui, sans-serif; color: #1d1d1f; background: #fafafa; }
-body { margin: 0; }
-.shell { display: grid; grid-template-columns: 200px 1fr; min-height: 100vh; }
-nav { display: flex; flex-direction: column; gap: 0.25rem; padding: 1rem; background: #f0f0f2; }
-nav a { color: inherit; text-decoration: none; padding: 0.35rem 0.5rem; border-radius: 6px; }
-nav a.router-link-exact-active { background: #dfe3ea; font-weight: 600; }
-nav a:focus-visible, button:focus-visible { outline: 2px solid #3366cc; outline-offset: 2px; }
-.brand { margin-bottom: 0.75rem; }
-.internal-link { margin-top: auto; }
-main { padding: 1.5rem; min-width: 0; }
-select, input, textarea { max-width: 100%; }
-table { max-width: 100%; }
-.muted { color: #5c5c66; }
-.error-banner { list-style: none; padding: 0; margin: 0 0 1rem; }
-.error-banner li { background: #fde8e8; border: 1px solid #f3b4b4; padding: 0.5rem 0.75rem; border-radius: 6px; }
-@media (max-width: 640px) {
-  main { padding: 0.75rem; }
-  main table { display: block; overflow-x: auto; }
-  .shell { grid-template-columns: 1fr; }
-  nav { flex-direction: row; flex-wrap: wrap; }
-  .internal-link { margin-top: 0; }
+<style scoped>
+.shell { display: grid; grid-template-columns: var(--sidebar-w) minmax(0, 1fr); min-height: 100vh; }
+.shell-body { min-width: 0; }
+main { padding: var(--s-6) var(--s-6) var(--s-7); max-width: var(--content-max); margin: 0 auto; outline: none; }
+.topbar { display: none; }
+.shell-mobile { display: none; }
+.skip-link { position: absolute; left: -999px; top: 0; z-index: 100; background: var(--accent); color: var(--on-accent); padding: var(--s-2) var(--s-4); border-radius: 0 0 var(--r-md) 0; }
+.skip-link:focus { left: 0; }
+
+@media (max-width: 1099px) {
+  .shell { grid-template-columns: var(--rail-w) minmax(0, 1fr); }
+  main { padding: var(--s-5) var(--s-5) var(--s-7); }
+}
+@media (max-width: 767px) {
+  .shell { grid-template-columns: minmax(0, 1fr); }
+  .shell-nav { display: none; }
+  .shell-mobile { display: block; }
+  .topbar { display: flex; align-items: center; padding: var(--s-3) var(--s-4); position: sticky; top: 0; z-index: 20; background: var(--bg); }
+  .topbar-brand { display: flex; align-items: center; gap: var(--s-2); color: var(--text); }
+  .topbar-brand:hover { text-decoration: none; }
+  main { padding: var(--s-2) var(--s-4) 6rem; }
 }
 </style>

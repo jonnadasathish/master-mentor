@@ -224,9 +224,13 @@ A review is recorded by posting an observation with `revision_item_key`. The wri
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/today` | **The single read model for the Today page.** Generates and freezes the plan if absent. Returns: readiness `{state, blockers (top 3), limiting_component, weighted_score}`, `calibration {active, assessed, required, battery_progress}`, top 3 actionable assessed gaps, plan (`MENTOR_ENGINE.md` §11), stop list, message, due/overdue revision counts, phase, weeks_left. |
+| GET | `/today/week` | **Read-only** week-to-date context for the Today page (D-078). Runs no engine and creates no plan. `data = {plan_date, week_start, week_end (Mon–Sun, local), preparation_day (days since the first goal version, or null), target_minutes (the active goal's weekly minutes, or null), practice_minutes (recorded practice Mon..today), active_days, minutes_by_track[{track, minutes, weekly_target}], revision{planned, done, completion_pct}}`. Minute attribution is the same as `summarize_practice` (recorded time split across skills); `revision` counts this week's non-discarded REVISION plan items. |
 | POST | `/plan/today/regenerate` | explicit regenerate (keeps DONE/SKIPPED; audited) |
 | POST | `/plan/items/{id}/start` | marks start time (for the client timer); no rule effect |
 | POST | `/plan/items/{id}/complete` | `{observation: {type, body}}` or `{no_evidence: true}` → the observation is written + linked; returns the write envelope |
+
+Baseline work recorded outside its plan item (D-082): when `POST /assessments/self-assessment-sweep`, or `POST /assessments` / `POST /problem-attempts` with a `battery_item_key`, succeeds and **today's** plan already holds a PENDING item for that battery item, the observation is linked to it (`plan_item_id`; for the sweep, every row, with the item pointing at the first) and the item becomes DONE through the same completion step as `/plan/items/{id}/complete` (one `COMPLETE_PLAN_ITEM` audit row). No plan is created, and SKIPPED, DEFERRED or DONE items are left as they are. Corrections and imports never touch plan items.
+
 | POST | `/plan/items/{id}/skip` | `{skip_reason}` |
 | POST | `/plan/items/{id}/defer` | — |
 | GET | `/plan/{date}` | historical plan (read-only) |
@@ -279,3 +283,14 @@ A review is recorded by posting an observation with `revision_item_key`. The wri
 - Every endpoint has API tests.
 - Every derived response is reproducible from DB state through `/admin/rebuild`; the deterministic replay test compares results before and after.
 - Golden scenarios run at the service layer with an injected `as_of_date`.
+
+## Starting profile, calibration status, personal roadmap and current state (D-080)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/profile` | `{display_name, timezone, onboarding{completed, completed_at}, experience{years, current_role, previous_role}, technologies[], company_profile, self_report{strengths, weaknesses, never_studied, recently_studied}, target{role{profile_key, name, seniority}, target_date, weekday_budgets, weekly_minutes, phase, weeks_left} \| null, available_roles[]}` |
+| PUT | `/profile` | Patch of the context fields (`extra=forbid`): `display_name`, `experience`, `technologies` (≤ 30 × 40 chars, de-duplicated case-insensitively), `company_profile`, `self_report` (skill-group keys that must exist; strengths ⊥ weaknesses, strengths ⊥ never_studied, never_studied ⊥ recently_studied). Audited. Changes no score. |
+| POST | `/onboarding/complete` | Profile fields + `goal{target_date, weekday_budgets, profile_key}`. The goal is validated first (nothing is half-saved), a new goal version is written only when a goal changes, the first-run flag is set once; then a `GOAL` mentor run. Write envelope. |
+| GET | `/baseline` | Adds `phase` (`NOT_STARTED` / `IN_PROGRESS` / `ENOUGH_MEASURED` / `COMPLETE`), `personalization_threshold_pct`, `minutes_total`, `minutes_done`, `minutes_remaining`, `typical_daily_minutes` (average non-zero weekday budget), `estimated_days` (remaining ÷ typical, rounded up; a rough guide, the mentor schedules each day). |
+| GET | `/roadmap/personal` | Read-only (two engine evaluations: today and the previous day). `{as_of_date, calibration_phase, available, based_on{role, target_date, weeks_left, phase, measured_skills, required_skills, blocked_skills, overdue_reviews}, focus_now[≤ 5], sections{build, consolidate, sharpen, maintain, parked, unmeasured, later: {count, items[≤ 8]}}, why[≤ 3]{…metrics, prerequisites}, changes{since, changed, entered[], left[]}}`. Items carry score, target, status, reason codes, `declared_unknown`, unsatisfied prerequisites and `next_step_minutes` from the mission library. `changes` is empty when nothing was in focus before. |
+| GET | `/profile/state` | Read-only. `{counts, strong, developing, critical, unknown: {count, items[≤ 8]}, self_reported[{group_key, name, component, claims[], measured, total, skills[{score, target, confidence, status, declared_unknown}]}]}`. `measured` counts task evidence only; a "new to me" self-rating is listed with `declared_unknown = true`. |

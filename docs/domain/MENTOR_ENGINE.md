@@ -34,6 +34,10 @@ Same inputs give the same plan. `daily_plans.input_hash` records the hash of the
 
 **Calibration Mode:** `calibration_mode := baseline battery incomplete OR assessed required skills < 60%`.
 
+**Calibration phase (user-facing, D-080):** `COMPLETE` when every battery item is done; else `NOT_STARTED` when no item is done and no required skill is assessed; else `ENOUGH_MEASURED` when assessed required skills ≥ `CALIBRATION_MIN_ASSESSED_PCT`; else `IN_PROGRESS`. The phase only drives the UI (calibration page, roadmap availability); the planning rules above, including the diagnostic budget share, are unchanged.
+
+**Personal roadmap (D-080):** a read-only grouping of the gap engine's output, no new scoring. Per skill: `parked` if status PARKED; `unmeasured` if not assessed; `maintain` if status NONE (at or above target); `build` if status BLOCKED, or the recommended stage is LEARN / DIAGNOSE / PREREQUISITE, or level is L0; `sharpen` if the stage is TIMED / EXPLAIN / TRANSFER / SIMULATE / THINK_ALOUD; otherwise `consolidate`. *Focus now* = the first 5 (engine rank order) of build / consolidate / sharpen that are not BLOCKED, so a weak prerequisite is worked before the skills behind it. *Health* for the current-state snapshot: parked, unknown (not assessed), strong (status NONE), critical (status CRITICAL), else developing. *Plan changed* compares the focus lists of two evaluations (today and the previous local day); nothing is reported when the earlier list was empty.
+
 - **Baseline battery:** the ordered list of battery items in roadmap milestone `M0-BASELINE` (`seed/roadmap.yaml`). It starts with a 15-minute familiarity sweep (a `SELF_ASSESSMENT` per required skill; `NONE` = declared unknown), then multi-skill diagnostics per component.
 - While the battery is incomplete:
   - due/overdue revisions are admitted first, under the normal revision cap (normally none exist at cold start);
@@ -193,7 +197,7 @@ Rules are evaluated against the **plan just built**. "Top gap item" means the hi
 
 | # | Rule | Condition | Message template | Explanation payload |
 |---|---|---|---|---|
-| 1 | `CALIBRATION` | calibration mode | "Calibration: {assessed}/{required} required skills measured. Today's diagnostics: {items}. No new material until the baseline is complete." | assessed, required, battery items |
+| 1 | `CALIBRATION` | calibration mode | "Calibration: {assessed}/{required} required skills measured. Today's diagnostics: {items}. No new material until the baseline is complete." The "Today's diagnostics: {items}." sentence is omitted when no diagnostic item is in the plan (all done, skipped or deferred) | assessed, required, battery items |
 | 2 | `DEADLINE_INFEASIBLE` | `infeasible_components` non-empty | "At the current pace {component} cannot reach target by {target_date} (needs {needed} min, {available} available). Only critical skills are scheduled there; consider moving the date." | needed, available |
 | 3 | `READINESS_LAPSED` | readiness `lapsed` | "Readiness lapsed: {gate} failed ({actual} vs {required}). Restore it before anything else." | blocker |
 | 4 | `BACKLOG_OVER_BUDGET` | triage suspended items today, or backlog > 14 × cap (D-068) | "Revision backlog is {backlog} min, more than a day's budget. Revisions are limited to {cap} min/day when other work exists; {n} low-importance items were suspended." | backlog, cap, suspended keys |

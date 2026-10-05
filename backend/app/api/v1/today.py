@@ -36,6 +36,13 @@ def get_today(session: DbSession, clock: ClockDep) -> dict[str, Any]:
     return success(today, _meta(today))
 
 
+@router.get("/today/week")
+def get_week(session: DbSession, clock: ClockDep) -> dict[str, Any]:
+    """Week-to-date practice context for the Today page (read-only; creates no plan and runs no engine)."""
+    week = PlanService(session, clock).week()
+    return success(week, Meta(as_of_date=week.plan_date))
+
+
 @router.post("/plan/today/regenerate")
 def regenerate(session: DbSession, clock: ClockDep) -> dict[str, Any]:
     """Keeps DONE/SKIPPED items, discards PENDING ones and repacks the remaining budget (audited)."""

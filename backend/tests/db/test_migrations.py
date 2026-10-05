@@ -50,6 +50,7 @@ MOCK_CONTENT_TABLES = {
     "assessment_prompts",
 }
 REVIEW_TABLES = {"weekly_reviews"}
+PROFILE_TABLES = {"starting_profile"}
 ALL_TABLES = (
     BASELINE_TABLES
     | CATALOG_TABLES
@@ -61,6 +62,7 @@ ALL_TABLES = (
     | READINESS_TABLES
     | MOCK_CONTENT_TABLES
     | REVIEW_TABLES
+    | PROFILE_TABLES
 )
 
 
@@ -155,7 +157,7 @@ def test_connection_session_time_zone_is_utc(migrated: Engine) -> None:
 
 def test_downgrade_one_then_upgrade_again(migrated: Engine, test_db_url: str) -> None:
     command.downgrade(alembic_config(test_db_url), "-1")
-    assert set(inspect(migrated).get_table_names()) == (ALL_TABLES - REVIEW_TABLES) | {"alembic_version"}
+    assert set(inspect(migrated).get_table_names()) == (ALL_TABLES - PROFILE_TABLES) | {"alembic_version"}
     command.upgrade(alembic_config(test_db_url), "head")
     assert set(inspect(migrated).get_table_names()) == ALL_TABLES | {"alembic_version"}
 

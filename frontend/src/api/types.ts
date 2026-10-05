@@ -284,6 +284,8 @@ export interface BatteryItem {
   complete: boolean
 }
 
+export type CalibrationPhase = 'NOT_STARTED' | 'IN_PROGRESS' | 'ENOUGH_MEASURED' | 'COMPLETE'
+
 export interface Baseline {
   items: BatteryItem[]
   battery_complete: boolean
@@ -294,6 +296,13 @@ export interface Baseline {
   assessed_required: number
   assessed_pct: number
   calibration_mode: boolean
+  phase: CalibrationPhase
+  personalization_threshold_pct: number
+  minutes_total: number
+  minutes_done: number
+  minutes_remaining: number
+  typical_daily_minutes: number | null
+  estimated_days: number | null
 }
 
 export type Familiarity = 'NONE' | 'SOME' | 'SOLID'
@@ -424,7 +433,12 @@ export interface Today {
   weeks_left: string | null
   goal_exists: boolean
   calibration: { active: boolean; assessed: number; required: number; assessed_pct: number; battery_done: number; battery_total: number; next_item: string | null }
-  readiness: { state: string; weighted_score: number; limiting_component: string | null; blockers: { gate: string; message: string }[] }
+  readiness: {
+    state: string
+    weighted_score: number
+    limiting_component: string | null
+    blockers: { gate: string; message: string; component?: string | null; skill?: string | null; actual?: unknown; required?: unknown }[]
+  }
   top_gaps: { skill_key: string; status: string; priority: number; primary_gap_type: string | null; focus_stage: string | null; reason_codes: string[] }[]
   revisions: { due: number; overdue: number; backlog_minutes: number; cap_minutes: number }
   plan: Plan
@@ -545,4 +559,174 @@ export interface WeeklyReview {
   next_focus: { top_gaps: { skill_key: string; status: string; priority: number }[]; tracks_below_floor: string[]; stop_list: string[] }
   reflection: Record<string, string> | null
   reflected_at: string | null
+}
+
+/* ---- Week-to-date context for Today (GET /today/week) ---- */
+export interface WeekContext {
+  plan_date: string
+  week_start: string
+  week_end: string
+  preparation_day: number | null
+  target_minutes: number | null
+  practice_minutes: number
+  active_days: number
+  minutes_by_track: { track: string; minutes: number; weekly_target: number }[]
+  revision: { planned: number; done: number; completion_pct: number | null }
+}
+
+/** Per-skill gap detail (GET /gaps/{skill}); `metrics` are the numbers the explanation may quote. */
+export interface GapDetail {
+  skill_key: string
+  name: string
+  component: string
+  current_score: number | null
+  effective_score: number | null
+  target_score: number
+  floor_score: number
+  status: string
+  priority: number
+  primary_gap_type: string | null
+  reason_codes: string[]
+  blocked_by: { skill: string; score: number | null; min_score: number }[]
+  parked_reason: string | null
+  recommended_focus: { stage: string; focus_skill: string }
+  metrics: {
+    peak_score: number | null
+    n_fail_last5: number
+    component_gate: number
+    component_score: number
+    depth_mean_last3: number | null
+    overconfident_rows: number
+    pattern_misses_last4: number
+    speed_median_ratio_bp: number | null
+    communication_mean_last3: number | null
+    days_since_last_practice: number | null
+  }
+}
+
+/* ---- Starting profile, personal roadmap and current state (D-080) ---- */
+export type SelfReportClaim = 'strengths' | 'weaknesses' | 'never_studied' | 'recently_studied'
+
+export interface RoleOption {
+  profile_key: string
+  name: string
+  seniority: string
+}
+
+export interface StartingProfile {
+  display_name: string
+  timezone: string
+  onboarding: { completed: boolean; completed_at: string | null }
+  experience: { years: number | null; current_role: string | null; previous_role: string | null }
+  technologies: string[]
+  company_profile: string | null
+  self_report: Record<SelfReportClaim, string[]>
+  target: {
+    role: RoleOption
+    target_date: string | null
+    weekday_budgets: number[]
+    weekly_minutes: number
+    phase: string
+    weeks_left: string | null
+  } | null
+  available_roles: RoleOption[]
+}
+
+export interface OnboardingBody {
+  display_name?: string
+  experience?: { years?: number | null; current_role?: string | null; previous_role?: string | null }
+  technologies?: string[]
+  company_profile?: string
+  self_report?: Partial<Record<SelfReportClaim, string[]>>
+  goal: { target_date?: string | null; weekday_budgets?: number[]; profile_key?: string }
+}
+
+export type RoadmapBucket = 'build' | 'consolidate' | 'sharpen' | 'maintain' | 'parked' | 'unmeasured'
+
+export interface RoadmapItem {
+  skill_key: string
+  name: string
+  component: string
+  bucket: RoadmapBucket
+  health: 'strong' | 'developing' | 'critical' | 'unknown' | 'parked'
+  score: number | null
+  target: number
+  status: string
+  priority: number
+  confidence: string
+  declared_unknown: boolean
+  primary_gap_type: string | null
+  focus_stage: string | null
+  focus_skill: string | null
+  focus_skill_name: string | null
+  reason_codes: string[]
+  importance: number
+  prerequisites: { skill: string; name: string; score: number | null; min_score: number }[]
+  next_step_minutes: number | null
+}
+
+export interface FocusChange {
+  skill_key: string
+  name: string
+  priority_before: number | null
+  priority_after: number | null
+  reason_codes: string[]
+}
+
+export interface PersonalRoadmap {
+  as_of_date: string
+  calibration_phase: CalibrationPhase
+  available: boolean
+  based_on: {
+    role: RoleOption | null
+    target_date: string | null
+    weeks_left: string | null
+    phase: string
+    measured_skills: number
+    required_skills: number
+    blocked_skills: number
+    overdue_reviews: number
+  }
+  focus_now: RoadmapItem[]
+  sections: Record<RoadmapBucket | 'later', { count: number; items: RoadmapItem[] }>
+  why: {
+    skill_key: string
+    name: string
+    component: string
+    score: number | null
+    target: number
+    importance: number
+    priority: number
+    reason_codes: string[]
+    metrics: GapDetail['metrics']
+    prerequisites: { skill: string; name: string; score: number | null; min_score: number }[]
+  }[]
+  changes: { since: string; changed: boolean; entered: FocusChange[]; left: FocusChange[] }
+}
+
+export interface CurrentState {
+  as_of_date: string
+  calibration_phase: CalibrationPhase
+  counts: Record<string, number>
+  strong: { count: number; items: RoadmapItem[] }
+  developing: { count: number; items: RoadmapItem[] }
+  critical: { count: number; items: RoadmapItem[] }
+  unknown: { count: number; items: RoadmapItem[] }
+  self_reported: {
+    group_key: string
+    name: string
+    component: string
+    claims: ('STRONG' | 'WEAK' | 'NEVER_STUDIED' | 'RECENTLY_STUDIED')[]
+    measured: number
+    total: number
+    skills: {
+      skill_key: string
+      name: string
+      score: number | null
+      target: number | null
+      confidence: string
+      status: string
+      declared_unknown: boolean
+    }[]
+  }[]
 }

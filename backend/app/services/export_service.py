@@ -29,6 +29,7 @@ EXPORT_FORMAT_VERSION: Final = 2  # v2 adds id_maps (surrogate id -> natural key
 
 USER_TABLES: Final = (
     "app_settings",
+    "starting_profile",
     "goals",
     "problem_attempts",
     "attempt_mistakes",

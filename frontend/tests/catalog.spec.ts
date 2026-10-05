@@ -1,4 +1,4 @@
-import { mount } from '@vue/test-utils'
+import { mount, RouterLinkStub } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
@@ -79,8 +79,8 @@ describe('catalog store', () => {
 
 describe('CatalogView', () => {
   it('renders the catalog summary, role profile, tree and roadmap', async () => {
-    const { default: CatalogView } = await import('../src/views/CatalogView.vue')
-    const wrapper = mount(CatalogView)
+    const { default: CatalogView } = await import('../src/views/settings/CatalogView.vue')
+    const wrapper = mount(CatalogView, { global: { stubs: { RouterLink: RouterLinkStub } } })
     await vi.waitFor(() => expect(wrapper.find('[data-testid="skill-count"]').exists()).toBe(true))
     expect(wrapper.find('[data-testid="skill-count"]').text()).toBe('133')
     expect(wrapper.find('[data-testid="problem-count"]').text()).toBe('44')

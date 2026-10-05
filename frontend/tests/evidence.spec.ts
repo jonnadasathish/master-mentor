@@ -2,8 +2,8 @@ import { flushPromises, mount, RouterLinkStub } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ApiClient } from '../src/api/client'
-import AssessmentForm from '../src/components/AssessmentForm.vue'
-import SkillDeltas from '../src/components/SkillDeltas.vue'
+import AssessmentForm from '../src/components/practice/AssessmentForm.vue'
+import SkillDeltas from '../src/components/missions/SkillDeltas.vue'
 import { assessmentErrors, buildAssessmentPayload, buildSweepPayload, emptyAssessmentForm } from '../src/practice/assessment'
 
 beforeEach(() => setActivePinia(createPinia()))
@@ -60,11 +60,12 @@ describe('SkillDeltas', () => {
         ],
       },
     })
-    expect(wrapper.text()).toContain('graph.traversal: unassessed → 26 (L1, low)')
+    expect(wrapper.text()).toMatch(/Traversal\s*not measured yet → 26\s*· low confidence/)
+    expect(wrapper.text()).not.toContain('graph.traversal')
   })
 
   it('says so when nothing changed', () => {
-    expect(mount(SkillDeltas, { global: { stubs }, props: { deltas: [] } }).text()).toBe('No skill state changed.')
+    expect(mount(SkillDeltas, { global: { stubs }, props: { deltas: [] } }).text()).toBe('No skill score changed.')
   })
 })
 
@@ -86,7 +87,7 @@ describe('AssessmentForm', () => {
     expect(post).toHaveBeenCalledOnce()
     expect(post.mock.calls[0]![1]).toMatchObject({ kind: 'RECALL_QUIZ', skills: [{ skill: 'db.indexing', outcome_points: 80 }], battery_item_key: 'M0-B04' })
     expect(wrapper.find('[data-testid="assessment-recorded"]').exists()).toBe(true)
-    expect(wrapper.text()).toContain('db.indexing: unassessed → 26 (L1, low)')
+    expect(wrapper.text()).toMatch(/Indexing\s*not measured yet → 26\s*· low confidence/)
   })
 
   it('blocks submission with client-side errors', async () => {

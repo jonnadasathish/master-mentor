@@ -86,11 +86,13 @@ def r_calibration(c: _Ctx) -> Message | None:
     keys = [i.battery_item_key for i in c.plan.items if i.battery_item_key] or [
         i.candidate_key for i in c.plan.items if i.candidate_type == "DIAGNOSTIC"
     ]
-    items = ", ".join(k for k in keys if k)
+    keys = [k for k in keys if k]
+    # The diagnostics clause is only said when there is something to list (never "Today's diagnostics: .").
+    diagnostics = f" Today's diagnostics: {', '.join(keys)}." if keys else ""
     return _msg(
         "CALIBRATION",
-        f"Calibration: {cal.assessed_required}/{cal.required} required skills measured. Today's diagnostics: "
-        f"{items}. No new material until the baseline is complete.",
+        f"Calibration: {cal.assessed_required}/{cal.required} required skills measured.{diagnostics} "
+        "No new material until the baseline is complete.",
         assessed=cal.assessed_required,
         required=cal.required,
         items=keys,

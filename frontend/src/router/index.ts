@@ -1,42 +1,103 @@
 import { createRouter, createWebHistory, type RouteRecordRaw, type RouterHistory } from 'vue-router'
-import BaselineView from '../views/baseline/BaselineView.vue'
-import CatalogView from '../views/CatalogView.vue'
-import StatusView from '../views/StatusView.vue'
-import AttemptDetailView from '../views/log/AttemptDetailView.vue'
-import LogView from '../views/log/LogView.vue'
-import ProblemDetailView from '../views/log/ProblemDetailView.vue'
-import ProblemsView from '../views/log/ProblemsView.vue'
-import MocksView from '../views/mocks/MocksView.vue'
-import ProgressView from '../views/progress/ProgressView.vue'
-import RevisionView from '../views/revision/RevisionView.vue'
-import SettingsView from '../views/settings/SettingsView.vue'
-import TodayView from '../views/today/TodayView.vue'
-import SkillDetailView from '../views/skills/SkillDetailView.vue'
-import SkillsView from '../views/skills/SkillsView.vue'
+import { useStartingProfileStore } from '../stores/data'
+import { NAV_ITEMS } from './nav'
 
-/** The 7 pages of docs/engineering/UI_SPEC.md §2. Content arrives in later slices. */
-export const NAV_ROUTES: RouteRecordRaw[] = [
-  { path: '/', name: 'today', component: TodayView, meta: { title: 'Today' } },
-  { path: '/log', name: 'log', component: LogView, meta: { title: 'Log' } },
-  { path: '/skills', name: 'skills', component: SkillsView, meta: { title: 'Skills' } },
-  { path: '/revision', name: 'revision', component: RevisionView, meta: { title: 'Revision' } },
-  { path: '/mocks', name: 'mocks', component: MocksView, meta: { title: 'Mocks' } },
-  { path: '/progress', name: 'progress', component: ProgressView, meta: { title: 'Progress' } },
-  { path: '/settings', name: 'settings', component: SettingsView, meta: { title: 'Settings' } },
-]
-
+/** Views are loaded lazily so the first paint only pays for the page being opened. */
 export const routes: RouteRecordRaw[] = [
-  ...NAV_ROUTES,
-  { path: '/status', name: 'status', component: StatusView, meta: { title: 'System status' } },
-  { path: '/log/problems', name: 'problems', component: ProblemsView, meta: { title: 'Problems' } },
-  { path: '/log/problems/:problemKey', name: 'problem', component: ProblemDetailView, meta: { title: 'Problem' } },
-  { path: '/log/attempts/:id(\\d+)', name: 'attempt', component: AttemptDetailView, meta: { title: 'Attempt' } },
-  { path: '/skills/:key', name: 'skill', component: SkillDetailView, meta: { title: 'Skill' } },
-  { path: '/baseline', name: 'baseline', component: BaselineView, meta: { title: 'Baseline battery' } },
-  { path: '/catalog', name: 'catalog', component: CatalogView, meta: { title: 'Catalog (internal)' } },
+  { path: '/', name: 'today', component: () => import('../views/TodayView.vue'), meta: { title: 'Today' } },
+  { path: '/prepare', name: 'prepare', component: () => import('../views/PrepareView.vue'), meta: { title: 'Prepare' } },
+  { path: '/prepare/dsa', name: 'dsa', component: () => import('../views/DsaView.vue'), meta: { title: 'DSA' } },
+  {
+    path: '/prepare/dsa/problems',
+    name: 'problems',
+    component: () => import('../views/dsa/ProblemsView.vue'),
+    meta: { title: 'DSA problems' },
+  },
+  {
+    path: '/prepare/dsa/problems/:problemKey',
+    name: 'problem',
+    component: () => import('../views/dsa/ProblemDetailView.vue'),
+    meta: { title: 'Problem' },
+  },
+  {
+    path: '/prepare/dsa/attempts/:id(\\d+)',
+    name: 'attempt',
+    component: () => import('../views/dsa/AttemptDetailView.vue'),
+    meta: { title: 'Attempt' },
+  },
+  {
+    path: '/prepare/:slug(cs|system-design|lld|behavioral)',
+    name: 'track',
+    component: () => import('../views/TrackView.vue'),
+    meta: { title: 'Prepare' },
+  },
+  { path: '/log', name: 'log', component: () => import('../views/LogView.vue'), meta: { title: 'Log practice' } },
+  {
+    path: '/onboarding',
+    name: 'onboarding',
+    component: () => import('../views/OnboardingView.vue'),
+    meta: { title: 'Starting profile', bare: true },
+  },
+  {
+    path: '/calibrate',
+    name: 'calibrate',
+    component: () => import('../views/CalibrateView.vue'),
+    meta: { title: 'Calibrate your skills' },
+  },
+  { path: '/baseline', name: 'baseline', component: () => import('../views/BaselineView.vue'), meta: { title: 'Baseline' } },
+  { path: '/skills/:key', name: 'skill', component: () => import('../views/SkillDetailView.vue'), meta: { title: 'Skill' } },
+  { path: '/revise', name: 'revision', component: () => import('../views/RevisionView.vue'), meta: { title: 'Revise' } },
+  { path: '/mocks', name: 'mocks', component: () => import('../views/MocksView.vue'), meta: { title: 'Mocks' } },
+  { path: '/progress', name: 'progress', component: () => import('../views/ProgressView.vue'), meta: { title: 'Progress' } },
+  { path: '/review', name: 'review', component: () => import('../views/WeeklyReviewView.vue'), meta: { title: 'Weekly review' } },
+  { path: '/roadmap', name: 'roadmap', component: () => import('../views/RoadmapView.vue'), meta: { title: 'Roadmap' } },
+  { path: '/settings', name: 'settings', component: () => import('../views/SettingsView.vue'), meta: { title: 'Settings' } },
+  {
+    path: '/settings/developer',
+    name: 'developer',
+    component: () => import('../views/settings/DeveloperView.vue'),
+    meta: { title: 'Developer / System' },
+  },
+  {
+    path: '/settings/developer/catalog',
+    name: 'catalog',
+    component: () => import('../views/settings/CatalogView.vue'),
+    meta: { title: 'Catalog verification' },
+  },
+  // Old locations keep working.
+  { path: '/skills', redirect: '/prepare' },
+  { path: '/revision', redirect: '/revise' },
+  { path: '/log/problems', redirect: '/prepare/dsa/problems' },
+  { path: '/status', redirect: '/settings/developer' },
+  { path: '/catalog', redirect: '/settings/developer/catalog' },
   { path: '/:pathMatch(.*)*', redirect: '/' },
 ]
 
+export { NAV_ITEMS }
+
 export function createAppRouter(history: RouterHistory = createWebHistory()) {
-  return createRouter({ history, routes })
+  const router = createRouter({
+    history,
+    routes,
+    scrollBehavior: (_to, _from, saved) => saved ?? { top: 0 },
+  })
+  /**
+   * First run: until the starting profile is completed, every page leads to the onboarding. Developer tools stay
+   * reachable. If the profile cannot be read (engine down) navigation is never blocked.
+   */
+  router.beforeEach(async (to) => {
+    if (to.name === 'onboarding' || to.path.startsWith('/settings/developer')) return true
+    try {
+      const profile = useStartingProfileStore()
+      await profile.ensure()
+      if (profile.data && !profile.data.onboarding.completed) return { name: 'onboarding' }
+    } catch {
+      // fail open
+    }
+    return true
+  })
+  router.afterEach((to) => {
+    document.title = to.meta.title ? `${String(to.meta.title)} · Master Mentor` : 'Master Mentor'
+  })
+  return router
 }

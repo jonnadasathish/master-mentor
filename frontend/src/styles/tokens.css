@@ -1,0 +1,88 @@
+/* Master Mentor design tokens. One accent colour, one small semantic palette, a calm neutral scale.
+   Every semantic state also carries an icon and a text label (never colour alone). */
+:root {
+  color-scheme: light;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* Surfaces and text (text on --surface: --text 16.9:1, --text-2 8.3:1, --text-3 5.0:1) */
+  --bg: #f6f6f9;
+  --surface: #ffffff;
+  --surface-2: #f2f3f7;
+  --surface-3: #e9ebf1;
+  --border: #e4e6ee;
+  --border-strong: #cfd3de;
+  --text: #15171f;
+  --text-2: #444857;
+  --text-3: #686c7b;
+
+  /* Brand accent (white on --accent 6.3:1) */
+  --accent: #4f46e5;
+  --accent-hover: #4338ca;
+  --accent-soft: #eef0ff;
+  --accent-border: #c9ccf8;
+  --accent-text: #3730a3;
+  --on-accent: #ffffff;
+
+  /* Semantic palette: foreground on its own background is >= 4.5:1 */
+  --critical-bg: #fef0ee;
+  --critical-fg: #b42318;
+  --critical-bd: #f6c9c3;
+  --high-bg: #fff4e8;
+  --high-fg: #a3410a;
+  --high-bd: #f8d3ad;
+  --medium-bg: #fffae6;
+  --medium-fg: #7a5600;
+  --medium-bd: #f1dd9a;
+  --healthy-bg: #e9f8ef;
+  --healthy-fg: #0b6b3a;
+  --healthy-bd: #b5e4c8;
+  --due-bg: #eef0ff;
+  --due-fg: #3730a3;
+  --due-bd: #c9ccf8;
+  --overdue-bg: #fff1ec;
+  --overdue-fg: #a53a14;
+  --overdue-bd: #f7cdbd;
+  --blocked-bg: #eff1f5;
+  --blocked-fg: #444857;
+  --blocked-bd: #d5d9e3;
+  --calibration-bg: #e8f7fa;
+  --calibration-fg: #0b6477;
+  --calibration-bd: #b4e0e9;
+
+  /* Shape and depth */
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-xl: 20px;
+  --shadow-sm: 0 1px 2px rgba(20, 22, 40, 0.05);
+  --shadow-md: 0 6px 16px -4px rgba(20, 22, 40, 0.1), 0 2px 4px -2px rgba(20, 22, 40, 0.06);
+
+  /* Type scale */
+  --fs-xs: 0.75rem;
+  --fs-sm: 0.8125rem;
+  --fs-base: 0.9375rem;
+  --fs-md: 1rem;
+  --fs-lg: 1.125rem;
+  --fs-xl: 1.375rem;
+  --fs-2xl: 1.75rem;
+  --fs-3xl: 2.25rem;
+
+  /* Spacing scale */
+  --s-1: 0.25rem;
+  --s-2: 0.5rem;
+  --s-3: 0.75rem;
+  --s-4: 1rem;
+  --s-5: 1.5rem;
+  --s-6: 2rem;
+  --s-7: 3rem;
+
+  --sidebar-w: 15rem;
+  --rail-w: 4.25rem;
+  --content-max: 76rem;
+
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --t-fast: 120ms;
+  --t-base: 200ms;
+}

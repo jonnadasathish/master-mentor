@@ -3,41 +3,78 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ApiClient } from '../src/api/client'
 import type { ProblemAttempt } from '../src/api/types'
-import AttemptForm from '../src/components/AttemptForm.vue'
-import EffectsPanel from '../src/components/EffectsPanel.vue'
-import StatusBadge from '../src/components/StatusBadge.vue'
+import StatusPill from '../src/components/common/StatusPill.vue'
+import EffectsPanel from '../src/components/missions/EffectsPanel.vue'
+import AttemptForm from '../src/components/practice/AttemptForm.vue'
+import { STATE_LABEL, type SemanticState } from '../src/presentation/language'
+import { useSkillsStore } from '../src/stores/data'
+import { SKILLS } from './fixtures'
 
 beforeEach(() => setActivePinia(createPinia()))
 const stubs = { RouterLink: RouterLinkStub }
 
-describe('StatusBadge', () => {
-  it('always shows a text label next to the icon (never color alone)', () => {
-    for (const status of ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'BLOCKED', 'PARKED', 'UNASSESSED', 'NONE']) {
-      const text = mount(StatusBadge, { props: { status, priority: 42 } }).text()
-      expect(text).toContain(status.toLowerCase())
+describe('StatusPill', () => {
+  it('always shows an icon AND a text label for every semantic state (never colour alone)', () => {
+    for (const state of Object.keys(STATE_LABEL) as SemanticState[]) {
+      const wrapper = mount(StatusPill, { props: { state } })
+      expect(wrapper.text()).toBe(STATE_LABEL[state])
+      expect(wrapper.find('svg').exists(), state).toBe(true)
+      expect(wrapper.find('svg').attributes('aria-hidden')).toBe('true')
+      expect(wrapper.attributes('data-state')).toBe(state)
     }
-    expect(mount(StatusBadge, { props: { status: 'CRITICAL', priority: 89 } }).text()).toBe('⛔ critical 89')
+  })
+
+  it('defines the ten required semantic states in plain words', () => {
+    expect(STATE_LABEL).toMatchObject({
+      critical: 'Critical', high: 'High', medium: 'Medium', healthy: 'Healthy', ready: 'Ready', due: 'Revision due',
+      overdue: 'Overdue', blocked: 'Blocked', calibration: 'Calibrating', completed: 'Completed',
+    })
+  })
+
+  it('accepts a custom label', () => {
+    expect(mount(StatusPill, { props: { state: 'overdue', label: '3 overdue' } }).text()).toBe('3 overdue')
   })
 })
 
 describe('EffectsPanel', () => {
-  it('lists skill, gap, revision and readiness changes from the server', () => {
+  it('lists skill, gap, review and readiness changes in human wording', () => {
+    useSkillsStore().$patch({})
     const wrapper = mount(EffectsPanel, {
       global: { stubs },
       props: {
         effects: {
           run_id: 4,
-          skill_deltas: [{ skill_key: 'heap.top_k', before: null, after: { score: 30, effective: 15, level: 1, confidence: 'LOW' } }],
-          gap_deltas: [{ skill_key: 'heap.top_k', before: { priority: 100, status: 'UNASSESSED' }, after: { priority: 98, status: 'CRITICAL' } }],
+          skill_deltas: [{ skill_key: 'graph.traversal', before: null, after: { score: 30, effective: 15, level: 1, confidence: 'LOW' } }],
+          gap_deltas: [{ skill_key: 'graph.traversal', before: { priority: 100, status: 'UNASSESSED' }, after: { priority: 98, status: 'CRITICAL' } }],
           revision_changes: [{ item_key: 'PROBLEM:17', change: 'CREATED', due_date: '2026-10-07' }],
-          readiness_change: { before: 'NOT_MEASURED', after: 'NOT_MEASURED', blockers_added: [], blockers_removed: [] },
+          readiness_change: { before: 'NOT_MEASURED', after: 'FOUNDATION', blockers_added: [], blockers_removed: [] },
         },
       },
     })
     const text = wrapper.text()
-    expect(text).toContain('Gap heap.top_k: unassessed 100 → critical 98')
-    expect(text).toContain('Revision PROBLEM:17: created, due 2026-10-07')
-    expect(text).not.toContain('Readiness:')  // unchanged state is not shown as a change
+    expect(text).toContain('What changed')
+    expect(text).toContain('gap: Not measured yet → Critical')
+    expect(text).toMatch(/Review of a problem you worked on\s*scheduled for 7 Oct/)
+    expect(text).toContain('Readiness: Not measured yet → Foundation')
+    expect(text).not.toMatch(/PROBLEM:17|CRITICAL|NOT_MEASURED/)
+  })
+
+  it('does not report an unchanged readiness state as a change', () => {
+    const wrapper = mount(EffectsPanel, {
+      global: { stubs },
+      props: { effects: { run_id: 4, skill_deltas: [], readiness_change: { before: 'DEVELOPING', after: 'DEVELOPING', blockers_added: [], blockers_removed: [] } } },
+    })
+    expect(wrapper.text()).not.toContain('Readiness:')
+  })
+
+  it('uses catalog names when the skills are loaded', async () => {
+    const skills = useSkillsStore()
+    skills.data = SKILLS
+    const wrapper = mount(EffectsPanel, {
+      global: { stubs },
+      props: { effects: { run_id: 1, skill_deltas: [{ skill_key: 'graph.traversal', before: null, after: { score: 30, effective: 15, level: 1, confidence: 'LOW' } }] } },
+    })
+    expect(wrapper.text()).toContain('Graphs: BFS and DFS')
   })
 })
 
@@ -62,5 +99,15 @@ describe('AttemptForm correction', () => {
     expect(path).toBe('/problem-attempts/5/corrections')
     expect(body).toMatchObject({ problem_id: 27, outcome: 'PARTIAL', time_seconds: 1800, attempted_at: '2026-10-03T06:00:00Z', mistakes: ['WRONG_PATTERN'] })
     expect(wrapper.find('[data-testid="recorded"]').text()).toBe('Correction recorded (the original is kept).')
+  })
+
+  it('keeps solving focused: only the clock, the notes box and one action while the timer runs', async () => {
+    const client: ApiClient = { get: vi.fn() as ApiClient['get'], post: vi.fn() }
+    const wrapper = mount(AttemptForm, { global: { stubs }, props: { problemId: 1, client } })
+    await wrapper.find('[data-testid="start"]').trigger('click')
+    expect(wrapper.find('[data-testid="timer"]').exists()).toBe(true)
+    expect(wrapper.find('textarea').exists()).toBe(true)
+    expect(wrapper.findAll('button')).toHaveLength(1)
+    expect(wrapper.find('[data-testid="outcome-PASS"]').exists()).toBe(false)
   })
 })

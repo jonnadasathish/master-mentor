@@ -77,3 +77,48 @@ def calibration_status(
         assessed_pct=pct,
         calibration_mode=(not complete) or pct < int(ruleset.CALIBRATION_MIN_ASSESSED_PCT),
     )
+
+
+# ------------------------------------------------------------------------------ calibration phase (UX status)
+# NOT_STARTED: no battery item done and no required skill assessed yet.
+# COMPLETE: every battery item is done (the mentor then plans from the gap engine as usual).
+# ENOUGH_MEASURED: the battery is still open but at least CALIBRATION_MIN_ASSESSED_PCT of the required
+#   skills are assessed, i.e. a first personal roadmap can already be read from the engines (the mentor keeps
+#   scheduling the rest of the battery; its rules are unchanged).
+# IN_PROGRESS: everything else.
+PHASES = ("NOT_STARTED", "IN_PROGRESS", "ENOUGH_MEASURED", "COMPLETE")
+
+
+def calibration_phase(status: CalibrationStatus, ruleset: ModuleType) -> str:
+    if status.battery_complete:
+        return "COMPLETE"
+    if status.battery_done == 0 and status.assessed_required == 0:
+        return "NOT_STARTED"
+    if status.assessed_pct >= int(ruleset.CALIBRATION_MIN_ASSESSED_PCT):
+        return "ENOUGH_MEASURED"
+    return "IN_PROGRESS"
+
+
+@dataclass(frozen=True)
+class BaselineEffort:
+    minutes_total: int
+    minutes_done: int
+    minutes_remaining: int
+    typical_daily_minutes: int | None  # average of the goal's non-zero weekday budgets; None without a goal
+    estimated_days: int | None  # whole days at that pace (rounded up); None without a goal
+
+
+def typical_daily_minutes(weekday_budgets: Sequence[int]) -> int | None:
+    days = [b for b in weekday_budgets if b > 0]
+    return sum(days) // len(days) if days else None
+
+
+def baseline_effort(status: CalibrationStatus, weekday_budgets: Sequence[int] | None) -> BaselineEffort:
+    """Total/done/remaining battery minutes and a rough day count. The mentor, not this estimate, decides each
+    day's diagnostic work (MENTOR_ENGINE §3); this only tells the user how long the baseline will take."""
+    total = sum(i.minutes for i in status.items)
+    done = sum(i.minutes for i in status.items if i.complete)
+    remaining = total - done
+    typical = typical_daily_minutes(weekday_budgets) if weekday_budgets else None
+    days = None if not typical else (remaining + typical - 1) // typical
+    return BaselineEffort(total, done, remaining, typical, days)

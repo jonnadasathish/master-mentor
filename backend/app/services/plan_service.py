@@ -33,8 +33,9 @@ from app.domain.mentor.model import (
     ReadinessView,
 )
 from app.domain.mentor.planner import generate_daily_plan
-from app.domain.mentor.practice import PracticeObservation, summarize_practice
+from app.domain.mentor.practice import PracticeObservation, summarize_practice, summarize_week
 from app.domain.profile.goals import budget_for
+from app.domain.review.weekly import week_bounds
 from app.domain.revision.engine import backlog_minutes, revision_cap, triage_backlog
 from app.domain.rulesets import get_ruleset
 from app.errors import AppError
@@ -71,6 +72,9 @@ from app.schemas.plan import (
     TemplateOut,
     TodayOut,
     TopGapOut,
+    WeekOut,
+    WeekRevisionOut,
+    WeekTrackOut,
 )
 from app.services.activity_service import ActivityService, _validation, problem_key
 from app.services.assessment_service import AssessmentService
@@ -628,6 +632,35 @@ class PlanService:
                 },
             ) from exc
         item = self._plans.item(item_id) or item
+        self._mark_done(item, no_evidence)
+        return item, recorded
+
+    def open_battery_item(self, battery_item_key: str | None) -> PlanItemRow | None:
+        """Today's pending plan item for this battery item, if today's plan exists (never creates one)."""
+        if battery_item_key is None:
+            return None
+        plan = self._plans.plan_on(self._mentor.as_of_date())
+        if plan is None:
+            return None
+        return next(
+            (
+                item
+                for item, _ in self._plans.items(plan.id)
+                if item.battery_item_key == battery_item_key and item.status == "PENDING"
+            ),
+            None,
+        )
+
+    def close_battery_item(
+        self, item: PlanItemRow, observation_type: str, observation_id: int
+    ) -> PlanItemRow:
+        """A battery observation recorded outside the plan (e.g. the sweep) completes its plan item."""
+        item = self._pending(item.id)
+        item.observation_type, item.observation_id = observation_type, observation_id
+        self._mark_done(item, no_evidence=False)
+        return item
+
+    def _mark_done(self, item: PlanItemRow, no_evidence: bool) -> None:
         item.status, item.no_evidence = "DONE", no_evidence
         now = _naive(self._clock.now_utc())
         item.completed_at = item.status_changed_at = now
@@ -641,7 +674,6 @@ class PlanService:
             },
         )
         self._s.commit()
-        return item, recorded
 
     # ------------------------------------------------------------------ read models
     def item_out(self, item: PlanItemRow) -> PlanItemOut:
@@ -781,6 +813,51 @@ class PlanService:
                 "cap_minutes": revision_cap(row.budget_minutes, self._ruleset),
             },
             plan=self.plan_out(row),
+        )
+
+    def week(self) -> WeekOut:
+        """Week-to-date context (Monday..today): recorded practice by track, active days, revision plan items.
+        Read-only: no mentor run, no plan row is created."""
+        as_of = self._mentor.as_of_date()
+        week_start, week_end = week_bounds(as_of)
+        context, _ = self._mentor.context(as_of)
+        goals = self._profiles.goals()
+        first_goal = min((g.valid_from for g in goals), default=None)
+        active = self._profiles.goal_on(as_of)
+        summary = (
+            summarize_week(self._practice_observations(), week_start, as_of, context.graph, context.profile)
+            if context is not None
+            else None
+        )
+        revision_items = [
+            item
+            for item, plan, _skill in self._plans.history(week_end + timedelta(days=1), days=7)
+            if plan.plan_date >= week_start
+            and item.candidate_type == "REVISION"
+            and item.status != "DISCARDED"
+        ]
+        planned = len(revision_items)
+        done = sum(1 for i in revision_items if i.status == "DONE")
+        targets = context.profile.track_minutes if context is not None else {}
+        return WeekOut(
+            plan_date=as_of,
+            week_start=week_start,
+            week_end=week_end,
+            preparation_day=None if first_goal is None else (as_of - first_goal).days + 1,
+            target_minutes=sum(active.weekday_budgets_json) if active else None,
+            practice_minutes=summary.total_minutes if summary else 0,
+            active_days=summary.active_days if summary else 0,
+            minutes_by_track=[
+                WeekTrackOut(
+                    track=t,
+                    minutes=summary.track_minutes.get(t, 0) if summary else 0,
+                    weekly_target=m,
+                )
+                for t, m in targets.items()
+            ],
+            revision=WeekRevisionOut(
+                planned=planned, done=done, completion_pct=done * 100 // planned if planned else None
+            ),
         )
 
     def _latest_outputs(self, as_of: date) -> RunResult:

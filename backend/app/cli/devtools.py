@@ -2,7 +2,8 @@
 
 ``python -m app.cli.devtools reset-prep --confirm RESET-PREP-DATA`` (via ``make dev-reset CONFIRM=...``, which
 takes a backup first) deletes every preparation record — attempts, assessments, personal problems, derived
-tables, mentor runs — and keeps the catalog (seed data) and app_settings. The reset itself is audited.
+tables, mentor runs — and keeps the catalog (seed data), app_settings and the starting profile.
+The reset itself is audited.
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ from app.models import AuditLog, Base, Problem, ProblemSkill
 from app.services.export_service import DECISION_TABLES, DERIVED_TABLES, USER_TABLES
 
 CONFIRMATION: Final = "RESET-PREP-DATA"
-KEEP: Final = ("app_settings", "goals")  # configuration, not preparation data
+KEEP: Final = ("app_settings", "starting_profile", "goals")  # configuration, not preparation data
 # Children before parents. Later slices append their user tables to USER_TABLES / DERIVED_TABLES.
 DELETE_ORDER_FIRST: Final = (*DERIVED_TABLES, *DECISION_TABLES, "mentor_runs")
 

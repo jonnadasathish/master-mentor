@@ -115,3 +115,11 @@ class BaselineOut(BaseModel):
     assessed_required: int
     assessed_pct: int
     calibration_mode: bool
+    # D-080: user-facing status and effort. phase is NOT_STARTED / IN_PROGRESS / ENOUGH_MEASURED / COMPLETE.
+    phase: str
+    personalization_threshold_pct: int
+    minutes_total: int
+    minutes_done: int
+    minutes_remaining: int
+    typical_daily_minutes: int | None
+    estimated_days: int | None

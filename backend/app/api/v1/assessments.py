@@ -15,7 +15,8 @@ from app.models.system import MentorRunTrigger
 from app.schemas.assessment import AssessmentInput, AssessmentKind, SelfAssessmentSweepInput
 from app.schemas.envelope import Meta, success
 from app.services.activity_service import parse_date
-from app.services.assessment_service import AssessmentService
+from app.services.assessment_service import SWEEP_BATTERY_ITEM, AssessmentService
+from app.services.plan_service import PlanService
 
 router = APIRouter(tags=["assessments"])
 DbSession = Annotated[Session, Depends(get_session)]
@@ -24,15 +25,28 @@ ClockDep = Annotated[Clock, Depends(get_clock)]
 
 @router.post("/assessments", status_code=201)
 def record_assessment(session: DbSession, clock: ClockDep, payload: AssessmentInput) -> dict[str, Any]:
-    return with_effects(session, clock, AssessmentService(session, clock).record(payload))
+    """A baseline assessment recorded here (not via its plan item) also completes today's plan item."""
+    plans = PlanService(session, clock)
+    item = plans.open_battery_item(payload.battery_item_key)
+    out = AssessmentService(session, clock).record(payload, plan_item_id=item.id if item else None)
+    if item is not None:
+        plans.close_battery_item(item, "ASSESSMENT", out.id)
+    return with_effects(session, clock, out)
 
 
 @router.post("/assessments/self-assessment-sweep", status_code=201)
 def self_assessment_sweep(
     session: DbSession, clock: ClockDep, payload: SelfAssessmentSweepInput
 ) -> dict[str, Any]:
-    """Battery item M0-B01: one SELF_ASSESSMENT per skill. NONE = declared unknown (score 0, LOW)."""
-    return with_effects(session, clock, AssessmentService(session, clock).sweep(payload))
+    """Battery item M0-B01: one SELF_ASSESSMENT per skill. NONE = declared unknown (score 0, LOW).
+
+    Completes today's pending M0-B01 plan item, linked to the first assessment of the sweep."""
+    plans = PlanService(session, clock)
+    item = plans.open_battery_item(SWEEP_BATTERY_ITEM)
+    created = AssessmentService(session, clock).sweep(payload, plan_item_id=item.id if item else None)
+    if item is not None and created:
+        plans.close_battery_item(item, "ASSESSMENT", created[0].id)
+    return with_effects(session, clock, created)
 
 
 @router.get("/assessments")

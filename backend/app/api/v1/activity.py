@@ -15,6 +15,7 @@ from app.models.system import MentorRunTrigger
 from app.schemas.activity import PersonalProblemInput, ProblemAttemptInput
 from app.schemas.envelope import Meta, success
 from app.services.activity_service import ActivityService, parse_date
+from app.services.plan_service import PlanService
 
 router = APIRouter(tags=["activity"])
 
@@ -81,8 +82,15 @@ def problem_attempts(
 def record_attempt(
     activity: Activity, session: DbSession, clock: ClockDep, payload: ProblemAttemptInput
 ) -> dict[str, Any]:
-    """Record a raw attempt exactly as observed; ``effects`` carries the resulting skill deltas."""
-    return with_effects(session, clock, activity.record_attempt(payload))
+    """Record a raw attempt exactly as observed; ``effects`` carries the resulting skill deltas.
+
+    A baseline attempt recorded here (not through its plan item) also completes today's plan item for it."""
+    plans = PlanService(session, clock)
+    item = plans.open_battery_item(payload.battery_item_key)
+    out = activity.record_attempt(payload, plan_item_id=item.id if item else None)
+    if item is not None:
+        plans.close_battery_item(item, "ATTEMPT", out.id)
+    return with_effects(session, clock, out)
 
 
 @router.get("/problem-attempts")

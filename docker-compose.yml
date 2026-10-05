@@ -50,7 +50,7 @@ services:
     volumes:
       - ./backend:/app
       - ./seed:/seed  # canonical catalog (read by the seed loader; seed-lock writes seed.lock.yaml)
-      - ./backups:/backups:ro  # backup age is reported by /health
+      - ./backups:/backups:ro  # same host dir the backup service writes; read by GET /api/v1/system/backup-status
     depends_on:
       mysql:
         condition: service_healthy

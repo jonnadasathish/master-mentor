@@ -36,7 +36,7 @@ FILES = {
     "roadmap": "roadmap.yaml",
     "mission_templates": "mission_templates.yaml",
 }
-KEEP_TABLES = {"alembic_version", "app_settings"}
+KEEP_TABLES = {"alembic_version", "app_settings", "starting_profile"}
 
 
 def real_raw() -> tuple[dict[str, Any], dict[str, Any] | None]:
@@ -74,6 +74,16 @@ def clear_catalog(engine: Engine) -> None:
             connection.execute(
                 text("UPDATE app_settings SET timezone = :tz, display_name = 'Owner' WHERE id = 1"),
                 {"tz": get_settings().app_default_timezone},
+            )
+        if "starting_profile" in existing:  # tests may save a profile: back to the bootstrap row (first run)
+            connection.execute(
+                text(
+                    "UPDATE starting_profile SET onboarding_completed_at = NULL, experience_years = NULL, "
+                    "current_role = NULL, previous_role = NULL, company_profile = NULL, "
+                    "technologies_json = JSON_ARRAY(), "
+                    "self_report_json = JSON_OBJECT('strengths', JSON_ARRAY(), 'weaknesses', JSON_ARRAY(), "
+                    "'never_studied', JSON_ARRAY(), 'recently_studied', JSON_ARRAY()) WHERE id = 1"
+                )
             )
         connection.execute(text("SET FOREIGN_KEY_CHECKS = 1"))
 
