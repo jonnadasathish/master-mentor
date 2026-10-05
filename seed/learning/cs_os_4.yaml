@@ -1,0 +1,365 @@
+# Learning content: operating systems — practical concurrency (thread pools, producer-consumer, back-pressure, I/O-bound vs CPU-bound, event loops), language-neutral.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- practical concurrency
+- key: os.concurrency_practical.lesson
+  type: lesson
+  title: Thread pools, bounded queues and event loops in real services
+  skills: [os.concurrency_practical]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Real services reuse a fixed number of workers, put a bounded queue in front of them and size both from whether the work waits on I/O or burns CPU.
+    what: |-
+      Practical concurrency is the set of patterns that turn the OS primitives (threads, locks, condition variables, readiness notification) into a service that stays fast and stable under load:
+
+      - **Thread pool**: a fixed set of long-lived worker threads pulling tasks from a queue, instead of one new thread per task.
+      - **Producer-consumer with a bounded buffer**: producers put work into a queue with a capacity limit; consumers take it out. A full queue blocks or rejects producers, which is **back-pressure**.
+      - **I/O-bound vs CPU-bound**: I/O-bound work spends most of its time waiting (network, disk, database); CPU-bound work spends it computing. They need different concurrency models and pool sizes.
+      - **Event loop**: one thread multiplexes many connections by asking the kernel which sockets are ready (`epoll` on Linux, `kqueue` on BSD and macOS) and running short non-blocking handlers for each. nginx, Node.js, Netty and Python's asyncio are built this way.
+    why: |-
+      Creating a thread per request is unbounded: a traffic spike creates thousands of threads, each with its own stack, and the scheduler spends its time switching between them, so latency rises for everyone and the process may run out of memory. A pool caps concurrency, reuses threads and gives a single place to apply limits. A bounded queue turns overload into an explicit decision (wait, reject, shed) instead of a slow collapse. Event loops let a single thread hold tens of thousands of idle connections that a thread-per-connection design could not afford.
+    when: |-
+      - **Pool of threads**: blocking I/O calls (database drivers, HTTP clients, file reads) with moderate concurrency, hundreds of in-flight operations at most.
+      - **Pool sized to cores (or processes)**: CPU-bound work such as image processing, compression, parsing large payloads.
+      - **Event loop**: very many mostly idle connections (websockets, long polling, proxies) where per-connection work is small and non-blocking.
+      - **Bounded queue in between**: whenever a fast producer (an HTTP front end, a Kafka consumer) feeds slower workers.
+    how: |-
+      **Sizing.** For CPU-bound work, about one worker per core: more only adds context switches. For I/O-bound work, a common starting point (from Goetz, Java Concurrency in Practice) is
+
+      ```text
+      threads = cores x target_utilisation x (1 + wait_time / compute_time)
+      ```
+
+      so on 8 cores, a task that waits 45 ms on a database for every 5 ms of CPU gives 8 × 1 × (1 + 9) = 80 threads. Check it against the downstream limit: with **Little's law** (in-flight = arrival rate × latency), 400 requests per second at 50 ms each need about 20 concurrent operations, and a pool of 80 is pointless if the database connection pool has 20 connections. Then measure and adjust.
+
+      **Bounded queue and rejection.** Put a capacity on the pool's queue. When it is full, choose a policy explicitly: block the producer (back-pressure upstream), reject with a fast error (HTTP 503 or 429 with retry-after), run the task in the caller's thread (natural throttling), or drop the oldest work if only fresh data matters. An unbounded queue hides overload: memory grows and every queued request ends up timing out after its caller has given up.
+
+      **Event loops.** The loop calls `epoll_wait`, gets the list of ready descriptors, and runs each handler until it would block, then moves on. Handlers must never block: one 200 ms CPU computation or a synchronous database call stalls every connection on that loop. Blocking work goes to a separate thread or process pool. On Linux, `epoll` does not work for regular files (they are always considered ready, and `epoll_ctl` refuses them), which is why libuv (Node.js) and asyncio run file I/O on a thread pool; `io_uring` (Linux 5.1 and later) offers completion-based asynchronous I/O for files and sockets.
+
+      **Shutdown.** A pool needs a defined stop: stop accepting tasks, let queued tasks finish or cancel them, wait for workers with a deadline, then exit. Without it, a deploy either drops in-flight work or hangs.
+    mental_model: |-
+      A restaurant kitchen. Cooks are the pool; the order rail is the bounded queue. Hiring a new cook for every order (thread per request) fills the kitchen until nobody can move. A rail with room for twenty tickets tells the front desk when to stop seating people (back-pressure). A cook who waits for the oven while doing nothing is I/O-bound; you can have more cooks than stoves. A cook who is chopping is CPU-bound; more cooks than cutting boards just makes them queue. An event loop is one very fast waiter who never stands still at a table: they take an order, move on, and come back when the kitchen rings.
+    tradeoffs: |-
+      - Threads with blocking I/O are easy to write and debug (normal stack traces), but each costs memory and scheduler work; thousands of them hurt.
+      - Event loops scale to huge connection counts with little memory, but every call must be non-blocking, CPU work must be moved elsewhere, and one mistake stalls everything on the loop.
+      - Processes give true parallelism and isolation for CPU work, at the cost of memory and serialisation between them.
+      - Small queues fail fast and keep latency low but reject more under bursts; large queues absorb bursts but add latency and hide overload.
+    mistakes:
+      - Unbounded queues or unbounded thread creation in front of a slow dependency.
+      - Sizing an I/O pool far above the downstream limit (more threads than database connections), so threads just queue on the connection pool.
+      - Making a blocking call inside an event-loop handler.
+      - Tasks that submit subtasks to the same bounded pool and block waiting for them; under load every worker waits on children that can never start.
+      - Swallowing exceptions in pool tasks; a failed future that nobody reads hides the error.
+      - No timeout on downstream calls, so a slow dependency pins every worker.
+    interview: |-
+      Comes up as "how many threads would you use?", "design a worker that processes jobs from a queue", "what happens when the queue fills?", "why did the service stall when the database got slow?" or "threads or async for this service?". Interviewers look for a sizing argument tied to I/O vs CPU, a bounded queue with an explicit overload policy, timeouts, and awareness of what must never block an event loop.
+    explain_it:
+      - Classify the work as I/O-bound or CPU-bound with a number (wait vs compute time).
+      - Size the pool with the formula or Little's law and check the downstream limit.
+      - State the queue capacity and the rejection policy, and why.
+      - Name timeouts and shutdown behaviour.
+    example:
+      language: python
+      code: |-
+        from concurrent.futures import ThreadPoolExecutor
+        import threading
+
+        class BoundedExecutor:
+            """A pool whose backlog is capped: submit() fails fast instead of queueing forever."""
+
+            def __init__(self, workers: int, max_pending: int) -> None:
+                self._pool = ThreadPoolExecutor(max_workers=workers)
+                self._slots = threading.BoundedSemaphore(workers + max_pending)
+
+            def submit(self, fn, *args):
+                if not self._slots.acquire(blocking=False):      # running + queued at the cap
+                    raise RuntimeError("overloaded")              # caller maps this to HTTP 503
+                try:
+                    future = self._pool.submit(fn, *args)
+                except BaseException:
+                    self._slots.release()
+                    raise
+                future.add_done_callback(lambda _: self._slots.release())
+                return future
+
+            def shutdown(self) -> None:
+                self._pool.shutdown(wait=True)                    # finish queued work, then stop
+      explanation: "The standard executor's internal queue is unbounded, so a semaphore caps running plus queued tasks. Rejecting immediately is one policy; acquire with a timeout instead would apply back-pressure to the caller."
+    internals: |-
+      A pool is a producer-consumer queue plus N threads looping on `take()`. Idle workers sleep on the queue's condition variable (a futex on Linux), so they cost memory but no CPU. An event loop's core is `epoll_wait`: the kernel keeps a ready list per epoll instance and wakes the loop only when a registered descriptor becomes readable or writable, so the cost is proportional to ready events, not to registered connections.
+    edge_cases:
+      - Thread-local state (request context, database sessions) leaks between tasks in a pool unless it is reset per task.
+      - A task that raises kills nothing in most pools, but its error is visible only if someone reads the future or a callback logs it.
+      - Many CPU-heavy native libraries run their own internal thread pools, so a pool of N workers can create N times their thread count; cap one of them.
+    misconceptions:
+      - More threads always means more throughput. Past the bottleneck (cores or a downstream limit) it adds only latency and memory.
+      - Async code is faster than threads. It is cheaper per idle connection; per-request CPU work is the same, and blocking calls make it worse.
+- key: os.concurrency_practical.check
+  type: concept_check
+  title: "Concept check: pools, queues and event loops"
+  skills: [os.concurrency_practical]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Assume a Linux server. Work out the numbers before choosing.
+    questions:
+      - id: q1
+        kind: single
+        prompt: Each task uses 10 ms of CPU and then waits 90 ms on a remote API. On an 8-core machine aiming for full CPU use, roughly how many threads does the sizing formula suggest?
+        options: ["8", "16", "80", "800"]
+        answer: [2]
+        explanation: "threads = 8 × (1 + 90/10) = 80. Eight would leave the CPUs idle 90% of the time while threads wait; 800 assumes the wrong ratio and only adds switching and memory. Then check that the remote API can take 80 concurrent calls."
+      - id: q2
+        kind: single
+        prompt: A service accepts 500 requests per second, and each one makes a database call that takes 40 ms on average. How many database calls are in flight on average?
+        options: ["About 2", "About 20", "About 200", "About 12,500"]
+        answer: [1]
+        explanation: "Little's law: in-flight = arrival rate × time in system; 500 per second × 40 ms = 20,000 ms of call time per second of wall time, so about 20 concurrent calls. A pool much smaller than 20 queues requests; much larger buys nothing."
+      - id: q3
+        kind: multi
+        prompt: Which of these stall every connection served by a single-threaded event loop?
+        options:
+          - A handler that awaits a non-blocking socket read
+          - A handler that calls a synchronous database driver
+          - A handler that runs a 300 ms CPU-bound computation inline
+          - A handler that hands the computation to a process pool and awaits the result
+        answer: [1, 2]
+        explanation: "A synchronous call or inline CPU work keeps the loop's only thread busy, so no other handler runs. Awaiting a non-blocking read or a result from a pool yields control back to the loop. The trap is thinking that being inside an async function makes any call non-blocking."
+      - id: q4
+        kind: single
+        prompt: A producer reads messages from a broker faster than workers can process them, using an unbounded in-memory queue. What is the most likely failure over an hour of overload?
+        options:
+          - Messages are processed out of order
+          - Memory grows until the process is OOM-killed, and queued messages wait so long they are useless anyway
+          - The broker slows down automatically
+          - The workers speed up to match
+        answer: [1]
+        explanation: "Nothing pushes back, so the backlog grows without limit, latency of each item grows with it, and eventually the process dies and loses the whole buffer. A bounded queue that blocks the consumer from fetching more lets the broker hold the backlog durably."
+      - id: q5
+        kind: single
+        prompt: Why does Node.js (libuv) use a thread pool for file reads on Linux even though it has an event loop?
+        options:
+          - Because file reads are CPU-bound
+          - Because epoll cannot wait for readiness on regular files, so a blocking read must run on another thread
+          - Because the GIL blocks file reads
+          - Because files are always cached in memory
+        answer: [1]
+        explanation: "Readiness notification does not apply to regular files: they always count as ready, yet a read can still block on disk. The thread pool keeps those blocking reads off the loop. io_uring offers true asynchronous file I/O on Linux 5.1 and later. The GIL is a CPython concept and unrelated to libuv."
+      - id: q6
+        kind: short
+        prompt: Your worker pool's queue is full. List three possible policies and say when each is the right choice.
+        model_answer: "Block the producer: right when the producer can wait and pushing back upstream is safe, such as a broker consumer that simply stops fetching. Reject fast with an error (503/429 with retry-after): right for interactive requests where a quick failure beats a slow timeout and clients can retry or degrade. Caller-runs (execute the task in the submitting thread): natural throttling when the producer is your own code and slowing it down is acceptable. Dropping the oldest or newest item: only when stale data is worthless, like metrics samples or position updates."
+        explanation: Each policy must be tied to who the producer is and what losing or delaying work costs.
+- key: os.concurrency_practical.worker_pool
+  type: coding_exercise
+  title: "Exercise: a fixed worker pool with graceful shutdown"
+  skills: [os.concurrency_practical, os.synchronization, lld.concurrency_safety]
+  minutes: 25
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 1500}
+  body:
+    prompt: |-
+      Write, in Python pseudocode using only `threading` and a bounded queue, a fixed-size worker pool with three operations: `submit(task)` (blocks while the backlog is full), `shutdown()` (stops accepting tasks, lets every already-submitted task finish, and returns when all workers have exited), and a way to see task errors. Then explain how shutdown avoids losing tasks and avoids workers sleeping forever.
+    examples:
+      - "WorkerPool(workers=4, capacity=100): 500 submits from one producer; submit blocks whenever 100 tasks are waiting."
+      - "shutdown() after the last submit returns only when all 500 tasks have run."
+    constraints:
+      - No busy waiting.
+      - A task that raises must not kill its worker thread.
+      - submit after shutdown must fail clearly.
+    hints:
+      - "`queue.Queue(maxsize=n)` already gives you a bounded blocking buffer; focus on the workers and the stop protocol."
+      - A sentinel value per worker, queued after all real tasks, tells each worker to exit once it reaches it.
+      - Use a lock around the closed flag so a submit cannot sneak in after the sentinels.
+    solution:
+      language: python
+      code: |-
+        import queue, threading, logging
+
+        _STOP = object()
+
+        class WorkerPool:
+            def __init__(self, workers: int, capacity: int) -> None:
+                self._tasks: queue.Queue = queue.Queue(maxsize=capacity)
+                self._closed = False
+                self._lock = threading.Lock()
+                self.errors: list[BaseException] = []
+                self._threads = [threading.Thread(target=self._run, daemon=True) for _ in range(workers)]
+                for t in self._threads:
+                    t.start()
+
+            def submit(self, task) -> None:
+                with self._lock:
+                    if self._closed:
+                        raise RuntimeError("pool is shut down")
+                # put outside the lock: blocking while full must not stop shutdown() from taking the lock;
+                # a submit already past the check still lands before the sentinels below
+                self._tasks.put(task)
+
+            def _run(self) -> None:
+                while True:
+                    task = self._tasks.get()            # sleeps on a condition variable when empty
+                    if task is _STOP:
+                        return
+                    try:
+                        task()
+                    except BaseException as exc:         # keep the worker alive, record the error
+                        logging.exception("task failed")
+                        with self._lock:
+                            self.errors.append(exc)
+
+            def shutdown(self) -> None:
+                with self._lock:
+                    if self._closed:
+                        return
+                    self._closed = True
+                for _ in self._threads:
+                    self._tasks.put(_STOP)               # FIFO: sentinels queue after all real tasks
+                for t in self._threads:
+                    t.join()
+      explanation: |-
+        Tasks are not lost because the queue is FIFO and the sentinels are enqueued after the closed flag is set: every task submitted before shutdown sits ahead of them, and each worker exits only when it reaches a sentinel, so all earlier tasks run. Workers do not sleep forever because exactly one sentinel per worker is queued, waking each one. A task's exception is caught inside the loop, so the worker survives and the error is recorded.
+
+        One subtle window remains: a submit that passed the closed check and is blocked on a full queue will enqueue after some sentinels if shutdown runs meanwhile; a stricter version holds a count of in-progress submits and waits for it to reach zero before queuing sentinels. Naming that window is part of a strong answer.
+    rubric:
+      - key: bounded
+        label: Uses a bounded queue so submit blocks when the backlog is full
+        points: 2
+      - key: stop_protocol
+        label: Shutdown sets a closed flag under a lock, queues one sentinel per worker after real tasks and joins every worker
+        points: 3
+      - key: error_isolation
+        label: A raising task is caught inside the worker loop and the error is recorded, not lost
+        points: 2
+      - key: explains_no_loss
+        label: Explains why no submitted task is dropped and why no worker waits forever (FIFO plus one sentinel per worker)
+        points: 2
+      - key: race_window
+        label: Identifies the submit-versus-shutdown window and how to close it
+        points: 1
+    follow_ups:
+      - prompt: How would you add shutdown(timeout) that gives up after a deadline?
+        look_for: Join each worker with the remaining time from one deadline; report unfinished work; workers stay daemon threads or tasks need cooperative cancellation because threads cannot be killed safely.
+      - prompt: How would you size workers and capacity for tasks that each wait 80 ms on an API and compute for 20 ms on 4 cores?
+        look_for: 4 × (1 + 80/20) = 20 workers as a start, capped by the API's concurrency limit; capacity from the acceptable queueing delay (capacity / throughput), not from memory alone.
+      - prompt: Why can a task in this pool deadlock if it submits another task and waits for it?
+        look_for: All workers can be busy waiting on children queued behind them, and with a full queue the submit itself blocks; use a separate pool or avoid blocking waits inside tasks.
+- key: os.concurrency_practical.interview
+  type: interview_question
+  title: "Interview question: threads, processes or an event loop?"
+  skills: [os.concurrency_practical, os.scheduling_context_switch]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    prompt: |-
+      You are building three components on 8-core Linux machines: (a) a gateway that keeps 50,000 mostly idle websocket connections and forwards occasional small messages, (b) an export service that renders large PDF reports, about 2 seconds of CPU each, (c) an API that calls two internal services with about 60 ms latency each per request at 300 requests per second. For each, choose a concurrency model, size it and say what would go wrong with the obvious alternative.
+    key_points:
+      - "(a) an event loop (epoll-based) because connections are idle and per-message work is tiny; thread-per-connection would need 50,000 stacks and heavy scheduling."
+      - "(b) CPU-bound: a pool of about 8 workers (processes in CPython), a bounded job queue and asynchronous job status; more workers than cores only increases latency."
+      - "(c) I/O-bound: uses Little's law, 300/s × 120 ms is about 36 concurrent requests if the calls are sequential, about 18 if parallel, so a thread pool or async client sized a bit above that, with timeouts."
+      - Puts a bounded queue or concurrency limit in front of each and states an overload policy.
+      - Mentions that blocking or CPU work must never run on the event loop in (a).
+    model_answer: |-
+      (a) An event loop. Each connection is a socket registered with epoll; the loop wakes only for ready sockets, so 50,000 idle connections cost memory for buffers, not threads. Run a few loops (one per core) to use all CPUs. Anything slow, such as authentication against a database, goes to a worker pool. Thread-per-connection would mean 50,000 threads and their stacks.
+
+      (b) CPU-bound rendering. About 8 workers, one per core, as processes in CPython so they run in parallel; a bounded job queue in front; clients get a job id and poll or receive a callback. With 50 workers the jobs would each take longer and memory would balloon.
+
+      (c) I/O-bound. Little's law: 300 per second × 120 ms if the two calls are sequential gives about 36 requests in flight; calling both in parallel halves it to about 18. A thread pool or async HTTP client with roughly 50 slots, connection pools to each service sized to match, and strict timeouts with a retry budget. Without timeouts, a slow dependency would pin every slot and the API would stop.
+    pitfalls:
+      - One model for everything, usually "use async everywhere" or "add more threads".
+      - Sizing by guess without a number for wait vs compute time.
+      - Ignoring downstream connection-pool limits and timeouts.
+    follow_ups:
+      - prompt: In (c), one internal service's latency rises to 2 seconds. What happens to your pool and how do you protect the API?
+        look_for: In-flight requests rise by Little's law (300/s × 2 s = 600), the pool saturates and the queue fills; protect with timeouts, a concurrency limit per dependency (bulkhead), a circuit breaker and fast rejection.
+      - prompt: In (a), a developer adds a synchronous call that takes 50 ms to the message handler. What do users observe?
+        look_for: Every connection on that loop is delayed by 50 ms per message, throughput caps at about 20 messages per second per loop, and latency spikes; move the call to a pool or make it non-blocking.
+      - prompt: Why would you run one event loop per core rather than one per machine?
+        look_for: A single loop runs on one thread and uses one core; several loops (processes or threads with SO_REUSEPORT or a shared accept) use all cores while each stays single-threaded.
+- key: os.concurrency_practical.debug_pool_starvation
+  type: debugging_exercise
+  title: "Debugging: a worker pool that stops under load with no lock cycle"
+  skills: [os.concurrency_practical, os.deadlocks, engineering.debugging]
+  minutes: 20
+  difficulty: HARD
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 1200}
+  body:
+    scenario: |-
+      A report service handles each request in a shared pool of 16 worker threads. A recent change made each request split its work into four chunks, submit the chunks to the same pool and wait for all four results before merging. At low traffic it is faster than before. During the morning peak, throughput drops to zero for minutes at a time, then recovers when clients give up and requests are cancelled.
+    symptoms:
+      - CPU is close to idle during the stall.
+      - The pool's queue holds a few dozen tasks and the count does not go down.
+      - A lock-cycle detector in the thread dump tooling finds nothing.
+      - Downstream services and the database are idle during the stall.
+    artifacts:
+      language: text
+      code: |-
+        # thread dump during a stall (format simplified)
+        16 threads in state WAITING, all with the same stack:
+            future.result()               report.py:88   wait for chunk results
+            handle_report()               report.py:80
+            worker loop                   pool.py:31
+
+        pool: active=16  queued=41 (39 are chunk tasks, 2 are new requests)
+
+        # report.py
+        80  def handle_report(req):
+        81      chunks = split(req)
+        82      futures = [pool.submit(render_chunk, c) for c in chunks]
+        88      parts = [f.result() for f in futures]      # blocks until all chunks finish
+        89      return merge(parts)
+    tasks:
+      - Explain why the service stops although no lock is involved.
+      - Map the situation to the deadlock conditions.
+      - Propose at least two fixes and say which you would ship.
+      - Say why it works at low traffic.
+    hints:
+      - Where are the chunk tasks, and which threads could run them?
+      - What does each of the 16 workers hold while it waits?
+    reference: |-
+      **Cause.** Thread-pool starvation deadlock. When 16 or more requests arrive together, all 16 workers run handle_report and block in future.result(). Their chunk tasks are queued in the same pool, behind them, and need a free worker to run, but every worker is waiting for chunks. Nothing can progress until requests are cancelled. No mutex is involved, so lock-cycle detectors see nothing; the resource is the pool's worker slots.
+
+      **Deadlock conditions.** Mutual exclusion: a worker slot runs one task at a time. Hold and wait: each parent holds a slot while waiting for chunk results. No preemption: a running task cannot be suspended to free its slot. Circular wait: parents wait on children, children wait for slots held by parents.
+
+      **Fixes.** Use a separate pool for chunk tasks, so parents and children never compete for the same slots (simplest and the one to ship first, with each pool sized separately). Or do not block inside the pool: compose the work asynchronously (submit chunks and attach a continuation that merges when all complete), or run one chunk inline in the parent. Rejecting new requests when the pool is nearly full reduces the chance but does not remove it. Making the pool larger only moves the threshold.
+
+      **Why low traffic works.** With fewer than 16 concurrent requests some workers are free to run the chunks, so each parent's wait ends. The bug needs concurrency at or above the pool size, which only the peak provides.
+    rubric:
+      - key: mechanism
+        label: Identifies that every worker is blocked waiting on child tasks queued in the same pool
+        points: 3
+      - key: conditions
+        label: Maps it to hold-and-wait and circular wait on pool slots rather than locks
+        points: 2
+      - key: fixes
+        label: Proposes separate pools or non-blocking composition, and explains why a bigger pool is not a fix
+        points: 3
+      - key: threshold
+        label: Explains why the bug appears only when concurrent requests reach the pool size
+        points: 2
+    follow_ups:
+      - prompt: How would you detect this automatically in production?
+        look_for: Alert when all workers are busy and queue depth is non-zero but completions stop; a watchdog that dumps threads when no task completes for N seconds.
+      - prompt: Would an async event loop with tasks instead of threads have the same problem?
+        look_for: Not if the parent awaits the children, because awaiting yields the loop; it reappears if the parent blocks the loop synchronously or if a bounded semaphore is held while awaiting work that needs the same semaphore.
+- key: os.concurrency_practical.cards
+  type: revision_card
+  title: "Recall: practical concurrency"
+  skills: [os.concurrency_practical]
+  minutes: 5
+  body:
+    cards:
+      - front: Pool size for CPU-bound work?
+        back: About one worker per core; more adds switching, not throughput.
+      - front: Sizing formula for I/O-bound pools?
+        back: cores x utilisation x (1 + wait / compute), capped by the downstream limit.
+      - front: Little's law?
+        back: In-flight work = arrival rate x time each item spends in the system.
+      - front: Why bound the queue in front of a pool?
+        back: It turns overload into back-pressure or fast rejection instead of unbounded memory and latency.
+      - front: The one rule of an event-loop handler?
+        back: Never block; move blocking I/O and CPU work to a pool.
+      - front: Why does submitting to your own pool and waiting deadlock?
+        back: All workers can hold slots while waiting for children that need a slot.

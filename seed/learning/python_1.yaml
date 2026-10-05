@@ -1,0 +1,691 @@
+# Learning content, Python for interviews (1/4): core language — functions, scope, closures, decorators, exceptions, context managers, mutability and the memory model.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- functions, scope, closures, decorators
+- key: py.core_syntax.lesson
+  type: lesson
+  title: Functions, scope (LEGB), closures and decorators
+  skills: [python.core_syntax]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: A Python function is an object that remembers where it was defined; scope rules, closures and decorators all follow from that one fact.
+    what: |-
+      In Python, `def` is an executable statement that creates a **function object** and binds it to a name. Functions are first-class: you can pass them, return them and store them in data structures.
+
+      - **Parameters**: positional, keyword, defaults, `*args` (extra positionals as a tuple), `**kwargs` (extra keywords as a dict), keyword-only parameters after a bare `*`, and positional-only parameters before `/` (3.8+).
+      - **Scope** is resolved with the **LEGB** rule: Local, Enclosing function, Global (module), Built-in.
+      - A **closure** is a nested function that keeps access to variables of the enclosing function after that function has returned.
+      - A **decorator** is a callable that takes a function and returns a replacement; `@deco` above `def f` means `f = deco(f)`.
+    why: |-
+      These rules explain most "Python surprised me" bugs in interviews and production: the `UnboundLocalError` when you increment a module counter, the mutable default argument that leaks state across calls, and the list of lambdas that all return the same value. Decorators are how real codebases add cross-cutting behaviour (caching, retries, timing, auth checks in FastAPI and Django) without editing every function.
+    when: |-
+      - Use keyword-only parameters for flags and options so call sites stay readable: `def fetch(url, *, timeout, retries=3)`.
+      - Use a closure when you need a small piece of private state with one behaviour (a counter, a memo table, a configured validator).
+      - Use a decorator when the same wrapper logic applies to many functions: `functools.cache`, retry, timing, permission checks.
+      - Prefer a class when the state has several operations or needs to be inspected and tested on its own.
+    how: |-
+      **Name resolution.** At compile time Python decides, per function, which names are local: any name **assigned** anywhere in the function body (including `+=`, `for x in`, `import`, `def`) is local for the whole body. Reading such a name before assignment raises `UnboundLocalError`. To rebind an outer name, declare it: `global name` for module level, `nonlocal name` for the nearest enclosing function.
+
+      ```python
+      count = 0
+      def bump():
+          count += 1        # UnboundLocalError: count is local because it is assigned here
+
+      def make_counter():
+          count = 0
+          def bump():
+              nonlocal count    # rebind the enclosing variable
+              count += 1
+              return count
+          return bump
+      ```
+
+      **Defaults are evaluated once**, when `def` runs, not on each call. A mutable default (`[]`, `{}`) is therefore shared by every call. Use `None` as a sentinel and create the object inside.
+
+      **Closures capture variables, not values.** The inner function holds a reference to a cell; it reads the current value when it runs (late binding).
+
+      **Decorators.** A decorator with arguments is a factory that returns the decorator. Always wrap with `functools.wraps(func)` so the wrapper keeps `__name__`, `__doc__`, `__qualname__` and gets `__wrapped__`; tools such as pytest, FastAPI and logging rely on those.
+
+      ```python
+      import functools, time
+
+      def timed(func):
+          @functools.wraps(func)
+          def wrapper(*args, **kwargs):
+              start = time.perf_counter()
+              try:
+                  return func(*args, **kwargs)
+              finally:
+                  print(func.__name__, time.perf_counter() - start)
+          return wrapper
+      ```
+
+      Stacking `@a` above `@b` above `def f` gives `f = a(b(f))`: `b` wraps first, `a`'s wrapper runs first at call time.
+    mental_model: |-
+      Picture each call as a fresh local dictionary, chained to the enclosing function's cells, then the module's globals, then `builtins`. Lookup walks that chain outwards; assignment always writes to the innermost level unless `global` or `nonlocal` redirects it. A decorator is just a function call that runs once, at definition time, and replaces the name.
+    tradeoffs: |-
+      Closures are lighter than classes but hide their state: you cannot easily inspect or reset it in a test. Decorators remove duplication but add a layer to every stack trace and can make signatures opaque to type checkers unless typed with `ParamSpec`. `*args, **kwargs` everywhere gives flexibility at the cost of discoverability; explicit keyword-only parameters catch typos at call time.
+    mistakes:
+      - "Mutable default argument: `def add(x, bucket=[])` keeps appending to the same list across calls."
+      - "Late binding in loops: `[lambda: i for i in range(3)]` returns 2, 2, 2. Bind early with a default `lambda i=i: i` or use `functools.partial`."
+      - Assigning to a global name inside a function without `global`, which makes every read of it in that function an `UnboundLocalError`.
+      - "Forgetting `functools.wraps`, so every decorated view is named `wrapper` (this breaks frameworks that register functions by name)."
+      - Writing a decorator with arguments as one level of nesting and getting `TypeError` because the arguments were passed where the function was expected.
+      - Shadowing built-ins such as `list`, `id`, `type` or `input` with local variables, then calling them later in the same scope.
+    interview: |-
+      Expect code-reading questions ("what does this print?") on defaults, closures in loops and `UnboundLocalError`, and a request to write a decorator: timing, retry with arguments, or memoisation. Interviewers check that you use `functools.wraps`, pass through `*args, **kwargs`, re-raise the last exception rather than swallowing it, and can explain why defaults are evaluated once.
+    explain_it:
+      - "State LEGB and the compile-time rule: assignment anywhere makes a name local for the whole function."
+      - Explain that `def` runs once, so defaults are created once; use a `None` sentinel for mutable defaults.
+      - Explain that closures keep a reference to the variable (a cell), so they see its latest value.
+      - Write a decorator in three layers when it takes arguments, and name `functools.wraps`.
+    example:
+      language: python
+      code: |-
+        import functools
+
+        def memoize(func):
+            cache: dict[tuple, object] = {}      # lives in the closure, one per decorated function
+
+            @functools.wraps(func)
+            def wrapper(*args):
+                if args not in cache:            # args must be hashable
+                    cache[args] = func(*args)
+                return cache[args]
+            return wrapper
+
+        @memoize
+        def fib(n: int) -> int:
+            return n if n < 2 else fib(n - 1) + fib(n - 2)
+
+        fib(80)   # O(n) calls instead of O(2^n); fib.__name__ is still "fib"
+      explanation: "In real code use `functools.cache` (3.9+) or `functools.lru_cache(maxsize=...)`; both need hashable arguments and keep the cache alive for the life of the function."
+    internals: |-
+      In CPython, a variable captured by a nested function is stored in a **cell** object; the inner function's `__closure__` holds those cells and `__code__.co_freevars` lists their names. Locals are stored in a fixed-size array indexed at compile time (which is why the local/global decision is made before the function runs). Default values live in `func.__defaults__` and `func.__kwdefaults__`, created when `def` executes.
+    edge_cases:
+      - "Class bodies are not an enclosing scope for methods: a method cannot read a class attribute by its bare name, it needs `self.x` or `ClassName.x`."
+      - "Comprehensions have their own scope, so the loop variable does not leak (unlike a plain `for` loop, whose variable survives after the loop)."
+      - "`except E as e` deletes `e` at the end of the except block to break a reference cycle with the traceback."
+    misconceptions:
+      - "\"Python passes by reference\": it passes object references by value (call by sharing). Rebinding a parameter never affects the caller; mutating the object does."
+      - "\"A decorator runs on every call\": the decorator runs once at definition time; only the wrapper it returns runs per call."
+
+# ---------------------------------------------------------------------------------------------- exceptions and context managers
+- key: py.core_syntax.lesson_2
+  type: lesson
+  title: Exceptions and context managers
+  skills: [python.core_syntax]
+  minutes: 20
+  difficulty: MEDIUM
+  body:
+    summary: Exceptions carry failures up the stack; context managers guarantee cleanup on the way out. Together they decide whether resources leak when things go wrong.
+    what: |-
+      An **exception** is an object raised to signal that an operation could not complete. It propagates up the call stack until a matching `except` clause handles it, or the program ends with a traceback.
+
+      A **context manager** is an object used by `with`: its `__enter__` runs on entry, and its `__exit__(exc_type, exc_value, traceback)` runs on every exit, normal or exceptional. Files, locks, database transactions and HTTP clients are all context managers.
+    why: |-
+      Backend code acquires resources (connections, locks, temp files, transactions) and calls things that fail (networks, parsers, databases). Without disciplined handling you get leaked connections, held locks, half-written files and errors swallowed so silently that an incident takes hours to diagnose. `with` makes the release path impossible to forget, and precise `except` clauses keep unexpected bugs visible.
+    when: |-
+      - Use `with` for anything that must be released: `open`, `threading.Lock`, `sqlite3`/SQLAlchemy sessions, `httpx.Client`, `tempfile.TemporaryDirectory`.
+      - Catch an exception only where you can do something useful: retry, translate it into a domain error, return a fallback, or add context and re-raise.
+      - Define your own exception classes for domain failures (`InsufficientFunds`, `NotFound`) so callers can catch them precisely.
+      - Prefer **EAFP** ("easier to ask forgiveness than permission", `try: d[k]` / `except KeyError`) when the failure is rare or a check would race (a file can disappear between `exists()` and `open()`); prefer **LBYL** (check first) when failure is common and the check is cheap.
+    how: |-
+      The full statement:
+
+      ```python
+      try:
+          data = load(path)            # keep the try block as small as possible
+      except FileNotFoundError:
+          data = {}                    # specific: expected, recoverable
+      except json.JSONDecodeError as err:
+          raise ConfigError(f"bad config {path}") from err   # translate, keep the cause
+      else:
+          validate(data)               # runs only if no exception was raised in try
+      finally:
+          log.info("config load attempted")   # always runs, even on return or raise
+      ```
+
+      - `except` clauses are tried top to bottom; put subclasses before their base classes.
+      - A bare `raise` inside `except` re-raises the current exception with its original traceback.
+      - `raise New(...) from err` records `err` as `__cause__` ("the above exception was the direct cause"). Raising inside an `except` without `from` still records `__context__` ("during handling of the above exception, another exception occurred"). `from None` hides the context.
+      - Catch `Exception`, never a bare `except:`; the bare form also catches `KeyboardInterrupt` and `SystemExit`, which derive from `BaseException`.
+      - Python 3.11 added `ExceptionGroup` and `except*` for several concurrent failures (for example from `asyncio.TaskGroup`), and `err.add_note(...)` to attach context.
+
+      Writing a context manager, two ways:
+
+      ```python
+      class Transaction:
+          def __init__(self, conn):
+              self.conn = conn
+          def __enter__(self):
+              self.conn.execute("BEGIN")
+              return self.conn
+          def __exit__(self, exc_type, exc, tb):
+              if exc_type is None:
+                  self.conn.execute("COMMIT")
+              else:
+                  self.conn.execute("ROLLBACK")
+              return False          # do not suppress: the caller still sees the error
+
+      from contextlib import contextmanager
+
+      @contextmanager
+      def transaction(conn):
+          conn.execute("BEGIN")
+          try:
+              yield conn
+          except BaseException:
+              conn.execute("ROLLBACK")
+              raise
+          else:
+              conn.execute("COMMIT")
+      ```
+
+      `contextlib` also gives `suppress(FileNotFoundError)`, `ExitStack` for a dynamic number of resources, and `closing()` for objects that only have `close()`.
+    mental_model: |-
+      Think of the stack as a set of nested `with` and `try` frames. A raised exception unwinds outward; every `finally` and every `__exit__` it passes through runs, innermost first. Handling is a decision at one level: "can I fix this here?" If not, let it pass upward with more context, not less.
+    tradeoffs: |-
+      Broad handlers (`except Exception`) keep a worker alive but can hide bugs; use them only at boundaries (request handler, job runner) and always log the traceback with `log.exception`. Fine-grained exception hierarchies help callers but are overkill for a script. EAFP is idiomatic and race-free; LBYL can be clearer when the "error" is a normal branch (an optional key: use `d.get(k, default)`).
+    mistakes:
+      - "Swallowing errors with `except Exception: pass`, turning a crash into silent data loss."
+      - Wrapping a whole function body in `try`, so the handler catches errors from lines it was never meant to cover.
+      - "`raise NewError(str(e))` without `from e`, losing the original type and traceback."
+      - "Returning from `finally`, which silently discards an in-flight exception."
+      - "Writing a `@contextmanager` generator without `try/finally` around `yield`, so cleanup is skipped when the body raises."
+      - "Returning `True` from `__exit__` by accident (for example returning a truthy result), which suppresses the exception."
+    interview: |-
+      You may be asked to explain `else` and `finally`, to write a context manager (timer, lock, transaction, temporary directory change), or to review code that leaks a file or swallows an exception. In design discussions, saying "the handler translates low-level errors into domain errors at the boundary and keeps the cause with `from`" shows production maturity.
+    explain_it:
+      - Name the four clauses and when each runs.
+      - Say which exceptions you catch, why there, and what happens to the rest.
+      - "Explain the `__enter__`/`__exit__` protocol and what a truthy return from `__exit__` means."
+      - Show how `raise ... from err` keeps the root cause visible in logs.
+    example:
+      language: python
+      code: |-
+        import os
+        from contextlib import contextmanager
+
+        @contextmanager
+        def working_directory(path: str):
+            previous = os.getcwd()
+            os.chdir(path)
+            try:
+                yield path
+            finally:
+                os.chdir(previous)     # restored even if the body raises
+
+        with working_directory("/tmp"):
+            run_build()                # an exception here still restores the cwd
+      explanation: The finally block is what makes this safe; without it an exception in the body would leave the process in the wrong directory.
+    internals: |-
+      `with cm as x:` is roughly: `x = cm.__enter__()`, run the body, then call `cm.__exit__(type, value, tb)` with the exception details (or three `None`s). If `__exit__` returns a truthy value, the exception is suppressed. `@contextmanager` builds that object for you: the code before `yield` is `__enter__`, and on an exception it throws the exception into the generator at the `yield` point.
+    edge_cases:
+      - "Exceptions raised inside `__exit__` replace the original one; keep cleanup code simple."
+      - "`StopIteration` raised inside a generator becomes `RuntimeError` (PEP 479, Python 3.7+)."
+      - "`KeyboardInterrupt` can arrive between any two bytecodes; `finally` and `with` still run, but code that catches `BaseException` must re-raise it."
+
+# ---------------------------------------------------------------------------------------------- mutability, copies, memory model
+- key: py.core_syntax.lesson_3
+  type: lesson
+  title: Mutability, references, copies and the memory model
+  skills: [python.core_syntax, python.builtin_complexity]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Names are labels bound to objects; assignment never copies. Knowing which objects are mutable, and when a copy is shallow, prevents aliasing bugs.
+    what: |-
+      Every value in Python is an **object** with an identity (`id()`), a type and a value. A **name** (variable) is a reference bound to an object; several names can refer to the same object. Assignment `b = a` binds `b` to the same object, it does not copy.
+
+      - **Mutable** objects can change in place: `list`, `dict`, `set`, `bytearray`, most user-defined class instances.
+      - **Immutable** objects cannot: `int`, `float`, `bool`, `str`, `bytes`, `tuple`, `frozenset`, `None`.
+      - `==` compares values (calls `__eq__`); `is` compares identity (same object).
+      - A **shallow copy** creates a new outer container holding the same inner objects; a **deep copy** (`copy.deepcopy`) recursively copies the inner objects too.
+    why: |-
+      Aliasing bugs are among the most common silent errors in Python: a "copied" config dict that changes the original, a grid built with `[[0] * n] * n` whose rows all change together, a function that mutates the caller's list. Interviewers use these to check that you understand what the language actually does, and in production they cause corrupted caches and shared state between requests.
+    when: |-
+      - Before mutating a parameter, decide whether the caller expects it; if not, copy first or return a new object.
+      - Use immutable types (tuples, frozen dataclasses, `frozenset`) for dict keys, set members and values shared between threads or requests.
+      - Use `copy.deepcopy` only when nested mutable data really must be independent; it is slow and copies everything reachable.
+      - Use `is` only for singletons: `x is None`, `x is True` in tests, sentinel objects. Use `==` for values.
+    how: |-
+      ```python
+      a = [1, 2, 3]
+      b = a              # same object: b is a -> True
+      b.append(4)        # a is now [1, 2, 3, 4]
+
+      c = a[:]           # shallow copy (also list(a), a.copy(), copy.copy(a))
+      c.append(5)        # a unchanged
+
+      grid = [[0] * 3] * 3       # three references to ONE inner list
+      grid[0][0] = 1             # [[1, 0, 0], [1, 0, 0], [1, 0, 0]]
+      grid = [[0] * 3 for _ in range(3)]   # three independent rows
+
+      nested = {"tags": ["a"]}
+      shallow = dict(nested)
+      shallow["tags"].append("b")          # nested["tags"] is ["a", "b"] too
+      import copy
+      deep = copy.deepcopy(nested)         # independent all the way down
+      ```
+
+      **Augmented assignment** depends on the type: for a list, `x += [4]` calls `__iadd__` and mutates in place (every alias sees it); for an `int`, `str` or `tuple` it builds a new object and rebinds the name.
+
+      **Passing arguments** is call by sharing: the parameter is a new name bound to the caller's object. `items.append(x)` inside the function is visible to the caller; `items = []` is not.
+    mental_model: |-
+      Draw names as sticky notes and objects as boxes. Assignment moves or adds a sticky note; it never duplicates a box. Mutation changes what is inside a box, so every note on that box sees it. A shallow copy is a new outer box whose compartments point at the same inner boxes.
+    tradeoffs: |-
+      Mutating in place is O(1) extra memory and fast, but makes data flow harder to reason about and unsafe to share. Returning new objects is easier to test and safe across threads, but costs allocation and copying (O(n) per copy). Deep copies are the safest and the most expensive; for large nested data prefer designing with immutable inner values so a shallow copy is enough.
+    mistakes:
+      - "`[[0] * n] * n` for a 2-D grid: every row is the same list."
+      - Assuming `dict(d)`, `list(x)`, `x[:]` or `x.copy()` copy nested objects; they are shallow.
+      - "Using `is` to compare numbers or strings (`if count is 1000`): it may work for small values in CPython and fail for others."
+      - Mutating a list while iterating over it, which skips elements; iterate over a copy or build a new list.
+      - Storing a mutable object as a class attribute, so all instances share it.
+    interview: |-
+      Classic questions: "what does this print?" with aliasing, `+=` on a list held in a tuple, the 2-D grid bug, shallow vs deep copy, and "is Python pass-by-value or pass-by-reference?". Strong answers use the vocabulary "names bind to objects", "call by sharing", and distinguish identity from equality.
+    explain_it:
+      - Names refer to objects; assignment binds, never copies.
+      - Mutation is visible through every alias; rebinding affects only that one name.
+      - Shallow copy duplicates the container only; deep copy duplicates everything reachable.
+      - "`is` checks identity and is for singletons like `None`; `==` checks value."
+    example:
+      language: python
+      code: |-
+        t = ([1, 2], "x")
+        try:
+            t[0] += [3]          # list.__iadd__ mutates the list, THEN tuple item assignment fails
+        except TypeError as err:
+            print(err)           # 'tuple' object does not support item assignment
+        print(t)                 # ([1, 2, 3], 'x')  -- the mutation already happened
+      explanation: "`x[i] += y` is `x[i] = x[i].__iadd__(y)`. The in-place add succeeds on the list, then storing the result back into the tuple raises. The tuple is immutable, but the list it holds is not."
+    internals: |-
+      In **CPython**, every object carries a **reference count**. Binding a name, storing in a container or passing as an argument increments it; unbinding (`del name`, reassignment, leaving a scope) decrements it. When it reaches zero, the object is freed immediately. Reference cycles (an object that refers to itself, or parent and child pointing at each other) never reach zero, so a separate **cyclic garbage collector** (module `gc`, generational) finds and frees unreachable cycles periodically. `del x` removes a name, not the object; the object dies only when its last reference goes.
+
+      `sys.getrefcount(obj)` reports one more than you expect because the call itself holds a reference. Since CPython 3.12 some objects (such as `None`, `True` and small integers) are **immortal** (PEP 683): their reference count is never changed, so the reported number is large and fixed.
+
+      CPython caches small integers (-5 to 256) and interns some strings, which is why `a is b` can be true for equal small values. That is an implementation detail; never rely on it. Other implementations (PyPy) do not use reference counting at all, so deterministic cleanup should come from `with`, not from `__del__`.
+    edge_cases:
+      - "`copy.deepcopy` handles cycles through a memo dict, and calls `__deepcopy__` if a class defines it."
+      - "Tuples are hashable only if all their elements are hashable: `hash(([1],))` raises `TypeError`."
+      - "`float(\"nan\") == float(\"nan\")` is False, yet `x in [x]` is True for the same NaN object, because containers check identity before equality."
+    misconceptions:
+      - "\"Immutable means the whole value can never change\": a tuple's slots are fixed, but the objects in those slots may be mutable."
+      - "\"`del` frees memory\": it only drops one reference; memory is freed when the count reaches zero (CPython) or when the collector runs."
+
+- key: py.core_syntax.check
+  type: concept_check
+  title: "Concept check: functions, scope, decorators and exceptions"
+  skills: [python.core_syntax]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Predict the output before reading the options. Every snippet is valid Python 3.11.
+    questions:
+      - id: q1
+        kind: single
+        prompt: What does this print?
+        code:
+          language: python
+          code: |-
+            def add(item, bucket=[]):
+                bucket.append(item)
+                return bucket
+
+            add(1)
+            print(add(2))
+        options: ["[2]", "[1, 2]", "[1]", "TypeError"]
+        answer: [1]
+        explanation: "The default list is created once, when `def` runs, and shared by every call that omits `bucket`. The first call appended 1 to it, so the second returns `[1, 2]`. `[2]` is what you would get with a `None` sentinel and `bucket = []` inside."
+      - id: q2
+        kind: single
+        prompt: What does this print?
+        code:
+          language: python
+          code: |-
+            fns = [lambda: i * 10 for i in range(3)]
+            print([f() for f in fns])
+        options: ["[0, 10, 20]", "[20, 20, 20]", "[0, 0, 0]", "NameError"]
+        answer: [1]
+        explanation: "Each lambda closes over the variable `i`, not its value at creation time. When the lambdas run, the comprehension has finished and `i` is 2, so every call returns 20. `lambda i=i: i * 10` would bind the value early and give `[0, 10, 20]`."
+      - id: q3
+        kind: single
+        prompt: Calling `bump()` does what?
+        code:
+          language: python
+          code: |-
+            total = 0
+            def bump():
+                print(total)
+                total = total + 1
+        options:
+          - Prints 0 and sets the global total to 1
+          - Prints 0 and leaves the global unchanged
+          - Raises UnboundLocalError at the print line
+          - Raises NameError at definition time
+        answer: [2]
+        explanation: "Because `total` is assigned somewhere in the function, the compiler makes it local for the whole body. The `print` reads the local before it has a value, so `UnboundLocalError`. It is not a definition-time error: nothing is checked until the call. `global total` would fix it."
+      - id: q4
+        kind: multi
+        prompt: "Which statements about `try / except / else / finally` are true?"
+        options:
+          - "`else` runs only when the `try` block raised no exception"
+          - "`finally` runs even when the `try` block executes `return`"
+          - "`except Exception` also catches KeyboardInterrupt"
+          - "A bare `raise` inside `except` re-raises the current exception with its traceback"
+        answer: [0, 1, 3]
+        explanation: "`else` is for code that should run only on success, kept outside the try so its own errors are not caught by the handlers. `finally` always runs, including on `return`. `KeyboardInterrupt` and `SystemExit` derive from `BaseException`, not `Exception`, so `except Exception` does not catch them; that is exactly why it is preferred over a bare `except:`."
+      - id: q5
+        kind: single
+        prompt: "With `@a` written above `@b` above `def f(): ...`, what is `f` bound to?"
+        options: ["a(b(f))", "b(a(f))", "a(f) and b(f) chained by the interpreter at each call", "f with both decorators registered as hooks"]
+        answer: [0]
+        explanation: "Decorators apply bottom-up: `b` wraps the original function first, then `a` wraps the result. At call time `a`'s wrapper runs first because it is outermost. Decorators are plain function calls at definition time, not hooks."
+      - id: q6
+        kind: short
+        prompt: Why should a decorator use `functools.wraps`, and what goes wrong without it?
+        model_answer: "Without it the returned wrapper has its own name and docstring (`wrapper`, None), so introspection, logging, stack traces, documentation tools, and frameworks that register or route by function name or signature see the wrong function; two decorated FastAPI or Flask handlers can even collide on the same name. `functools.wraps(func)` copies `__name__`, `__qualname__`, `__doc__`, `__module__` and `__dict__` and sets `__wrapped__`, so `inspect.signature` and tools can reach the original."
+        explanation: "Interviewers look for the concrete consequence (name collisions, lost signature), not only \"it copies metadata\"."
+
+- key: py.core_syntax.check_2
+  type: concept_check
+  title: "Concept check: mutability, copies and identity"
+  skills: [python.core_syntax]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Draw the names and objects on paper if a snippet is unclear.
+    questions:
+      - id: q1
+        kind: single
+        prompt: What does this print?
+        code:
+          language: python
+          code: |-
+            grid = [[0] * 2] * 2
+            grid[0][1] = 7
+            print(grid)
+        options: ["[[0, 7], [0, 0]]", "[[0, 7], [0, 7]]", "[[7, 7], [0, 0]]", "TypeError"]
+        answer: [1]
+        explanation: "`[row] * 2` repeats the reference to the same inner list, so both rows are one object and the change shows twice. `[[0] * 2 for _ in range(2)]` creates independent rows and would give the first option."
+      - id: q2
+        kind: single
+        prompt: After this code, what is `original`?
+        code:
+          language: python
+          code: |-
+            original = {"ids": [1, 2]}
+            clone = original.copy()
+            clone["ids"].append(3)
+            clone["name"] = "x"
+        options:
+          - "{'ids': [1, 2]}"
+          - "{'ids': [1, 2, 3]}"
+          - "{'ids': [1, 2, 3], 'name': 'x'}"
+          - "{'ids': [1, 2], 'name': 'x'}"
+        answer: [1]
+        explanation: "`dict.copy()` is shallow: a new dict whose values are the same objects. Appending to the shared list is visible through both; adding a new key changes only the clone's own table. `copy.deepcopy` would leave the original untouched."
+      - id: q3
+        kind: single
+        prompt: What happens?
+        code:
+          language: python
+          code: |-
+            def reset(items):
+                items = []
+
+            def clear(items):
+                items.clear()
+
+            data = [1, 2]
+            reset(data)
+            print(data)
+            clear(data)
+            print(data)
+        options:
+          - "Prints [] then []"
+          - "Prints [1, 2] then []"
+          - "Prints [1, 2] then [1, 2]"
+          - "Prints [] then [1, 2]"
+        answer: [1]
+        explanation: "Call by sharing: `reset` rebinds its local name to a new list and the caller is unaffected. `clear` mutates the object both names refer to, so the caller sees an empty list."
+      - id: q4
+        kind: multi
+        prompt: Which of these are reliable uses of `is`?
+        options:
+          - "`if result is None:`"
+          - "`if count is 1000:`"
+          - "`if value is MISSING:` where `MISSING = object()` is a module-level sentinel"
+          - "`if name is \"admin\":`"
+        answer: [0, 2]
+        explanation: "`None` and a module-level sentinel are single objects, so identity is the correct test. Integers and strings are compared by value; `is` may happen to be true for small cached ints or interned strings in CPython, but that is an implementation detail (and Python 3.8+ warns about `is` with a literal)."
+      - id: q5
+        kind: single
+        prompt: In CPython, when is a list freed if two names refer to it and you run `del a`?
+        options:
+          - Immediately, because del frees the object
+          - When the other name also stops referring to it and its reference count reaches zero
+          - Only when the cyclic garbage collector next runs
+          - Never, until the process exits
+        answer: [1]
+        explanation: "`del` removes one name, decrementing the reference count. The object is freed as soon as the count reaches zero. The cyclic collector is needed only for reference cycles, which plain reference counting cannot free."
+      - id: q6
+        kind: short
+        prompt: "`t = ([1], 2)` then `t[0] += [9]`. What happens, and what is `t` afterwards? Explain why."
+        model_answer: "It raises `TypeError: 'tuple' object does not support item assignment`, but `t` is `([1, 9], 2)` afterwards. `t[0] += [9]` runs `t[0].__iadd__([9])`, which mutates the list in place and succeeds, then tries `t[0] = result`, which fails because tuples do not support item assignment."
+        explanation: "The question separates the container's immutability (fixed slots) from the mutability of the objects it holds."
+
+- key: py.core_syntax.retry_decorator
+  type: coding_exercise
+  title: "Exercise: a retry decorator with arguments"
+  skills: [python.core_syntax, execution.bug_free_coding]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 1200}
+  body:
+    prompt: |-
+      Write a decorator factory `retry(times, exceptions=(Exception,), delay_seconds=0)` that calls the decorated function up to `times` times in total. If a call raises one of `exceptions`, wait `delay_seconds` and try again; any other exception propagates immediately. If every attempt fails, re-raise the **last** exception unchanged. The decorated function must keep its name and docstring.
+
+      ```python
+      @retry(times=3, exceptions=(ConnectionError,))
+      def fetch_profile(user_id: int) -> dict:
+          """Load a profile from the remote service."""
+          ...
+      ```
+    examples:
+      - "A function that fails twice with ConnectionError and then returns 42 gives 42, with 3 calls in total."
+      - "A function that always raises ConnectionError raises ConnectionError after exactly 3 calls."
+      - "A function that raises ValueError raises it after 1 call (not in `exceptions`)."
+      - "`fetch_profile.__name__ == \"fetch_profile\"`"
+    constraints:
+      - "`times` is an integer of at least 1; raise ValueError otherwise, at decoration time."
+      - "Use only the standard library. Do not sleep after the final failed attempt."
+    hints:
+      - "A decorator that takes arguments needs three layers: the factory, the decorator, the wrapper."
+      - "Use `functools.wraps(func)` on the wrapper and pass `*args, **kwargs` through."
+      - "`except exceptions:` accepts a tuple of classes. A bare `raise` inside the handler re-raises with the original traceback."
+      - Decide on the last attempt before sleeping, so you neither sleep pointlessly nor swallow the final error.
+    starter:
+      language: python
+      code: |-
+        def retry(times, exceptions=(Exception,), delay_seconds=0):
+            ...
+    solution:
+      language: python
+      code: |-
+        import functools
+        import time
+        from collections.abc import Callable
+        from typing import ParamSpec, TypeVar
+
+        P = ParamSpec("P")
+        R = TypeVar("R")
+
+
+        def retry(
+            times: int,
+            exceptions: tuple[type[Exception], ...] = (Exception,),
+            delay_seconds: int = 0,
+        ) -> Callable[[Callable[P, R]], Callable[P, R]]:
+            if times < 1:
+                raise ValueError("times must be at least 1")
+
+            def decorator(func: Callable[P, R]) -> Callable[P, R]:
+                @functools.wraps(func)
+                def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+                    for attempt in range(1, times + 1):
+                        try:
+                            return func(*args, **kwargs)
+                        except exceptions:
+                            if attempt == times:
+                                raise              # last attempt: propagate the original error
+                            if delay_seconds:
+                                time.sleep(delay_seconds)
+                    raise AssertionError("unreachable")   # keeps type checkers happy
+
+                return wrapper
+
+            return decorator
+      explanation: "Time is O(times) calls plus the sleeps; extra space is O(1). The validation runs once when the factory is called, the loop and the handler run per call, and `ParamSpec` keeps the decorated signature visible to type checkers."
+    rubric:
+      - {key: three_layers, label: "Factory, decorator and wrapper are separated correctly; works with @retry(times=3)", points: 3}
+      - {key: wraps, label: "Uses functools.wraps and passes *args and **kwargs through", points: 2}
+      - {key: selective, label: Retries only the listed exceptions; others propagate on the first call, points: 2}
+      - {key: last_error, label: Re-raises the last exception unchanged and does not sleep after the final attempt, points: 2}
+      - {key: complexity_stated, label: "States the cost (at most `times` calls, O(1) extra space) and validates `times`", points: 1}
+    follow_ups:
+      - prompt: How would you add exponential backoff with jitter, and why jitter?
+        look_for: "Delay grows as base times 2 to the power of the attempt, capped, plus a random component so many clients do not retry in lockstep (thundering herd); use `random.uniform` and keep delays configurable."
+      - prompt: Is it safe to retry every function this way?
+        look_for: "Only idempotent operations, or ones protected by an idempotency key; retrying a non-idempotent POST can charge twice. Mentions a total deadline as well as an attempt count."
+      - prompt: How would you support `async def` functions?
+        look_for: "Detect with `inspect.iscoroutinefunction`, define an `async def` wrapper that awaits the call and uses `await asyncio.sleep`, never `time.sleep`, which blocks the event loop."
+
+- key: py.core_syntax.debugging
+  type: debugging_exercise
+  title: "Debugging: state leaking between requests"
+  skills: [python.core_syntax, execution.debugging_under_pressure]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 900}
+  body:
+    scenario: |-
+      A small service builds a notification payload per request. In production, users occasionally receive other users' recipients in the `cc` list, and the list grows over the day until the process restarts. Locally, with one request at a time, the first test passes and later ones fail.
+    symptoms:
+      - The first call after a restart returns the right payload.
+      - Each later call returns the recipients of every previous call as well.
+      - The three formatter callbacks all render the last channel name.
+    artifacts:
+      language: python
+      code: |-
+        def build_payload(user, cc=[], meta={}):
+            cc.append(user.email)
+            meta["count"] = meta.get("count", 0) + 1
+            return {"to": user.email, "cc": cc, "meta": meta}
+
+        CHANNELS = ["email", "sms", "push"]
+        formatters = []
+        for channel in CHANNELS:
+            formatters.append(lambda msg: f"[{channel}] {msg}")
+    tasks:
+      - Explain the root cause of each symptom precisely.
+      - Fix both functions without changing their call signatures for existing callers.
+      - Write one test that would have caught each bug.
+    hints:
+      - When are default argument values created?
+      - Does a lambda remember a value or a variable?
+    reference: |-
+      **Bug 1, mutable defaults.** `cc=[]` and `meta={}` are evaluated once when `def` runs, so every call that omits them shares the same list and dict for the life of the process. Fix with `None` sentinels and fresh objects per call. Even then, `cc.append(user.email)` mutates a list the caller passed in, which is a second, quieter aliasing bug: build a new list instead.
+
+      **Bug 2, late-binding closures.** Each lambda refers to the loop variable `channel`, which is `"push"` after the loop finishes. Bind the value at creation time with a default argument, `functools.partial`, or a factory function.
+
+      Tests: call `build_payload` twice with different users and assert the second payload's `cc` contains only the second user; assert `[f("hi") for f in formatters] == ["[email] hi", "[sms] hi", "[push] hi"]`.
+    solution:
+      language: python
+      code: |-
+        def build_payload(user, cc=None, meta=None):
+            recipients = [*(cc or []), user.email]      # new list: never mutate the caller's
+            meta = dict(meta or {})
+            meta["count"] = meta.get("count", 0) + 1
+            return {"to": user.email, "cc": recipients, "meta": meta}
+
+        def make_formatter(channel: str):
+            def fmt(msg: str) -> str:
+                return f"[{channel}] {msg}"
+            return fmt
+
+        formatters = [make_formatter(c) for c in ["email", "sms", "push"]]
+      explanation: Each call now allocates its own list and dict (O(len(cc)) per call), and each formatter closes over its own `channel` parameter.
+    rubric:
+      - {key: defaults_cause, label: Explains that defaults are evaluated once at def time and shared across calls, points: 3}
+      - {key: closure_cause, label: Explains that closures capture the variable and read it late, points: 2}
+      - {key: fix, label: Fixes both with sentinels / early binding and avoids mutating the caller's list, points: 3}
+      - {key: tests, label: Writes a test per bug that fails before the fix, points: 2}
+    follow_ups:
+      - prompt: Could the same leak happen with a class attribute? Show how.
+        look_for: "`class Payload: cc = []` shared by all instances when mutated through `self.cc.append`; fix by assigning in `__init__` or using `field(default_factory=list)`."
+      - prompt: Why did the bug look random in production?
+        look_for: "Each worker process has its own shared default; which users leak depends on which worker served earlier requests, and restarts reset it."
+
+- key: py.core_syntax.interview
+  type: interview_question
+  title: "Interview question: is Python pass-by-value or pass-by-reference?"
+  skills: [python.core_syntax]
+  minutes: 10
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 600}
+  body:
+    prompt: An interviewer asks whether Python passes arguments by value or by reference, and to prove the answer with a short example. Then they ask how `is` differs from `==` and when `copy.deepcopy` is needed.
+    key_points:
+      - "Says neither: Python passes references to objects by value (call by sharing); the parameter is a new name bound to the same object."
+      - Shows that mutating the argument is visible to the caller while rebinding the parameter is not.
+      - "Distinguishes identity (`is`, same object) from equality (`==`, `__eq__`) and limits `is` to singletons such as None."
+      - "Explains shallow vs deep copy with a nested example and names the cost of deepcopy (copies everything reachable, O(size))."
+      - Mentions that immutability of ints, strings and tuples is why "rebinding" looks like pass-by-value for them.
+    model_answer: "Python binds the parameter name to the same object the caller passed. If the function mutates that object, for example `items.append(1)`, the caller sees it; if it rebinds the name, `items = []`, the caller does not. For immutable objects only rebinding is possible, which is why ints look passed by value. `==` asks whether two objects have equal value; `is` asks whether they are the same object, so I use `is` only for None and sentinels. `list(x)` and `dict.copy()` are shallow: the outer container is new, the nested objects are shared. When nested mutable data must be independent I use `copy.deepcopy`, which recursively copies and handles cycles, at O(size of the object graph) cost."
+    pitfalls:
+      - Answering "pass by reference" and then failing to explain why `x = []` inside the function does not affect the caller.
+      - Claiming `is` works for small integers as if that were a language guarantee.
+    follow_ups:
+      - prompt: Why can a tuple not be a dict key when it contains a list?
+        look_for: "Hashing a tuple hashes its elements; lists are unhashable because they are mutable, so `hash` raises TypeError."
+      - prompt: How does CPython decide when to free an object, and what about cycles?
+        look_for: "Reference counting frees at zero immediately; a generational cyclic garbage collector (`gc`) reclaims unreachable reference cycles."
+
+- key: py.core_syntax.cards
+  type: revision_card
+  title: "Recall: functions, scope and exceptions"
+  skills: [python.core_syntax]
+  minutes: 5
+  body:
+    cards:
+      - front: What does LEGB stand for?
+        back: Local, Enclosing, Global, Built-in — the order Python looks up a name.
+      - front: Why does `count += 1` inside a function raise UnboundLocalError?
+        back: Assignment makes the name local for the whole function; declare `global` or `nonlocal`.
+      - front: When are default argument values evaluated?
+        back: Once, when `def` executes; use a None sentinel for mutable defaults.
+      - front: "`@a` over `@b` over `def f` equals?"
+        back: "f = a(b(f)); b wraps first, a's wrapper runs first."
+      - front: "`raise New() from err` vs raising inside except without from?"
+        back: "from sets __cause__ (direct cause); without it only __context__ is recorded."
+      - front: What does a truthy return from `__exit__` do?
+        back: Suppresses the exception raised in the with-block.
+- key: py.core_syntax.cards_2
+  type: revision_card
+  title: "Recall: references, copies and memory"
+  skills: [python.core_syntax]
+  minutes: 5
+  body:
+    cards:
+      - front: Does `b = a` copy a list?
+        back: No — both names refer to the same object.
+      - front: Is `dict.copy()` shallow or deep?
+        back: Shallow — new dict, same value objects.
+      - front: What is wrong with `[[0] * n] * n`?
+        back: All n rows are the same list object.
+      - front: When does CPython free an object?
+        back: When its reference count hits zero; the gc module collects cycles.
+      - front: When should you use `is`?
+        back: For singletons and sentinels (None, a module-level object()); use == for values.

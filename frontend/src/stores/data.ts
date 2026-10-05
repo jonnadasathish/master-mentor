@@ -1,10 +1,10 @@
 import { defineStore } from 'pinia'
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { api } from '../api'
 import type {
   ComponentNode, CurrentState, PersonalRoadmap, StartingProfile,
   ActiveGoal, ProblemAttempt, ProblemSummary, Baseline, GapDetail, MockRecord, MockSummary, Readiness, ReadinessPoint, RevisionList, RoadmapView,
-  Settings, SkillWithState, Today, WeekContext, WeeklyReview,
+  Settings, SkillWithState, Today, WeekContext, WeeklyReview, LearningTrack, LearningTrackDetail,
 } from '../api/types'
 import { prettyKey } from '../presentation/format'
 import { createResource } from './resource'
@@ -132,6 +132,24 @@ export const useGapDetailStore = defineStore('gap-detail', () => {
   return { load, clear }
 })
 
+/** Curriculum (tracks with per-skill progress) and track details, cached per track for the session. */
+export const useLearningStore = defineStore('learning', () => {
+  const curriculum = createResource(async () => (await api.get<LearningTrack[]>('/learning/curriculum')).data)
+  const tracks = ref(new Map<string, LearningTrackDetail>())
+  async function track(key: string, force = false): Promise<LearningTrackDetail> {
+    const hit = tracks.value.get(key)
+    if (hit && !force) return hit
+    const detail = (await api.get<LearningTrackDetail>(`/learning/tracks/${encodeURIComponent(key)}`)).data
+    tracks.value = new Map(tracks.value).set(key, detail)
+    return detail
+  }
+  async function refresh(): Promise<void> {
+    const loaded = [...tracks.value.keys()]
+    await Promise.all([...(curriculum.data.value ? [curriculum.refresh()] : []), ...loaded.map((k) => track(k, true))])
+  }
+  return { curriculum, tracks, track, refresh }
+})
+
 /**
  * After any observation write the engines re-ran: refresh whatever is already loaded (and nothing else), so every
  * page shows the new server state without refetching data nobody has opened.
@@ -147,6 +165,7 @@ export async function refreshDerivedData(): Promise<void> {
   const attempts = useAttemptsStore()
   const personal = usePersonalStore()
   const startingProfile = useStartingProfileStore()
+  const learning = useLearningStore()
   useGapDetailStore().clear()
   const loaded: Promise<void>[] = []
   if (today.data) loaded.push(today.refresh())
@@ -164,5 +183,6 @@ export async function refreshDerivedData(): Promise<void> {
   if (personal.roadmap.data) loaded.push(personal.roadmap.refresh())
   if (personal.state.data) loaded.push(personal.state.refresh())
   if (startingProfile.data) loaded.push(startingProfile.refresh())
+  loaded.push(learning.refresh())
   await Promise.all(loaded)
 }

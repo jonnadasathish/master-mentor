@@ -32,6 +32,7 @@ class ProblemStats:
     problem: Problem
     attempt_count: int
     last_attempt: ProblemAttempt | None
+    attempts: tuple[ProblemAttempt, ...] = ()  # every current attempt, newest first (practice state)
 
 
 class ActivityRepository:
@@ -101,6 +102,7 @@ class ActivityRepository:
         ids = [p.id for p in problems]
         counts: dict[int, int] = {}
         last: dict[int, ProblemAttempt] = {}
+        every: dict[int, list[ProblemAttempt]] = {}
         if ids:
             current = self._current_attempts().where(ProblemAttempt.problem_id.in_(ids))
             for attempt in self._s.scalars(
@@ -108,7 +110,10 @@ class ActivityRepository:
             ):
                 counts[attempt.problem_id] = counts.get(attempt.problem_id, 0) + 1
                 last.setdefault(attempt.problem_id, attempt)
-        return [ProblemStats(p, counts.get(p.id, 0), last.get(p.id)) for p in problems]
+                every.setdefault(attempt.problem_id, []).append(attempt)
+        return [
+            ProblemStats(p, counts.get(p.id, 0), last.get(p.id), tuple(every.get(p.id, ()))) for p in problems
+        ]
 
     # ------------------------------------------------------------------ attempts
     def _current_attempts(self) -> Select[tuple[ProblemAttempt]]:

@@ -242,6 +242,7 @@ onMounted(async () => {
                 :client="api"
                 :battery="today.baseline.data?.items ?? []"
                 :results="results"
+                :learning="today.data?.plan?.learning"
                 @changed="load"
                 @completed="completed"
               />

@@ -1,0 +1,711 @@
+# Learning content: transactions and ACID, isolation levels and MVCC, row/gap/next-key locks and deadlocks. MySQL 8 / InnoDB unless stated.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- transactions and ACID
+- key: db.transactions_acid.lesson
+  type: lesson
+  title: "Transactions and ACID, and how InnoDB keeps the promise"
+  skills: [db.transactions_acid]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: A transaction groups statements into one all-or-nothing, durable unit; InnoDB delivers it with an undo log for rollback and a write-ahead redo log for durability.
+    what: |-
+      A **transaction** is a sequence of statements that the database treats as one unit: `START TRANSACTION` (or `BEGIN`) ... `COMMIT`, or `ROLLBACK` to discard everything. ACID names the four guarantees:
+
+      - **Atomicity**: either every change in the transaction takes effect or none does, even if the server crashes halfway.
+      - **Consistency**: a transaction moves the database from one valid state to another. The database enforces the rules you declare (primary keys, `UNIQUE`, foreign keys, `NOT NULL`, `CHECK` from MySQL 8.0.16); business invariants such as "balance never negative across two accounts" are only kept if your transaction logic is correct.
+      - **Isolation**: concurrent transactions do not see each other's partial work, to a degree set by the **isolation level** (see the isolation lesson).
+      - **Durability**: once `COMMIT` returns, the change survives a crash.
+
+      MySQL runs with `autocommit=1` by default: every statement outside an explicit transaction is its own transaction.
+    why: |-
+      Business operations span several rows: a transfer debits one account and credits another, an order inserts a header, lines and a stock reservation. Without a transaction, a crash, a timeout or an exception between two statements leaves half an operation in the database (money debited, never credited), and concurrent requests interleave in ways no one tested.
+    when: |-
+      Use an explicit transaction whenever two or more writes must succeed together, or when a read must be followed by a write that depends on it (check stock, then reserve it). Keep it as short as possible: no network calls, user think time or large batch loops inside. A single statement is already atomic in InnoDB.
+    how: |-
+      ```sql
+      START TRANSACTION;
+        -- debit only if funds exist: the check and the write are one atomic statement
+        UPDATE accounts SET balance_cents = balance_cents - 5000
+         WHERE id = 1 AND balance_cents >= 5000;      -- app checks affected rows = 1, else ROLLBACK
+        UPDATE accounts SET balance_cents = balance_cents + 5000 WHERE id = 2;
+        INSERT INTO ledger (from_id, to_id, amount_cents) VALUES (1, 2, 5000);
+      COMMIT;
+      ```
+
+      In Python, most drivers follow PEP 249 and open a transaction implicitly; `commit()` ends it. With SQLAlchemy, `with session.begin():` commits on success and rolls back on any exception.
+
+      Know the MySQL error semantics: most statement errors (a duplicate key, a lock wait timeout by default) roll back **only that statement** and leave the transaction open, so the application must decide to `ROLLBACK`. A **deadlock** rolls back the **whole** transaction. DDL such as `ALTER TABLE` causes an implicit commit.
+    mental_model: |-
+      Think of two journals. The **undo log** remembers how to put every changed row back, so a transaction can be cancelled. The **redo log** records every change before the data pages are written, so a committed transaction can be replayed after a crash. Commit is the moment the redo record is safely on disk; everything else (writing the actual data pages) can happen later.
+    tradeoffs: |-
+      Full durability means an fsync of the redo log at every commit (`innodb_flush_log_at_trx_commit=1`, the default) and of the binary log (`sync_binlog=1`, the MySQL 8.0 default). Setting the first to 2 writes the log at commit but flushes it about once per second, so a power loss or OS crash can lose roughly the last second of committed transactions; 0 can lose it even on a mysqld crash. Group commit amortises fsyncs across concurrent transactions. Longer transactions give simpler code but hold locks longer, block purge of old row versions and raise deadlock and conflict rates; splitting work into small transactions needs idempotency so a retry is safe.
+    mistakes:
+      - Running a multi-statement operation in autocommit mode, so a failure between statements leaves partial state.
+      - "Calling an external service (payment provider, email) inside an open transaction: locks are held for the duration of the network call, and a rollback cannot undo the external effect."
+      - Catching a statement error and committing anyway, not realising MySQL rolled back only that statement.
+      - Not retrying on a deadlock (error 1213) or retrying only the failed statement instead of the whole transaction.
+      - Read-then-write without a lock or an atomic conditional update, which loses updates under concurrency even inside a transaction.
+      - Leaving transactions open in a connection pool (an idle session in a transaction), which pins old row versions and locks.
+    interview: |-
+      "Explain ACID" is common; the strong answer explains **how** each property is implemented (undo log, redo log with write-ahead logging, locks and MVCC, constraints) and where the database stops and your code begins (consistency of business rules, idempotent retries). Follow-ups probe durability settings, crash recovery and what happens to a transaction that was mid-flight when the server died.
+    explain_it:
+      - Define the transaction boundary for the scenario.
+      - Map each ACID letter to the InnoDB mechanism behind it.
+      - State what the application must still do (check affected rows, retry, idempotency).
+      - Name the cost (fsync per commit, lock duration).
+    internals: |-
+      InnoDB uses write-ahead logging: a change modifies the page in the buffer pool and appends a redo record to the log buffer; at commit the redo log is written and flushed, and the dirty data pages are written back later by background flushing (checkpointing). Every change also writes an **undo record** holding the previous row version; undo serves both rollback and MVCC reads. **Crash recovery** replays the redo log from the last checkpoint (roll forward), then rolls back transactions that had not committed, using their undo records. The **doublewrite buffer** protects against torn 16 KB page writes. The **binary log** is a separate, server-level log used for replication and point-in-time recovery; InnoDB and the binlog coordinate with an internal two-phase commit so a transaction is either in both or in neither.
+    edge_cases:
+      - A transaction that only reads still matters under REPEATABLE READ, because its snapshot keeps old row versions alive.
+      - "`SAVEPOINT` and `ROLLBACK TO SAVEPOINT` undo part of a transaction without ending it."
+      - "Implicit commit: issuing DDL inside a transaction commits the work done so far."
+    misconceptions:
+      - "Consistency means the database enforces my business rules — it enforces declared constraints; cross-row invariants depend on your transaction logic and isolation level."
+      - "Wrapping code in a transaction prevents all race conditions — at REPEATABLE READ a plain SELECT followed by an UPDATE can still lose updates."
+- key: db.transactions_acid.worked_transfer
+  type: worked_example
+  title: "Worked example: a money transfer that survives crashes, retries and concurrency"
+  skills: [db.transactions_acid, db.locking_deadlocks]
+  minutes: 15
+  difficulty: MEDIUM
+  body:
+    problem: "Move 50 units (5000 cents) from account 1 to account 2. The endpoint may be retried by the client, two transfers can run at once, and the server may crash at any point. Build it up step by step on MySQL 8 / InnoDB."
+    steps:
+      - title: The naive version and its three bugs
+        text: "In autocommit mode each statement commits alone, so a crash after the debit loses money (atomicity). Two concurrent requests can both read 8000, both pass the check and both write 3000 (lost update). A client retry runs the transfer twice (no idempotency)."
+        code:
+          language: python
+          code: |-
+            bal = db.scalar("SELECT balance_cents FROM accounts WHERE id = 1")
+            if bal >= 5000:
+                db.execute("UPDATE accounts SET balance_cents = :b WHERE id = 1", {"b": bal - 5000})
+                db.execute("UPDATE accounts SET balance_cents = balance_cents + 5000 WHERE id = 2")
+      - title: One transaction, atomic conditional debit
+        text: "Wrap all writes in one transaction and fold the check into the UPDATE. The UPDATE reads the latest committed balance and takes an exclusive row lock, so a concurrent debit waits and then re-evaluates `balance_cents >= 5000` against the new value. Zero affected rows means insufficient funds: roll back."
+        code:
+          language: sql
+          code: |-
+            START TRANSACTION;
+            UPDATE accounts SET balance_cents = balance_cents - 5000
+             WHERE id = 1 AND balance_cents >= 5000;     -- expect 1 row
+            UPDATE accounts SET balance_cents = balance_cents + 5000 WHERE id = 2;
+            COMMIT;
+      - title: Make retries idempotent
+        text: "Insert the client's transfer id into a table with a UNIQUE constraint as the first statement. A retry hits error 1062 (duplicate key); the app rolls back and returns the stored result instead of moving money again. The constraint, not a prior SELECT, is what makes this safe under concurrency."
+        code:
+          language: sql
+          code: |-
+            START TRANSACTION;
+            INSERT INTO transfers (transfer_id, from_id, to_id, amount_cents)
+            VALUES ('c0ffee-42', 1, 2, 5000);            -- UNIQUE(transfer_id)
+            -- ... the two UPDATEs from the previous step ...
+            COMMIT;
+      - title: Lock rows in a fixed order
+        text: "Transfer 1 to 2 locks row 1 then row 2; a simultaneous transfer 2 to 1 locks row 2 then row 1: a deadlock. Always touch the lower account id first (debit or credit, whichever it is), and retry the whole transaction on error 1213 with a small randomised backoff."
+      - title: What a crash does at each point
+        text: "Crash before COMMIT: the changes may be in the redo log, but the transaction never committed, so recovery rolls it back with the undo log and no money moves. Crash after COMMIT returned: the redo record was flushed (innodb_flush_log_at_trx_commit=1), so recovery replays it and both rows and the transfers row are present. There is no state in which only the debit survives."
+    takeaways:
+      - Put every write of one business operation in one short transaction.
+      - Fold the check into the write (conditional UPDATE and affected-row count) instead of read-then-write.
+      - A UNIQUE constraint on a client-supplied id turns retries into no-ops.
+      - Consistent lock order prevents the classic two-row deadlock; still retry on 1213.
+    complexity: Each transfer touches two rows by primary key and one unique-index insert, a few page reads and one redo flush at commit (shared with concurrent commits by group commit).
+- key: db.transactions_acid.check
+  type: concept_check
+  title: "Concept check: transactions, commit and recovery"
+  skills: [db.transactions_acid]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: MySQL 8, InnoDB, default settings unless a question changes them.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "With autocommit on, the app runs `UPDATE accounts ... WHERE id = 1` (debit) and then the server crashes before the credit statement. After restart…"
+        options:
+          - Both changes are rolled back
+          - The debit is present and the credit is missing
+          - InnoDB automatically replays the credit
+          - The table is corrupted
+        answer: [1]
+        explanation: "In autocommit mode the debit was its own committed transaction, so it is durable and recovery keeps it. Recovery only rolls back uncommitted transactions; it has no idea the credit was supposed to follow. Wrapping both in one transaction is the fix."
+      - id: q2
+        kind: single
+        prompt: "What is the durability risk of `innodb_flush_log_at_trx_commit = 2`?"
+        options:
+          - None; it is equivalent to 1
+          - A mysqld crash alone can lose all transactions since the last checkpoint
+          - An OS crash or power loss can lose roughly the last second of committed transactions
+          - Transactions are no longer atomic
+        answer: [2]
+        explanation: "With 2, the redo log is written to the OS cache at each commit and flushed to disk about once per second. If only mysqld crashes, the OS still has the data; a power loss or kernel crash can lose up to about a second. Atomicity is unaffected: recovery still never applies half a transaction."
+      - id: q3
+        kind: multi
+        prompt: Which of these does InnoDB enforce for you, without application logic?
+        options:
+          - A UNIQUE constraint on email
+          - A foreign key from orders.customer_id to customers.id
+          - The sum of all account balances stays constant across transfers
+          - "A CHECK (quantity > 0) constraint on MySQL 8.0.16 or later"
+        answer: [0, 1, 3]
+        explanation: "Declared constraints are enforced by the engine (CHECK only from 8.0.16; earlier versions parsed and ignored it). A cross-row invariant like a constant total is the 'consistency' part that only correct transaction logic provides."
+      - id: q4
+        kind: single
+        prompt: "Inside an explicit transaction, the second of three INSERTs fails with a duplicate-key error. The application catches the exception and calls COMMIT. What is committed?"
+        options:
+          - Nothing; MySQL rolled back the transaction on the error
+          - The first and third INSERTs
+          - The first INSERT and any later statements that succeeded; the failed statement alone was rolled back
+          - All three INSERTs
+        answer: [2]
+        explanation: "For most errors, including duplicate key, InnoDB rolls back only the failing statement and the transaction stays open, so COMMIT persists everything else that succeeded. Whether the third INSERT ran depends on the code after the catch. Deadlocks are the exception: they roll back the whole transaction."
+      - id: q5
+        kind: single
+        prompt: "A checkout handler opens a transaction, reserves stock, calls the payment provider over HTTP (p99 3 seconds), then inserts the order and commits. What is the main problem?"
+        options:
+          - HTTP calls are not allowed in transactions
+          - Row locks on the stock rows are held for the whole network call, serialising checkouts for popular items, and a rollback cannot undo a successful charge
+          - The transaction will always deadlock
+          - Durability is lost
+        answer: [1]
+        explanation: "Lock duration equals transaction duration, so slow I/O inside a transaction turns into lock contention, and the external effect is outside the database's atomicity. Reserve in one short transaction, call the provider outside, then confirm or release in another short transaction with idempotency keys."
+      - id: q6
+        kind: short
+        prompt: Explain the different jobs of the redo log and the undo log in InnoDB, and what each does during crash recovery.
+        model_answer: "The redo log is a write-ahead log of page changes; it is flushed at commit so committed work can be replayed after a crash even if the data pages were never written (durability). The undo log stores the previous version of each changed row; it is used to roll back a transaction (atomicity) and to build older row versions for MVCC reads. During recovery InnoDB first replays redo from the last checkpoint, then rolls back transactions that never committed using their undo records."
+        explanation: Redo moves forward to committed state, undo moves back from uncommitted state; both are needed.
+- key: db.transactions_acid.exercise_reserve
+  type: sql_exercise
+  title: "SQL exercise: reserve stock for an order, all or nothing"
+  skills: [db.transactions_acid, db.locking_deadlocks]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 1200}
+  body:
+    prompt: |-
+      When a customer confirms an order with several items, reserve stock for every item or for none. Stock must never go negative, two customers may buy the last unit at the same moment, and the client may retry the same `order_id`. Write the transaction (SQL plus a few lines of pseudo-code for the application decisions) and explain why it is correct under concurrency on InnoDB at REPEATABLE READ.
+
+      Sample: inventory has product 7 with 1 available and product 9 with 5 available. Order 501 asks for 1 x product 7 and 2 x product 9; order 502, at the same time, asks for 1 x product 7. Exactly one of them succeeds; the other reserves nothing.
+    schema:
+      language: sql
+      code: |-
+        CREATE TABLE inventory (
+          product_id BIGINT PRIMARY KEY,
+          available  INT NOT NULL,
+          CHECK (available >= 0)
+        );
+
+        CREATE TABLE reservations (
+          order_id   BIGINT NOT NULL,
+          product_id BIGINT NOT NULL,
+          quantity   INT NOT NULL,
+          PRIMARY KEY (order_id, product_id)
+        );
+
+        CREATE TABLE reserved_orders (
+          order_id    BIGINT PRIMARY KEY,           -- idempotency guard
+          reserved_at DATETIME NOT NULL
+        );
+    hints:
+      - Start with the idempotency guard so a retry fails fast on a duplicate key.
+      - "Use a conditional decrement: `UPDATE ... SET available = available - q WHERE product_id = ? AND available >= q` and inspect the affected-row count."
+      - If any item cannot be reserved, roll back everything, including the decrements already made.
+      - Process items in ascending product_id so two orders that share products lock them in the same order.
+    solution:
+      language: sql
+      code: |-
+        START TRANSACTION;
+
+        INSERT INTO reserved_orders (order_id, reserved_at) VALUES (501, NOW());
+        -- app: on error 1062 -> ROLLBACK and return "already reserved" (idempotent retry)
+
+        -- app: for each (product_id, qty) in items sorted by product_id ascending:
+        UPDATE inventory
+           SET available = available - 1
+         WHERE product_id = 7 AND available >= 1;
+        -- app: if affected_rows = 0 -> ROLLBACK and return "out of stock"
+        INSERT INTO reservations (order_id, product_id, quantity) VALUES (501, 7, 1);
+
+        UPDATE inventory
+           SET available = available - 2
+         WHERE product_id = 9 AND available >= 2;
+        -- app: if affected_rows = 0 -> ROLLBACK and return "out of stock"
+        INSERT INTO reservations (order_id, product_id, quantity) VALUES (501, 9, 2);
+
+        COMMIT;
+        -- app: on error 1213 (deadlock) -> retry the whole transaction with jittered backoff
+      explanation: |-
+        Each UPDATE is a locking (current) read: it reads the latest committed row, not the transaction's snapshot, and takes an exclusive lock on it. If order 502 already decremented product 7, order 501's UPDATE waits for 502 to commit, then re-checks `available >= 1` against 0 and matches no row, so 501 rolls back and its earlier work disappears (atomicity via undo). The CHECK constraint is a backstop, not the mechanism. Sorting by product_id makes all orders acquire locks in the same order, which prevents the two-order deadlock; retrying on 1213 handles anything left. The duplicate-key insert on reserved_orders makes a client retry harmless. Cost: one primary-key lookup and lock per item, held only until COMMIT, so keep nothing slow inside.
+    rubric:
+      - {key: atomic, label: "Wraps the guard, every decrement and every reservation row in one transaction and rolls back fully on any failure", points: 3}
+      - {key: no_oversell, label: "Uses a conditional UPDATE with affected-row check (or SELECT ... FOR UPDATE) instead of a plain read-then-write", points: 3}
+      - {key: idempotent, label: Uses a unique key on order_id to make retries safe, points: 2}
+      - {key: lock_order, label: Orders items by product_id and retries the whole transaction on deadlock, points: 2}
+    follow_ups:
+      - prompt: Why is "SELECT available FROM inventory WHERE product_id = 7, then UPDATE if enough" wrong at REPEATABLE READ even inside the transaction?
+        look_for: "The plain SELECT is a consistent read from the snapshot and takes no lock; both orders can read 1 and both decrement (lost update/oversell). Use FOR UPDATE or the conditional UPDATE."
+      - prompt: A flash sale makes one product extremely hot and checkouts queue behind its row lock. What options do you have?
+        look_for: "Keep the transaction tiny, reserve the hot item last so its lock is held briefly, split stock into several counter rows (buckets), or move reservation to a queue or an in-memory counter with later reconciliation."
+- key: db.transactions_acid.interview
+  type: interview_question
+  title: "Interview question: explain ACID through InnoDB internals"
+  skills: [db.transactions_acid]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: "Explain what each letter of ACID guarantees and how MySQL's InnoDB engine implements it. Then say what remains the application's responsibility."
+    key_points:
+      - "Atomicity via the undo log: rollback, and recovery rolling back uncommitted transactions."
+      - "Durability via write-ahead redo logging flushed at commit (innodb_flush_log_at_trx_commit=1), with the doublewrite buffer against torn pages and binlog two-phase commit for replication."
+      - "Isolation via MVCC snapshots for plain reads plus row, gap and next-key locks for writes and locking reads; REPEATABLE READ is the default level."
+      - "Consistency means declared constraints are enforced; cross-row business invariants are the application's job."
+      - "Application responsibilities: correct transaction boundaries, checking affected rows, retrying deadlocks, idempotency for retries, no slow external calls inside a transaction."
+    model_answer: |-
+      Atomicity: every change writes an undo record with the previous row version; ROLLBACK and crash recovery apply them, so a transaction is all or nothing. Durability: InnoDB logs changes in the redo log before data pages are written and flushes the log at commit; after a crash it replays redo from the last checkpoint and then rolls back what never committed. The doublewrite buffer protects against partial page writes and the binlog is coordinated with redo by an internal two-phase commit. Isolation: plain SELECTs read a consistent snapshot built from undo versions (MVCC), while UPDATE, DELETE and SELECT FOR UPDATE take row locks and, at REPEATABLE READ, gap and next-key locks to stop phantoms. Consistency: PK, UNIQUE, FK, NOT NULL and CHECK constraints are enforced, but invariants across rows, like a balance that must not go negative under concurrent debits, depend on writing the transaction correctly. The application owns boundaries, retries on deadlock with idempotency, and keeping transactions short.
+    pitfalls:
+      - Defining each letter without any mechanism.
+      - Claiming consistency means the database guarantees business rules.
+      - Confusing the binlog (replication) with the redo log (crash recovery).
+    follow_ups:
+      - prompt: The server loses power one millisecond after COMMIT returned. Is the transaction there after restart? What setting changes the answer?
+        look_for: "Yes with innodb_flush_log_at_trx_commit=1 because the redo was fsynced before COMMIT returned; with 2 or 0 the last second or so may be lost. sync_binlog=1 keeps the binlog consistent for replicas."
+      - prompt: Why does MySQL need both the redo log and the binary log?
+        look_for: "Redo is InnoDB-internal, physical and circular, for crash recovery; the binlog is server-level, logical, retained and used for replication and point-in-time recovery. Two-phase commit keeps them in agreement."
+      - prompt: A long-running reporting transaction stays open for an hour. What does it cost even if it only reads?
+        look_for: "Its read view prevents purge of old row versions, so undo and the history list grow and other queries walk longer version chains; it may also hold metadata locks that block DDL."
+- key: db.transactions_acid.cards
+  type: revision_card
+  title: "Recall: transactions and ACID"
+  skills: [db.transactions_acid]
+  minutes: 5
+  body:
+    cards:
+      - front: Which InnoDB log makes rollback possible?
+        back: The undo log, which stores the previous version of each changed row.
+      - front: Which InnoDB log makes committed work survive a crash?
+        back: The redo log, written ahead and flushed at commit.
+      - front: Default autocommit behaviour in MySQL?
+        back: autocommit=1, so each statement outside an explicit transaction commits on its own.
+      - front: Does a duplicate-key error roll back the whole transaction?
+        back: No, only the statement; a deadlock rolls back the whole transaction.
+      - front: Why keep external calls out of transactions?
+        back: Locks are held for the call's duration and rollback cannot undo the external effect.
+      - front: What does innodb_flush_log_at_trx_commit=2 risk?
+        back: Losing about the last second of commits on an OS crash or power loss.
+
+# ---------------------------------------------------------------------------------------------- isolation and MVCC
+- key: db.isolation_mvcc.lesson
+  type: lesson
+  title: "Isolation levels, anomalies and MVCC in InnoDB"
+  skills: [db.isolation_mvcc]
+  minutes: 25
+  difficulty: HARD
+  body:
+    summary: Isolation levels trade anomalies for concurrency; InnoDB serves plain reads from MVCC snapshots and uses locks only for writes and locking reads, which is why some anomalies survive REPEATABLE READ.
+    what: |-
+      The **isolation level** defines which effects of concurrent transactions one transaction may observe. The anomalies:
+
+      - **Dirty read**: reading another transaction's uncommitted change.
+      - **Non-repeatable read**: reading the same row twice and getting different committed values.
+      - **Phantom**: re-running a range query and getting new or missing rows.
+      - **Lost update**: two transactions read a value, both compute a new one, and the second write overwrites the first.
+      - **Write skew**: two transactions read overlapping data, each writes a different row, and together they break an invariant neither broke alone (two on-call doctors both go off call).
+
+      SQL standard levels: `READ UNCOMMITTED` (allows dirty reads), `READ COMMITTED` (no dirty reads), `REPEATABLE READ` (no non-repeatable reads), `SERIALIZABLE` (equivalent to some serial order). **InnoDB's default is REPEATABLE READ.**
+
+      **MVCC** (multi-version concurrency control) keeps older versions of rows so readers see a consistent snapshot without blocking writers, and writers do not block plain readers.
+    why: |-
+      Full serialisation (one transaction at a time, or locking everything read) is correct but slow. Isolation levels let a system pick how much concurrency to buy with how much risk. Knowing exactly what your engine's level allows is the difference between a correct balance check and an intermittent overdraft that only appears under load.
+    when: |-
+      Stay on the InnoDB default (REPEATABLE READ) unless you have a reason. `READ COMMITTED` is a common choice for high-concurrency OLTP because it takes no gap locks on searches (fewer deadlocks) and each statement sees the latest committed data; with binary logging enabled it requires the row-based binlog format. Use `SERIALIZABLE` sparingly. Most correctness problems are better solved per operation with an atomic update, a locking read (`SELECT ... FOR UPDATE`) or optimistic version checks.
+    how: |-
+      InnoDB distinguishes two kinds of read:
+
+      - **Consistent (non-locking) read**: a plain `SELECT`. At REPEATABLE READ the snapshot is created by the transaction's **first** consistent read and reused for every later read, so repeated reads return the same data. At READ COMMITTED each statement takes a fresh snapshot.
+      - **Locking (current) read**: `SELECT ... FOR UPDATE`, `SELECT ... FOR SHARE`, `UPDATE`, `DELETE`. These read the **latest committed** version, not the snapshot, and lock what they read. At REPEATABLE READ they also take gap or next-key locks on scanned ranges, which blocks inserts that would create phantoms.
+
+      ```sql
+      -- Session A (REPEATABLE READ)            -- Session B
+      START TRANSACTION;
+      SELECT balance FROM acct WHERE id = 1;    -- 100 (snapshot created here)
+                                                UPDATE acct SET balance = 40 WHERE id = 1; -- autocommit
+      SELECT balance FROM acct WHERE id = 1;    -- still 100 (same snapshot)
+      SELECT balance FROM acct WHERE id = 1 FOR UPDATE;  -- 40 (current read)
+      UPDATE acct SET balance = balance - 10 WHERE id = 1; -- works on 40 -> 30
+      ```
+
+      So InnoDB REPEATABLE READ prevents dirty reads, non-repeatable reads and phantoms **for consistent reads**, but a plain read followed by a write computed in the application can still **lose an update** or allow **write skew**. Fixes: an atomic `UPDATE ... SET x = x - ?`, a locking read on the rows the decision depends on, an optimistic `version` column (`UPDATE ... WHERE id = ? AND version = ?`, retry on 0 rows), or a constraint that encodes the invariant.
+
+      `SERIALIZABLE` in InnoDB behaves like REPEATABLE READ but turns plain `SELECT`s into `SELECT ... FOR SHARE` when autocommit is off, so reads take shared locks and conflicts surface as waits or deadlocks.
+    mental_model: |-
+      A consistent read is a photograph taken at the start; a locking read looks out of the window right now and puts a hand on what it sees. Bugs appear when you decide from the photograph and act on the live world.
+    tradeoffs: |-
+      Higher isolation means more locking or more aborted transactions; lower isolation means more anomalies to handle in code. READ COMMITTED reduces gap locking and deadlocks but allows non-repeatable reads and phantoms within a transaction. REPEATABLE READ gives stable reports inside one transaction but next-key locks on ranges can block inserts and cause deadlocks. Engines differ: PostgreSQL's REPEATABLE READ is snapshot isolation that aborts a transaction updating a row changed since its snapshot (preventing lost updates), and its SERIALIZABLE detects write skew (serializable snapshot isolation); InnoDB REPEATABLE READ does neither, so the same code can be correct on one and wrong on the other.
+    mistakes:
+      - Assuming REPEATABLE READ in InnoDB prevents lost updates for read-modify-write code.
+      - Deciding from a plain SELECT and then writing, instead of using FOR UPDATE or a conditional UPDATE.
+      - "Expecting the snapshot to start at `START TRANSACTION`; in InnoDB it starts at the first consistent read (use `START TRANSACTION WITH CONSISTENT SNAPSHOT` to start it immediately)."
+      - Switching the whole server to SERIALIZABLE to fix one race, multiplying lock waits everywhere.
+      - Keeping a long REPEATABLE READ transaction open, which stops purge and grows the undo history.
+    interview: |-
+      Expect: "what are the isolation levels and anomalies", "what is MySQL's default and does it prevent phantoms", "how does MVCC work", and a scenario (two withdrawals, doctors on call, seat booking) where you must spot the anomaly and fix it. Strong answers name the engine, distinguish consistent from locking reads and give a concrete fix with its cost.
+    explain_it:
+      - Name the anomaly in the scenario and show the interleaving that causes it.
+      - Say which reads are snapshot reads and which are current reads.
+      - Give the fix (atomic update, FOR UPDATE, version check, constraint) and why it closes the gap.
+      - Mention how the answer differs on another engine if relevant.
+    internals: |-
+      Each clustered-index row carries hidden columns: `DB_TRX_ID` (the id of the last transaction that modified it) and `DB_ROLL_PTR` (a pointer to the undo record holding the previous version). Versions form a chain back through the undo log. A **read view** records which transactions were active when it was created; a row version is visible if its transaction committed before the view was created (or is the reader itself), otherwise InnoDB follows the roll pointer to an older version until it finds a visible one. The **purge** thread removes undo records once no read view can need them; a transaction open for hours prevents purge, so the history list length (shown by `SHOW ENGINE INNODB STATUS`) grows and reads walk longer chains.
+    edge_cases:
+      - "Under InnoDB REPEATABLE READ, if you UPDATE rows that another transaction inserted and committed after your snapshot, those rows become visible to your later plain SELECTs."
+      - Read-only transactions still create read views and still hold back purge while open.
+      - A unique constraint prevents a duplicate-insert race at any isolation level; isolation alone may not.
+    misconceptions:
+      - "MVCC means no locks — writers still take row locks; only plain reads avoid them."
+      - "REPEATABLE READ is the same on every database — InnoDB, PostgreSQL and the SQL standard all differ in what it prevents."
+- key: db.isolation_mvcc.check
+  type: concept_check
+  title: "Concept check: anomalies and snapshots in InnoDB"
+  skills: [db.isolation_mvcc]
+  minutes: 10
+  difficulty: HARD
+  body:
+    intro: Assume MySQL 8 InnoDB at REPEATABLE READ unless stated. Draw the two sessions as columns if unsure.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "Session A runs START TRANSACTION, then SELECT stock FROM items WHERE id = 5 (returns 10). Session B sets stock = 3 and commits. A runs the same SELECT, then SELECT ... FOR UPDATE. What does A see?"
+        options: ["10, then 10", "10, then 3", "3, then 3", "10, then an error"]
+        answer: [1]
+        explanation: "The plain SELECT reuses A's snapshot (10). The locking read is a current read of the latest committed version (3). The tempting answer '10, then 10' assumes every read in the transaction uses the snapshot; locking reads never do."
+      - id: q2
+        kind: single
+        prompt: "Two requests run `SELECT balance` (both see 100), compute balance - 30 and balance - 50 in Python, and run `UPDATE ... SET balance = :new`. Both commit. Final balance?"
+        options: ["20", "50 or 70, one withdrawal is lost", "An error is raised by InnoDB", "100"]
+        answer: [1]
+        explanation: "This is a lost update. InnoDB REPEATABLE READ does not detect it: the second UPDATE waits for the first's row lock, then overwrites with a value computed from a stale read. PostgreSQL REPEATABLE READ would abort the second transaction with a serialization error. Fix with SET balance = balance - 30 WHERE balance >= 30, or FOR UPDATE on the read."
+      - id: q3
+        kind: multi
+        prompt: Which changes prevent the lost update in q2 on InnoDB?
+        options:
+          - "UPDATE acct SET balance = balance - :amt WHERE id = 1 AND balance >= :amt"
+          - "SELECT balance ... FOR UPDATE before computing"
+          - "UPDATE ... SET balance = :new, version = version + 1 WHERE id = 1 AND version = :seen, retry on 0 rows"
+          - Raising the isolation level from REPEATABLE READ to REPEATABLE READ WITH CONSISTENT SNAPSHOT
+        answer: [0, 1, 2]
+        explanation: "The atomic update computes from the current value under a lock; FOR UPDATE makes the read itself a locking current read; the version check detects the concurrent change and retries. Option D is not an isolation level: WITH CONSISTENT SNAPSHOT only starts the snapshot earlier, which does nothing for write conflicts."
+      - id: q4
+        kind: single
+        prompt: "At least one doctor must stay on call. Alice and Bob are on call. Two transactions each run SELECT COUNT(*) ... WHERE on_call = 1 (2), then each sets a different doctor off call. Which anomaly can occur at InnoDB REPEATABLE READ?"
+        options: ["Dirty read", "Write skew", "Non-repeatable read", "None; REPEATABLE READ prevents it"]
+        answer: [1]
+        explanation: "Each transaction reads a snapshot, writes a different row, and no row conflict occurs, so both commit and nobody is on call: write skew. Fix by locking the rows the decision depends on (SELECT ... WHERE on_call = 1 FOR UPDATE) or by running the operation at SERIALIZABLE, where the reads take shared locks and the conflict becomes a deadlock that aborts one transaction."
+      - id: q5
+        kind: single
+        prompt: "What is the difference between READ COMMITTED and REPEATABLE READ for plain SELECTs in InnoDB?"
+        options:
+          - READ COMMITTED allows dirty reads
+          - READ COMMITTED takes a fresh snapshot per statement; REPEATABLE READ reuses the snapshot from the transaction's first read
+          - REPEATABLE READ locks every row it reads
+          - There is no difference for plain SELECTs
+        answer: [1]
+        explanation: "Both levels read committed data only; neither locks rows for plain SELECTs. The difference is when the snapshot is taken. READ COMMITTED also disables gap locking for searches and index scans, which affects locking reads and writes."
+      - id: q6
+        kind: short
+        prompt: Describe how InnoDB decides which version of a row a consistent read returns.
+        model_answer: "Every row stores the id of the transaction that last changed it (DB_TRX_ID) and a pointer to the undo record with the previous version (DB_ROLL_PTR). The reader's read view lists transactions that were active when it was created. If the row's version was committed before the view (or written by the reader), it is visible; otherwise InnoDB follows the roll pointer through the undo chain to the newest version that is visible. Old versions are purged only when no read view needs them."
+        explanation: Visibility is computed per row version from transaction ids and the read view, which is why readers never block on writers.
+- key: db.isolation_mvcc.interview
+  type: interview_question
+  title: "Interview question: find and fix the race in a booking flow"
+  skills: [db.isolation_mvcc, db.locking_deadlocks]
+  minutes: 15
+  difficulty: HARD
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    prompt: |-
+      A meeting-room booking service runs on MySQL 8 InnoDB at the default isolation level. To book, it does:
+
+      ```sql
+      START TRANSACTION;
+      SELECT COUNT(*) FROM bookings
+       WHERE room_id = :room AND start_at < :end AND end_at > :start;   -- overlap check
+      -- if 0:
+      INSERT INTO bookings (room_id, start_at, end_at, user_id) VALUES (:room, :start, :end, :user);
+      COMMIT;
+      ```
+
+      Under load, double bookings appear a few times a week. Explain exactly why, name the anomaly, and give at least two fixes with their trade-offs.
+    key_points:
+      - "Identifies that the COUNT is a consistent (snapshot) read without locks, so two transactions both see 0 and both insert."
+      - "Names it as write skew or a phantom-style race: each inserts a new row the other's check would have seen."
+      - "Fix 1: make the check a locking read (SELECT ... FOR UPDATE) so InnoDB takes next-key/gap locks on the scanned index range and blocks the second insert; needs an index such as (room_id, start_at) or it locks far more rows."
+      - "Fix 2: serialise per room by locking a parent row (SELECT ... FROM rooms WHERE id = :room FOR UPDATE) before the check; simple and predictable, limits concurrency per room."
+      - "Mentions alternatives with trade-offs: fixed time slots with a UNIQUE (room_id, slot) constraint, or SERIALIZABLE for this transaction; expects deadlocks or waits and retries."
+    model_answer: |-
+      At REPEATABLE READ the plain SELECT reads a snapshot and takes no locks. Two requests for overlapping times both run the check, both see zero, both insert different rows, and both commit: a write skew driven by a phantom (the row that would have failed the check does not exist yet). Fix one: lock the parent room row with SELECT ... FROM rooms WHERE id = :room FOR UPDATE first; every booking for that room now serialises, which is simple and deadlock-free, at the cost of one booking at a time per room. Fix two: run the overlap check with FOR UPDATE; with an index on (room_id, start_at) InnoDB places next-key locks on the scanned range, so a concurrent insert into that range waits; but the two transactions can each hold gap locks and then both try to insert, which produces a deadlock, so the code must retry. Fix three: model bookings as discrete slots with a UNIQUE (room_id, slot_start) key and let the constraint reject duplicates at any isolation level.
+    pitfalls:
+      - "Saying REPEATABLE READ prevents phantoms and stopping there; it does so for snapshot reads, not for the check-then-insert decision."
+      - "Adding FOR UPDATE without an index, which locks every row scanned in the table."
+      - Not mentioning retries for deadlocks the fix can introduce.
+    follow_ups:
+      - prompt: Would READ COMMITTED with FOR UPDATE still protect the check?
+        look_for: "No for this case: READ COMMITTED disables gap locks for searches, so the range is not protected against inserts; the parent-row lock or the unique-slot constraint still works."
+      - prompt: Why can the FOR UPDATE version deadlock, and what does the application do?
+        look_for: "Gap locks are compatible with each other, so both transactions acquire them and then each insert waits for the other's gap lock; InnoDB detects the cycle and rolls one back with error 1213, which the app retries."
+      - prompt: How would the same code behave on PostgreSQL at SERIALIZABLE?
+        look_for: "Serializable snapshot isolation detects the read-write dependency and aborts one transaction with a serialization failure; the app must retry."
+- key: db.isolation_mvcc.cards
+  type: revision_card
+  title: "Recall: isolation and MVCC"
+  skills: [db.isolation_mvcc]
+  minutes: 5
+  body:
+    cards:
+      - front: InnoDB default isolation level?
+        back: REPEATABLE READ.
+      - front: When does an InnoDB REPEATABLE READ snapshot start?
+        back: At the transaction's first consistent read, unless WITH CONSISTENT SNAPSHOT is used.
+      - front: Which reads ignore the snapshot?
+        back: Locking reads and writes (FOR UPDATE, FOR SHARE, UPDATE, DELETE) read the latest committed version.
+      - front: Does InnoDB REPEATABLE READ prevent lost updates?
+        back: No for read-then-write in app code; use an atomic UPDATE, FOR UPDATE or a version check.
+      - front: Write skew in one line?
+        back: Two transactions read the same data, write different rows, and jointly break an invariant.
+      - front: Hidden columns that make InnoDB MVCC work?
+        back: DB_TRX_ID (last writer) and DB_ROLL_PTR (pointer to the previous version in undo).
+
+# ---------------------------------------------------------------------------------------------- locking and deadlocks
+- key: db.locking_deadlocks.lesson
+  type: lesson
+  title: "InnoDB locks: record, gap and next-key locks, and how deadlocks happen"
+  skills: [db.locking_deadlocks]
+  minutes: 25
+  difficulty: HARD
+  body:
+    summary: InnoDB locks index records and the gaps between them, not abstract rows; deadlocks come from acquiring overlapping locks in different orders and are detected and broken by rolling one transaction back.
+    what: |-
+      InnoDB uses row-level locks on **index records**:
+
+      - **Shared (S)** and **exclusive (X)** locks. S is compatible with S; X conflicts with both. `SELECT ... FOR SHARE` takes S, `SELECT ... FOR UPDATE`, `UPDATE` and `DELETE` take X. Plain `SELECT` takes no row locks (it reads an MVCC snapshot).
+      - **Record lock**: locks one index record.
+      - **Gap lock**: locks the gap between two index records so no one can insert there. Gap locks only inhibit inserts; two transactions can hold gap locks on the same gap.
+      - **Next-key lock**: a record lock plus the gap before it; the default for scans at REPEATABLE READ, which is how InnoDB prevents phantoms for locking reads.
+      - **Insert intention lock**: a gap lock taken by `INSERT` before inserting; it waits for any conflicting gap lock held by another transaction.
+      - **Intention locks** (IS, IX) at table level announce row locks; they matter for `LOCK TABLES` and DDL. **Metadata locks** protect table definitions from concurrent DDL.
+
+      A **deadlock** is a cycle of transactions each waiting for a lock another holds.
+    why: |-
+      Locks make concurrent writes correct; their side effects cause most "works in testing, fails under load" database incidents: lock waits that pile up connections, deadlocks that fail requests, and a DDL that freezes a table. Knowing what InnoDB actually locks lets you predict these instead of discovering them in production.
+    when: |-
+      Think about locks whenever a transaction writes and then does more work, whenever you use `SELECT ... FOR UPDATE`, when you design "check then insert" flows, when several code paths update the same rows, and before running DDL on a busy table.
+    how: |-
+      **InnoDB locks what it scans, through the index it uses.**
+
+      ```sql
+      -- Index on (email). Locks one record (unique equality hit).
+      UPDATE users SET name = 'A' WHERE email = 'a@x.io';
+
+      -- No index on status. At REPEATABLE READ, the scan walks the clustered index
+      -- and locks every row it examines (plus gaps): effectively the whole table.
+      UPDATE orders SET flagged = 1 WHERE status = 'DISPUTED';
+      ```
+
+      At READ COMMITTED, InnoDB releases locks on rows that do not match the WHERE after evaluating it and takes no gap locks on searches, so the same statement holds far fewer locks.
+
+      **Two classic deadlocks.**
+
+      1. Opposite order: T1 updates row 1 then row 2; T2 updates row 2 then row 1. Each holds one and waits for the other.
+      2. Check-then-insert at REPEATABLE READ: T1 and T2 both run `SELECT ... WHERE k = 42 FOR UPDATE` on a missing key; both get gap locks on the same gap (compatible); both `INSERT` k = 42; each insert intention lock waits for the other's gap lock.
+
+      **Detection.** InnoDB detects cycles immediately (`innodb_deadlock_detect=ON` by default), rolls back the transaction it judges smaller (fewer rows changed) and returns error **1213** (`ER_LOCK_DEADLOCK`) to that client. A plain lock wait without a cycle ends after `innodb_lock_wait_timeout` (default 50 seconds) with error **1205**, which by default rolls back only the statement. Inspect with `SHOW ENGINE INNODB STATUS` (section LATEST DETECTED DEADLOCK), `innodb_print_all_deadlocks=ON` to log every deadlock, and `performance_schema.data_locks` / `data_lock_waits` in MySQL 8.
+
+      **Prevention.** Access rows in a consistent order; keep transactions short; index the columns in locking WHERE clauses so fewer records are locked; replace check-then-insert with `INSERT ... ON DUPLICATE KEY UPDATE` or insert-and-catch-duplicate; consider READ COMMITTED to avoid gap locks; and always retry the whole transaction on 1213. For job queues, `SELECT ... FOR UPDATE SKIP LOCKED` (MySQL 8.0+) lets workers take different rows without waiting.
+    mental_model: |-
+      Picture the index as a sorted row of seats with spaces between them. Record locks put a hand on a seat; gap locks put a rope across a space so nobody can squeeze in a new seat. Two people can hold ropes across the same space, but neither can then add a seat there while the other holds the rope.
+    tradeoffs: |-
+      Next-key locking gives REPEATABLE READ its phantom protection for locking reads, at the cost of blocking inserts into ranges and more deadlocks; READ COMMITTED removes most gap locks and many deadlocks but allows phantoms. Pessimistic locking (`FOR UPDATE`) makes conflicts wait; optimistic version checks avoid holding locks but make conflicting requests retry. Turning off deadlock detection can help at extreme concurrency on hot rows (detection itself becomes expensive) but then deadlocks wait for the full lock wait timeout.
+    mistakes:
+      - Running a locking UPDATE or FOR UPDATE on an unindexed column and locking far more rows than intended.
+      - Treating deadlocks as bugs to eliminate entirely instead of an expected event to retry.
+      - Retrying only the failed statement after 1213; the whole transaction was rolled back.
+      - Check-then-insert with FOR UPDATE on a missing key, which deadlocks under concurrency at REPEATABLE READ.
+      - "Running `ALTER TABLE` while a long transaction is open: the DDL waits for a metadata lock and every new query on the table queues behind it (state 'Waiting for table metadata lock')."
+      - Holding locks across network calls or user interaction.
+    interview: |-
+      Expect "what is a deadlock and how does the database handle it", "how would you debug deadlocks in production" and "what is a gap lock". Show a real interleaving, read a deadlock report (which transaction held what and waited for what), and give a prevention plus a retry policy. Connecting the general deadlock conditions (mutual exclusion, hold and wait, no preemption, circular wait) to "InnoDB breaks circular wait by aborting a victim" shows depth.
+    explain_it:
+      - Show the two transactions as columns and the lock each acquires in order.
+      - Name the lock types (record, gap, insert intention) from the deadlock report.
+      - Give the structural fix (ordering, upsert, index, isolation level).
+      - Give the operational fix (retry with backoff, monitoring of deadlock rate).
+    internals: |-
+      Locks are attached to index records in the lock system, keyed by page and heap position, so locking depends on the access path: a query using a secondary index locks the secondary record and the corresponding clustered record. A unique-index equality search that finds a row takes only a record lock; a search that finds nothing, or a range, takes gap or next-key locks at REPEATABLE READ. Foreign-key checks take shared locks on parent rows when inserting children, which can surprise you in deadlock reports. Deadlock detection walks the wait-for graph when a transaction must wait; if a cycle exists, the victim is rolled back and its locks released.
+    edge_cases:
+      - "A duplicate-key error on INSERT takes a shared lock on the existing record, which can participate in deadlocks when several transactions insert the same key."
+      - "Locks on the supremum record (the end of an index page) protect the gap after the last key; inserting at the end of a range can wait on it."
+      - "`SKIP LOCKED` results are intentionally inconsistent; use it for queues, not for reports."
+    misconceptions:
+      - "InnoDB locks rows — it locks index records, so the same statement locks different things depending on the index used."
+      - "Deadlocks mean the database is broken — they are a normal outcome of concurrent locking; the app must retry."
+- key: db.locking_deadlocks.check
+  type: concept_check
+  title: "Concept check: InnoDB locks and deadlocks"
+  skills: [db.locking_deadlocks]
+  minutes: 10
+  difficulty: HARD
+  body:
+    intro: MySQL 8 InnoDB at REPEATABLE READ unless stated.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "`UPDATE orders SET flagged = 1 WHERE status = 'DISPUTED'` and status has no index. 30 rows match out of 2 million. What does the UPDATE lock?"
+        options:
+          - The 30 matching rows
+          - Every row it scans in the clustered index, plus gaps, effectively the whole table
+          - Only a table-level lock
+          - Nothing until COMMIT
+        answer: [1]
+        explanation: "Without an index InnoDB scans the clustered index and locks each record it examines with next-key locks; at REPEATABLE READ those locks stay until commit. At READ COMMITTED non-matching rows are released after the WHERE check. The tempting answer (30 rows) is what happens with an index on status."
+      - id: q2
+        kind: single
+        prompt: What is a next-key lock?
+        options:
+          - A lock on the next row after the matching one
+          - A record lock on an index record plus a gap lock on the gap before it
+          - A table lock taken by the next transaction
+          - A lock that expires at the next statement
+        answer: [1]
+        explanation: "Next-key = record + preceding gap. It locks the record against updates and the gap against inserts, which is how locking reads avoid phantoms at REPEATABLE READ."
+      - id: q3
+        kind: multi
+        prompt: Which statements about InnoDB errors are true by default?
+        options:
+          - Error 1213 (deadlock) rolls back the victim's whole transaction
+          - Error 1205 (lock wait timeout) rolls back only the current statement
+          - The lock wait timeout default is 50 seconds
+          - After error 1213 the app should retry only the statement that failed
+        answer: [0, 1, 2]
+        explanation: "Deadlock victims lose the whole transaction, so retry all of it, not just the failed statement. A lock wait timeout rolls back the statement unless innodb_rollback_on_timeout is enabled. innodb_lock_wait_timeout defaults to 50 seconds."
+      - id: q4
+        kind: single
+        prompt: "Two transactions each run `SELECT * FROM t WHERE k = 42 FOR UPDATE` (no such row; unique index on k), then `INSERT INTO t (k) VALUES (42)`. Why can they deadlock?"
+        options:
+          - Because FOR UPDATE on a missing row locks the whole table
+          - Both acquire compatible gap locks on the same gap; each INSERT's insert intention lock then waits for the other's gap lock
+          - Because unique indexes cannot be locked
+          - They cannot deadlock; the second SELECT blocks
+        answer: [1]
+        explanation: "Gap locks do not conflict with each other, so the second SELECT does not block (the tempting wrong answer D). The conflict only appears at INSERT time, and both are already holding the gap, which forms a cycle. Use INSERT ... ON DUPLICATE KEY UPDATE or insert-and-catch-duplicate."
+      - id: q5
+        kind: single
+        prompt: "Several workers poll a jobs table for the next PENDING job. Which MySQL 8 pattern lets them take different jobs without waiting on each other?"
+        options:
+          - SELECT ... LIMIT 1 then UPDATE status
+          - SELECT ... WHERE status = 'PENDING' ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED
+          - LOCK TABLES jobs WRITE
+          - SELECT ... FOR SHARE
+        answer: [1]
+        explanation: "SKIP LOCKED skips rows other transactions have locked, so each worker locks a different job. A plain SELECT then UPDATE lets two workers pick the same job; FOR UPDATE without SKIP LOCKED makes them queue; LOCK TABLES serialises everything."
+      - id: q6
+        kind: short
+        prompt: List four ways to reduce deadlocks in an InnoDB application and say what each one removes.
+        model_answer: "Lock rows in a consistent order (removes circular waits between code paths); keep transactions short and free of external calls (shrinks the window for overlap); index the columns used by locking statements (locks fewer records and gaps); replace check-then-insert with INSERT ... ON DUPLICATE KEY UPDATE or a unique constraint (removes the gap-lock pattern); optionally use READ COMMITTED (no gap locks on searches). Plus: always retry the whole transaction on 1213 with jittered backoff."
+        explanation: Prevention reduces frequency; retries handle the deadlocks that remain.
+- key: db.locking_deadlocks.debug_upsert
+  type: debugging_exercise
+  title: "Debugging: deadlocks at midnight in a usage counter"
+  skills: [db.locking_deadlocks, db.isolation_mvcc]
+  minutes: 20
+  difficulty: HARD
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 1200}
+  body:
+    scenario: |-
+      An API gateway counts calls per account per day in MySQL 8 (InnoDB, REPEATABLE READ). Each request runs the code below. For most of the day it works; in the first minutes after midnight UTC, when every active account's first call of the day arrives at once, the error log fills with `ERROR 1213 (40001): Deadlock found when trying to get lock; try restarting transaction` and some requests fail with 500.
+    symptoms:
+      - Deadlocks cluster in the first minutes of each day, then stop.
+      - Accounts with many concurrent clients are affected most.
+      - Retrying the request manually always succeeds.
+    artifacts:
+      language: text
+      code: |-
+        -- application code (per request)
+        START TRANSACTION;
+        SELECT calls FROM daily_usage WHERE account_id = :a AND day = :d FOR UPDATE;
+        -- if no row:   INSERT INTO daily_usage (account_id, day, calls) VALUES (:a, :d, 1);
+        -- else:        UPDATE daily_usage SET calls = calls + 1 WHERE account_id = :a AND day = :d;
+        COMMIT;
+
+        -- table: daily_usage(id BIGINT PK AUTO_INCREMENT, account_id BIGINT, day DATE, calls INT,
+        --                    UNIQUE KEY uk_account_day (account_id, day))
+
+        -- SHOW ENGINE INNODB STATUS, LATEST DETECTED DEADLOCK (abridged and simplified)
+        *** (1) TRANSACTION: TRANSACTION 5120, ACTIVE 0 sec inserting
+        INSERT INTO daily_usage (account_id, day, calls) VALUES (77, '2026-10-05', 1)
+        *** (1) HOLDS THE LOCK(S):
+        RECORD LOCKS index uk_account_day of table `app`.`daily_usage` trx id 5120 lock_mode X locks gap before rec
+        *** (1) WAITING FOR THIS LOCK TO BE GRANTED:
+        RECORD LOCKS index uk_account_day of table `app`.`daily_usage` trx id 5120 lock_mode X locks gap before rec insert intention waiting
+        *** (2) TRANSACTION: TRANSACTION 5121, ACTIVE 0 sec inserting
+        INSERT INTO daily_usage (account_id, day, calls) VALUES (77, '2026-10-05', 1)
+        *** (2) HOLDS THE LOCK(S):
+        RECORD LOCKS index uk_account_day of table `app`.`daily_usage` trx id 5121 lock_mode X locks gap before rec
+        *** (2) WAITING FOR THIS LOCK TO BE GRANTED:
+        RECORD LOCKS index uk_account_day of table `app`.`daily_usage` trx id 5121 lock_mode X locks gap before rec insert intention waiting
+        *** WE ROLL BACK TRANSACTION (2)
+    tasks:
+      - Read the deadlock report and state, for each transaction, which lock it holds and which it waits for.
+      - Explain why it only happens at the start of the day.
+      - Propose a fix that removes the pattern, and the operational safety net.
+      - Say what would change at READ COMMITTED.
+    hints:
+      - What does SELECT ... FOR UPDATE lock when the row it looks for does not exist yet?
+      - Do two gap locks on the same gap conflict? Does an insert intention lock conflict with another transaction's gap lock?
+      - Is there a single statement that inserts or increments atomically?
+    reference: |-
+      **Reading the report.** Both transactions hold `X locks gap before rec` on the same gap of `uk_account_day` (where (77, '2026-10-05') would go) and both wait for an `insert intention` lock on that gap. Gap locks are compatible with each other, so both SELECT ... FOR UPDATE statements succeeded; the insert intention lock of each INSERT conflicts with the other's gap lock, forming a cycle. InnoDB rolled back transaction 2 (error 1213).
+
+      **Why at midnight.** Only the first call of the day for an account takes the "no row" path. After the row exists, FOR UPDATE takes a record lock on it, the second request simply waits, and no gap lock is involved. At midnight many accounts take the insert path concurrently, so the check-then-insert race becomes common.
+
+      **Fix.** Replace the read-decide-write sequence with one atomic upsert, which needs no prior SELECT and no gap lock from a search:
+
+      ```sql
+      INSERT INTO daily_usage (account_id, day, calls) VALUES (:a, :d, 1)
+      ON DUPLICATE KEY UPDATE calls = calls + 1;
+      ```
+
+      It runs in autocommit mode, holds its lock only for one statement, and concurrent requests serialise on the unique key. Keep a retry of the whole transaction on 1213 with jittered backoff (upserts on the same key can still occasionally deadlock, for example on tables with several unique keys), and track the deadlock rate (`innodb_print_all_deadlocks=ON` plus a metric) so a regression is visible.
+
+      **At READ COMMITTED.** The FOR UPDATE on a missing key would take no gap lock, so this exact deadlock disappears; the second INSERT would instead fail with a duplicate-key error (1062) that the code must handle. The upsert is still the cleaner fix because it is correct at any isolation level.
+    rubric:
+      - {key: report_read, label: "States that both hold the same gap lock and both wait for an insert intention lock, and which transaction was rolled back", points: 3}
+      - {key: root_cause, label: "Explains that gap locks are mutually compatible and that only the first-call-of-the-day path takes them", points: 3}
+      - {key: fix, label: Replaces check-then-insert with an atomic upsert (or insert-and-catch-duplicate), points: 2}
+      - {key: safety_net, label: "Adds whole-transaction retry on 1213, deadlock logging and a metric; explains the READ COMMITTED behaviour", points: 2}
+    follow_ups:
+      - prompt: The same team has a transfer endpoint that deadlocks when users send money to each other simultaneously. What is different about that deadlock and its fix?
+        look_for: "Record locks taken in opposite order (row A then B vs B then A), not gap locks; fix by always locking the lower account id first, plus retry."
+      - prompt: At very high request rates for a single account, the upsert row becomes a hot spot. What could you do?
+        look_for: "Shard the counter into N rows (account, day, bucket) and sum on read, or count in Redis with INCR and flush to MySQL periodically, accepting a small loss window."
+- key: db.locking_deadlocks.cards
+  type: revision_card
+  title: "Recall: InnoDB locks and deadlocks"
+  skills: [db.locking_deadlocks]
+  minutes: 5
+  body:
+    cards:
+      - front: What does a gap lock prevent?
+        back: Inserts into the gap between two index records; it does not block reads or other gap locks.
+      - front: Next-key lock?
+        back: A record lock plus a gap lock on the gap before that record.
+      - front: What does a locking statement on an unindexed column lock at REPEATABLE READ?
+        back: Every record it scans, which can be the whole table.
+      - front: How does InnoDB resolve a deadlock?
+        back: Detects the cycle, rolls back the smaller transaction and returns error 1213.
+      - front: Two most common deadlock patterns?
+        back: Rows locked in opposite order, and check-then-insert with FOR UPDATE on a missing key.
+      - front: MySQL 8 feature for queue workers to avoid waiting on each other?
+        back: SELECT ... FOR UPDATE SKIP LOCKED.

@@ -1,0 +1,621 @@
+# Learning content: distributed systems I — consistency models and CAP/PACELC, coordination (leases, fencing, Raft), fault tolerance.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- consistency, CAP, PACELC
+- key: sdx.consistency.lesson
+  type: lesson
+  title: Consistency models, CAP and PACELC stated precisely
+  skills: [sd.consistency_cap]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: A consistency model is a contract about what a read may return; CAP and PACELC name the price of the strong contracts when replicas are cut off or far apart.
+    what: |-
+      Once data lives on more than one machine, a read can hit a copy that has not seen the latest write. A **consistency model** says which results are allowed. From strongest to weakest:
+
+      - **Linearizable** (often just "strong"): every operation appears to take effect at a single instant between its start and its end. Once a write has completed, every read that starts later, from any client, sees it or something newer. The system behaves as if there were one copy.
+      - **Sequential**: all clients see the same total order of operations, and that order respects each client's own order, but not real time. A read may be stale as long as everyone agrees on the order.
+      - **Causal**: if operation A could have influenced B (same client did A then B, or B read A's result), everyone sees A before B. Concurrent writes may be seen in different orders by different clients.
+      - **Eventual**: if writes stop, all replicas converge to the same value. It says nothing about what you read in the meantime.
+
+      **Session (client-centric) guarantees** sit on top of eventual consistency and are cheap to add: **read-your-writes** (you see your own writes), **monotonic reads** (you never see time go backwards), monotonic writes and writes-follow-reads.
+
+      Do not confuse these with transaction isolation: serializability is about multi-object transactions behaving as if run one at a time; linearizability is about the recency of single-object reads and writes. **Strict serializability** is both.
+    why: |-
+      Replication buys availability, lower latency and read capacity, but replicas lag. With asynchronous single-leader replication the lag is usually milliseconds, and can grow to seconds or minutes under write bursts or a slow replica. Without an explicit model you ship bugs such as:
+
+      - A user edits their profile, the page reloads from a lagging replica and shows the old value (read-your-writes violated).
+      - Two buyers each read "1 left" from different replicas and both check out (the decrement was not linearizable).
+      - A reply appears before the comment it answers (causality violated).
+    when: |-
+      Choose per operation, not per system:
+
+      - **Linearizable**: money movement, uniqueness (usernames, coupon redemption), stock decrement, seat holds, lock and leader state.
+      - **Read-your-writes**: a user's own settings, the post they just published, their order right after checkout.
+      - **Causal**: comment threads, chat within a conversation.
+      - **Eventual**: like and view counts, follower counts, search indexes, feeds, analytics.
+    how: |-
+      Mechanisms for each level:
+
+      - **Linearizable**: send reads and writes for a key to its single leader (reads need a leader lease or a quorum check so a deposed leader cannot serve stale data), or use a consensus-replicated log (Raft, Paxos). Writes wait for a majority.
+      - **Quorums**: with `N` replicas, a write waits for `W` acknowledgements and a read queries `R` replicas. If `R + W > N`, every read set overlaps every write set. `N = 3, W = 2, R = 2` tolerates one replica down for both reads and writes. Overlap is necessary but not sufficient for linearizability: sloppy quorums, last-write-wins on concurrent writes and reads concurrent with a write can still return anomalies unless the store does extra work (synchronous read repair).
+      - **Read-your-writes**: read from the leader for a short window after the user writes, or remember the write's log position in the session and use a replica only once it has replayed past it.
+      - **Monotonic reads**: pin each user to one replica (hash of user id).
+      - **Causal**: carry dependency metadata (version vectors, or sequence numbers per partition) and delay showing an item until its dependencies are visible.
+      - **Eventual**: asynchronous replication plus conflict handling: last-write-wins (simple, silently drops one of two concurrent writes, sensitive to clock skew), version vectors with an application merge, or CRDTs (counters, sets) that merge without conflicts.
+
+      **CAP, precisely** (Brewer's conjecture as proved by Gilbert and Lynch): in a network that can lose messages between nodes, no system can guarantee both **C** = linearizability and **A** = every request to a non-failed node gets a non-error response. When a partition happens, a node that cannot reach its peers has two honest options: refuse or time out (CP) or answer with what it has, possibly stale or conflicting (AP).
+
+      **PACELC** (Abadi) adds the case CAP ignores: **if P**artition, choose **A** or **C**; **E**lse, in normal operation, choose **L**atency or **C**onsistency. The "else" branch is the one you pay every day: synchronous replication across regions adds a cross-region round trip, tens to over a hundred milliseconds, to every write.
+    mental_model: |-
+      Think of a dial per operation, from "one copy" to "copies that eventually agree". Turning toward one copy costs a coordination round trip on every write (latency, PACELC's E branch) and the ability to answer on the minority side of a partition (CAP's A). Turning away costs application work: conflicts, stale screens, reconciliation.
+    tradeoffs: |-
+      Strong consistency costs write latency (a quorum or leader round trip, worse across regions), availability (the minority side of a partition must refuse) and throughput (a leader per key is a bottleneck). Weak consistency costs application complexity: merge rules, anomalies the UI must tolerate, background reconciliation, and harder tests. A common, defensible split is a strongly consistent core (orders, balances, inventory) feeding eventually consistent read models (search, feeds, counts) through events.
+    mistakes:
+      - "\"Pick two of C, A and P.\" Partitions are not optional in a distributed system; the real choice is what to do while one is happening. A \"CA\" system is one that is not partition-tolerant, for example a single node."
+      - Equating CAP's C (linearizability) with ACID's C (transactions preserve application invariants).
+      - Labelling a whole product CP or AP. Many stores are tunable per request, and one product has operations that need different guarantees.
+      - Reading CAP availability as an uptime percentage. A CP system can still have excellent uptime because partitions are rare; CAP only describes behaviour during one.
+      - Assuming `R + W > N` alone gives linearizable reads.
+      - Reading from a replica right after a write and blaming the cache for the stale value.
+      - Using last-write-wins with wall-clock timestamps for data that must never be lost.
+    interview: |-
+      Interviewers listen for a per-operation choice with a reason, the anomaly you accept stated concretely ("the like count can lag by a few seconds"), the mechanism (leader reads, quorum, a session token with a log position) and its cost. A strong line: "The seat hold must be linearizable, so it is a conditional write on the shard leader; the seat map shown while browsing can be a few seconds stale and comes from a replica or cache." Expect follow-ups on what happens during a partition or a leader failover.
+    explain_it:
+      - Name the operation and the anomaly that would hurt (double booking, stale profile).
+      - Pick the weakest model that rules that anomaly out.
+      - Name the mechanism (leader read, quorum, session log position, CRDT).
+      - "State the cost: latency per write, behaviour during a partition, and what the user sees."
+    example:
+      language: python
+      code: |-
+        # Read-your-writes on PostgreSQL streaming replication (function names as in PostgreSQL 10+).
+        def update_profile(session, user_id, data):
+            with primary.transaction() as tx:
+                tx.execute("UPDATE profiles SET bio = %s WHERE user_id = %s", (data["bio"], user_id))
+                lsn = tx.scalar("SELECT pg_current_wal_lsn()")
+            session["min_lsn"] = lsn                      # how far a replica must have replayed
+
+        def read_profile(session, user_id):
+            replica = pick_replica(user_id)               # same replica per user: monotonic reads
+            needed = session.get("min_lsn")
+            if needed is None or replica.scalar(
+                "SELECT pg_last_wal_replay_lsn() >= %s::pg_lsn", (needed,)
+            ):
+                return replica.fetch_one("SELECT * FROM profiles WHERE user_id = %s", (user_id,))
+            return primary.fetch_one("SELECT * FROM profiles WHERE user_id = %s", (user_id,))
+      explanation: The session remembers the write's WAL position; a replica serves the read only once it has replayed that far, otherwise the leader does. Other users can still read slightly stale data, which is acceptable for profiles.
+    internals: |-
+      With asynchronous replication, a leader acknowledges a write before any replica has it. If the leader then dies and a replica is promoted, the acknowledged write is lost or, if the old leader comes back, it conflicts. Semi-synchronous or synchronous replication to at least one replica closes this gap at the cost of a round trip per commit. Consensus systems avoid it by committing only once a majority has the entry, so any future leader's majority overlaps the one that stored it.
+    edge_cases:
+      - Leader failover with asynchronous replication can drop writes the client was told succeeded.
+      - Clock skew between nodes makes last-write-wins keep the older write.
+      - "Split brain: two nodes both believe they are leader and both accept writes."
+      - A user on two devices; read-your-writes per session does not cover the other device unless the token is per user.
+    misconceptions:
+      - "Eventual consistency means the data is wrong. It means reads may be stale for a while; in a healthy system the lag is usually small and can be measured and alerted on."
+      - "NoSQL means eventual consistency. Many key-value and document stores offer strongly consistent reads as a per-request option."
+
+- key: sdx.consistency.check
+  type: concept_check
+  title: "Concept check: consistency models, quorums and CAP"
+  skills: [sd.consistency_cap]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Answer closed-book. For each scenario name the anomaly before you pick a model.
+    questions:
+      - id: q1
+        kind: single
+        prompt: A user saves a comment, the page reloads and the comment is missing, although other users can already see it. Which is the weakest guarantee that would have prevented this?
+        options: ["Eventual consistency", "Read-your-writes", "Linearizability", "Serializability"]
+        answer: [1]
+        explanation: "The user's own read went to a replica that had not caught up. Read-your-writes is exactly the session guarantee that fixes it. Linearizability would also prevent it but is stronger and more expensive than needed; eventual consistency is what the system already had; serializability is about multi-object transactions, not replica recency."
+      - id: q2
+        kind: multi
+        prompt: Which statements about CAP are accurate?
+        options:
+          - During a network partition a system must give up either linearizable operations or a non-error response from every non-failed node
+          - A system can choose to be CA by running on reliable hardware in one data centre
+          - The C in CAP means the same as the C in ACID
+          - CAP says nothing about the latency cost of consistency when there is no partition
+        answer: [0, 3]
+        explanation: "Option 0 is the theorem. Option 3 is why PACELC exists. Partitions happen even inside one data centre (switch failures, long GC pauses look the same to peers), so 'CA' only describes a system that is not distributed. CAP's C is linearizability; ACID's C is about application invariants."
+      - id: q3
+        kind: single
+        prompt: "A store keeps N = 5 replicas of each key. Which write/read quorum gives overlapping read and write sets and still accepts both reads and writes with two replicas down?"
+        options: ["W = 3, R = 3", "W = 2, R = 3", "W = 5, R = 1", "W = 4, R = 2"]
+        answer: [0]
+        explanation: "3 + 3 = 6 > 5, so sets overlap, and both need only 3 of 5 nodes. W = 2, R = 3 sums to 5, not more than N, so a read can miss the latest write. W = 5 blocks writes when any node is down. W = 4, R = 2 overlaps but writes fail with two nodes down."
+      - id: q4
+        kind: single
+        prompt: A database acknowledges a write only after a replica in another region has stored it. In PACELC terms, what does it choose when there is no partition?
+        options: ["EL: lower latency over consistency", "EC: consistency over latency", "PA: availability over consistency", "Nothing; PACELC only applies during partitions"]
+        answer: [1]
+        explanation: "Waiting for the remote replica on every write pays a cross-region round trip in normal operation to keep replicas in step: Else-Consistency. PA describes the partition branch, and the whole point of PACELC's E branch is the normal-operation trade-off."
+      - id: q5
+        kind: single
+        prompt: A leader replicating asynchronously crashes, and a replica is promoted. What can happen to writes the old leader had acknowledged?
+        options:
+          - Writes not yet shipped to the promoted replica are lost
+          - Nothing; an acknowledged write is durable on every replica
+          - They are replayed automatically from the client's cache
+          - They become visible only to read-your-writes sessions
+        answer: [0]
+        explanation: "Asynchronous replication acknowledges before replicas have the data, so the promoted replica may be missing the tail of the log. That is the gap semi-synchronous replication and consensus close. 'Acknowledged means everywhere' is only true with synchronous replication to the promoted node."
+      - id: q6
+        kind: short
+        prompt: "An online shop has four operations: product view counter, shopping cart, stock decrement at checkout, and the order history page right after placing an order. Choose a consistency level for each and give a one-line reason."
+        model_answer: "View counter: eventual, a few seconds of lag hurts nobody and it can be batched. Cart: read-your-writes per user (pin to leader or session token); concurrent edits from two devices can merge. Stock decrement: linearizable conditional write on the leader, because overselling is the anomaly that matters. Order history after checkout: read-your-writes, the user must see the order they just placed; other readers can be eventual."
+        explanation: The skill is choosing per operation and naming the anomaly each choice rules out, not labelling the whole shop CP or AP.
+
+- key: sdx.consistency.interview
+  type: interview_question
+  title: "Interview question: correct a CAP claim and choose consistency for bookings"
+  skills: [sd.consistency_cap, sd.database_scaling]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    prompt: |-
+      In a design review a teammate says: "Our seat-booking service uses a Dynamo-style store, so we are AP; the old PostgreSQL system was CA." Correct the statement, then explain what consistency you would require for (a) placing a hold on a seat and (b) showing the seat map while users browse, and how you would implement each.
+    key_points:
+      - "Explains that partitions cannot be opted out of; 'CA' only describes a non-distributed system, and CAP's choice applies during a partition."
+      - "Explains that CAP's C is linearizability and that many stores are tunable per request, so 'AP' is a property of a configuration and operation, not of a product."
+      - "Seat hold: linearizable, implemented as a conditional write on the key's leader or a quorum/consensus write (e.g. `UPDATE seats SET held_by = ? WHERE id = ? AND held_by IS NULL`), with an expiry on the hold."
+      - "Seat map: eventual or bounded staleness from replicas or a cache, accepted because the hold step re-checks and rejects a seat that was just taken."
+      - "Names the cost: hold latency includes a leader or quorum round trip, and holds fail (rather than double-book) on the minority side of a partition."
+    model_answer: |-
+      CAP says that while the network is partitioned you cannot have both linearizability and a successful answer from every live node. A single PostgreSQL leader with replicas is still distributed: if the leader is cut off, you either stop writes or risk divergence, so "CA" is not a real option. The store's label also depends on configuration: quorum writes and strongly consistent reads make the same store behave CP for those requests.
+
+      For the hold I need linearizability, because the anomaly is double booking. I would do a conditional write on the seat's leader (or a quorum write with a version check) that succeeds only if the seat is free, store an expiry, and release expired holds with a sweeper. For the seat map I accept a few seconds of staleness from a replica or cache, because the hold step is the source of truth and will reject a seat that was taken. The price is that holds take a leader round trip and are refused during a partition on the minority side, which is better than selling a seat twice.
+    pitfalls:
+      - Accepting the "pick two" framing and arguing about which two.
+      - Requiring linearizable reads for the seat map, which puts every browse on the leader.
+      - Forgetting hold expiry, so abandoned holds lock seats forever.
+    follow_ups:
+      - prompt: The region holding the seat leader becomes unreachable from half your users. What do those users experience, and is that acceptable?
+        look_for: "Their holds fail or time out (CP behaviour) while browsing still works from replicas or cache; acceptable because a failed hold is recoverable and a double booking is not; mentions failover of the leader with fencing."
+      - prompt: How would you show "3 seats left" without hammering the leader?
+        look_for: "Serve an approximate count from a cache or replica refreshed every few seconds, label it approximate, and rely on the conditional hold for correctness."
+      - prompt: Where does PACELC show up in this design?
+        look_for: "In normal operation the hold pays latency for consistency (EC); the seat map trades consistency for latency (EL)."
+
+- key: sdx.consistency.cards
+  type: revision_card
+  title: "Recall: consistency models and CAP"
+  skills: [sd.consistency_cap]
+  minutes: 5
+  body:
+    cards:
+      - front: Linearizable in one line?
+        back: Each operation takes effect at one instant between start and end; later reads see it.
+      - front: Causal consistency guarantees what?
+        back: Operations that could have influenced each other are seen in that order by everyone.
+      - front: CAP's real statement?
+        back: During a partition, choose linearizability or a non-error answer from every live node.
+      - front: PACELC's extra branch?
+        back: "Else (no partition): choose latency or consistency."
+      - front: Does R + W > N give linearizability?
+        back: No; it guarantees overlap, but anomalies remain without extra work like read repair.
+      - front: Cheapest fix for "I can't see my own edit"?
+        back: Read-your-writes via leader reads after a write or a session log-position token.
+
+# ---------------------------------------------------------------------------------------------- distributed coordination
+- key: sdx.coordination.lesson
+  type: lesson
+  title: Leases, fencing tokens and leader election without the hand-waving
+  skills: [sd.distributed_coordination]
+  minutes: 25
+  difficulty: HARD
+  body:
+    summary: A distributed lock is a lease the holder cannot fully trust; fencing tokens and consensus-backed stores turn it into something safe.
+    what: |-
+      **Coordination** is getting several machines to agree on one fact: who is the leader, who holds a lock, what the next entry in a log is.
+
+      - **Leader election**: exactly one node acts as the primary, scheduler or single writer for a partition.
+      - **Distributed lock**: mutual exclusion between processes on different machines.
+      - **Lease**: a lock with an expiry time. The holder must renew it before it expires; if it crashes, the lease lapses and someone else can take over.
+      - **Consensus**: agreement on a sequence of values despite node failures. Raft, Paxos and ZooKeeper's ZAB implement it; etcd and ZooKeeper expose it as a small, strongly consistent key-value store you can build leases and elections on.
+    why: |-
+      Some work must be done by one actor at a time: one nightly billing run, one writer per shard, one process rewriting a file. Without coordination two nodes do it at once (**split brain**), giving duplicate charges or corrupted data. Locks are also easy to get subtly wrong because time and pauses are involved, which is why interviewers probe them.
+    when: |-
+      Separate two purposes:
+
+      - **Efficiency lock**: avoids duplicate work; occasionally doing it twice only wastes resources (regenerating a thumbnail). A single Redis lock with a TTL is usually fine.
+      - **Correctness lock**: doing it twice corrupts state (two writers to a ledger). Needs a consensus-backed lock service **and** fencing at the resource.
+
+      Before reaching for a lock, try to design it away: a unique constraint, a conditional write on a version column (compare-and-set), an idempotency key, or single-writer partitioning (all events for key K go to one consumer of a partitioned queue).
+    how: |-
+      **A Redis lock, done carefully**: acquire with `SET lock:job42 <random-token> NX PX 30000` (set only if absent, expire in 30 s). Release only if the value is still your token, atomically, with a small Lua script; a plain `DEL` can delete a lock that expired and was taken by someone else. Why it still needs care:
+
+      - A process pause longer than the TTL (stop-the-world GC, VM migration, a slow disk) lets the lease expire while the holder still believes it holds it; a second client acquires it and both act.
+      - With asynchronous Redis replication, the primary can grant the lock and fail before replicating it; the promoted replica does not know the lock exists.
+      - Redlock (acquiring on a majority of independent Redis nodes) addresses the replication issue but still depends on bounded pauses and clock drift; its safety for correctness locks is disputed, so do not present it as a guarantee.
+
+      **Fencing tokens** fix the pause problem. The lock service returns a number that increases on every grant (ZooKeeper's zxid or node version, an etcd revision, a database sequence). The holder sends it with every write, and the protected resource rejects any write carrying a token lower than the highest it has seen. The stale holder's writes bounce. The resource must cooperate: fencing only works where the check is enforced.
+
+      **Leader election** on a consensus store: create a key bound to a lease (etcd), or create ephemeral sequential nodes (ZooKeeper: lowest sequence number leads, each node watches only its predecessor to avoid a herd of wake-ups). The leader renews the lease; if it stops, the key disappears and the next candidate takes over. The election term or revision is the fencing token.
+
+      **Raft in five sentences**: nodes are followers, candidates or the leader, and time is split into numbered terms. A follower that hears no heartbeat within a randomized election timeout (the Raft paper suggests 150 to 300 ms) becomes a candidate, increments the term and asks for votes; each node votes once per term and only for a candidate whose log is at least as up to date as its own; a majority wins. The leader appends client commands to its log and replicates them; an entry is **committed** once a majority stores it, and committed entries survive any later election because every majority overlaps. A cluster of `2f + 1` nodes tolerates `f` failures: 3 nodes survive 1, 5 survive 2. The minority side of a partition can neither elect a leader nor commit, which is CAP's CP choice.
+    mental_model: |-
+      A lease is a promise with an expiry date that the holder cannot read reliably, because the holder can be frozen without noticing. So never let the holder's belief be the last line of defence: move the check to the resource that matters (fencing), or remove the need for a lock.
+    tradeoffs: |-
+      Consensus stores (etcd, ZooKeeper) are strongly consistent but every write goes through a leader and a majority of durable writes, so throughput is modest; use them for metadata, leases and elections, not hot data. A Redis lock is fast and simple and fine for efficiency. A database row or advisory lock (PostgreSQL `pg_advisory_lock`) is attractive when the protected data lives in the same database, because the lock and the write can share one transaction. Leader-based designs are easy to reason about but the leader caps throughput and failover leaves a gap of detection time plus election time, typically seconds.
+    mistakes:
+      - Releasing a lock with a plain `DEL`, freeing another client's lock after yours expired.
+      - Assuming a longer TTL makes the pause problem go away; it only narrows the window.
+      - Using a lock where a unique index or a conditional update would do.
+      - Fencing in the lock service but not checking the token at the storage layer.
+      - Running a 2-node or 4-node consensus cluster; an even count adds failure risk without adding tolerance (4 nodes still tolerate only 1 failure).
+      - Using wall-clock time on the client to decide whether the lease is still valid.
+      - "Health checks that elect a new leader on a short blip, causing leader flapping."
+    interview: |-
+      As soon as you say "we take a distributed lock", expect "what if the holder pauses for longer than the TTL?" Answer with leases plus fencing, or show how partitioning or a conditional write avoids the lock. Keep consensus at the intuition level: majority, terms, committed means stored on a majority, 2f + 1. Nobody expects a proof, but they do expect you not to claim Redis gives you a safe correctness lock by default.
+    explain_it:
+      - Say whether the lock protects efficiency or correctness.
+      - Show how it is acquired and released (token, TTL, atomic release).
+      - "Walk the failure: holder pauses past the TTL, second holder acquires, first resumes."
+      - Show the fencing check at the resource, or the design that avoids the lock.
+      - For elections, state majority size, failure tolerance and the failover gap.
+    example:
+      language: python
+      code: |-
+        # The lock service returns (token, ttl); the token increases on every grant.
+        token = lock_service.acquire("report:2026-10", ttl_seconds=30)
+
+        body = build_report()          # may take long; we might pause past the TTL here
+
+        # The storage enforces the fence inside the same conditional write that changes the data.
+        updated = db.execute(
+            """
+            UPDATE reports
+               SET body = %s, fence = %s
+             WHERE id = %s AND fence <= %s
+            """,
+            (body, token, report_id, token),
+        )
+        if updated == 0:
+            raise StaleLockHolder("a newer holder already wrote; discard this result")
+      explanation: Even if this process paused and another holder wrote with a larger token, the WHERE clause rejects the stale write. The lock alone could not have prevented it.
+    internals: |-
+      Why randomized election timeouts: if all followers timed out at once they would all become candidates, split the vote and retry forever. Randomizing spreads them out so one usually asks first and wins. Why "at least as up to date" voting: it guarantees the winner already has every committed entry, so a new leader never overwrites committed history.
+    edge_cases:
+      - "A clock jump (NTP step) on the lock server can expire leases early; lease servers should measure time with a monotonic clock."
+      - The lock holder finishes after its lease expired but before anyone else acquired it; fencing still accepts the write, which is correct.
+      - A network partition isolates the leader; it must stop acting once its lease expires, even if it still thinks it is leader.
+
+- key: sdx.coordination.check
+  type: concept_check
+  title: "Concept check: locks, leases, fencing and Raft"
+  skills: [sd.distributed_coordination]
+  minutes: 10
+  difficulty: HARD
+  body:
+    intro: Think about pauses and partitions, not the happy path.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "Client A takes a Redis lock with a 10 s TTL, then a garbage-collection pause freezes it for 15 s. Client B acquires the lock and writes. A wakes up and writes too. What prevents A's write from corrupting the data?"
+        options:
+          - A longer TTL
+          - Releasing the lock with a Lua script that checks the token
+          - A fencing token checked by the storage on every write
+          - Using Redlock across five Redis nodes
+        answer: [2]
+        explanation: "Only a check at the resource can reject A, because A cannot know it was paused. A longer TTL only shrinks the window; the Lua release prevents A from freeing B's lock but not from writing; Redlock still relies on timing, so a long pause defeats it as well."
+      - id: q2
+        kind: multi
+        prompt: Which ways of releasing a Redis lock you believe you hold are safe?
+        options:
+          - Run DEL on the lock key
+          - A Lua script that deletes the key only if its value equals your random token
+          - Let the lock expire on its own
+          - GET the key, compare the value in your code, then DEL it
+        answer: [1, 2]
+        explanation: "The atomic compare-and-delete is the standard release, and letting the TTL expire is safe but slow. DEL may remove another client's lock if yours already expired. GET then DEL is two commands, so the lock can expire and be re-acquired between them."
+      - id: q3
+        kind: single
+        prompt: How many node failures can a 5-node Raft cluster tolerate while still electing a leader and committing entries?
+        options: ["1", "2", "3", "4"]
+        answer: [1]
+        explanation: "A majority of 5 is 3, so 2 nodes can fail. With 3 failures only 2 remain, which is not a majority. This is the 2f + 1 rule: 5 = 2 × 2 + 1."
+      - id: q4
+        kind: single
+        prompt: Why does Raft randomize election timeouts?
+        options:
+          - To make the leader's heartbeats cheaper
+          - To make it unlikely that several followers become candidates at the same time and split the vote
+          - To defend against clock skew between nodes
+          - To spread client load across followers
+        answer: [1]
+        explanation: "Simultaneous candidates each vote for themselves and nobody gets a majority. Random timeouts let one candidate usually start first and win. Timeouts are measured locally, so skew between clocks is not what they address."
+      - id: q5
+        kind: single
+        prompt: Which is the simplest correct way to stop two sign-ups from claiming the same username across many API servers?
+        options:
+          - A Redis lock per username around the insert
+          - A unique index on the username column, handling the duplicate-key error
+          - Electing one API server to perform all sign-ups
+          - Redlock across three Redis nodes
+        answer: [1]
+        explanation: "The database already provides a linearizable uniqueness check on one row. A lock adds a second system, a TTL and pause risks; a single sign-up leader adds a bottleneck and failover problem for no gain."
+      - id: q6
+        kind: short
+        prompt: Classify each as an efficiency lock or a correctness lock and say what you would use, (a) avoid two workers generating the same thumbnail, (b) ensure only one process appends to a billing ledger.
+        model_answer: "(a) Efficiency: a single Redis lock with a TTL, or just idempotent output keyed by image id; a rare duplicate only wastes CPU. (b) Correctness: a duplicate append double-bills. Avoid the lock by routing all ledger appends through one partition owner, or use a consensus-backed lease (etcd or ZooKeeper) and enforce a fencing token or a unique entry id in the ledger store."
+        explanation: The purpose decides how much safety you must pay for; the correctness case needs a check at the resource.
+
+- key: sdx.coordination.interview
+  type: interview_question
+  title: "Interview question: run the nightly billing job exactly once"
+  skills: [sd.distributed_coordination, sd.idempotency_retries]
+  minutes: 15
+  difficulty: HARD
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    prompt: |-
+      Six identical application servers each run a scheduler. A billing job must run once per night and charge every customer once. Explain how you would make sure it runs on exactly one server, what happens if that server dies halfway, and why your answer does not double-charge anyone.
+    key_points:
+      - "Elects a single runner with a lease on a consensus-backed store (etcd or ZooKeeper) or a database row with a conditional update and an expiry, not by every server racing with a plain lock."
+      - "Explains that the lease alone is not enough: the runner can pause past its lease, so a second runner may start."
+      - "Makes each charge idempotent with a key such as `customer_id + billing_period`, enforced by a unique constraint, so a duplicate run cannot charge twice."
+      - "Handles a crash halfway by making the job resumable: progress is derived from which charges exist, and the next runner continues from there."
+      - "Uses the lease term or revision as a fencing token on writes that cannot be made idempotent, or states that idempotency makes fencing unnecessary for charges."
+    model_answer: |-
+      I would not rely on "exactly one runner" for correctness. First, leadership: each scheduler tries to take a lease in etcd (or update a `job_runs` row where `lease_until < now()`), and only the holder starts the job, renewing the lease while it works. Second, correctness: a holder can pause past its lease and a second runner can start, so every charge carries an idempotency key `(customer_id, period)` with a unique constraint, and the payment provider call uses the same key. If the runner dies halfway, the lease expires, another server takes over and iterates customers again; customers already charged hit the unique key and are skipped. Exactly-once execution is impossible to guarantee, but exactly-once effect is achieved with leases for efficiency and idempotency for correctness.
+    pitfalls:
+      - Claiming a Redis `SETNX` lock guarantees one run.
+      - Restarting the job from scratch after a crash without idempotency.
+      - Using a cron on only one designated server, which is a single point of failure.
+    follow_ups:
+      - prompt: The payment provider call timed out. Did the charge happen?
+        look_for: "Unknown outcome; retry with the same idempotency key or query the provider by that key before charging again; never retry with a new key."
+      - prompt: Why not just run the job on every server and rely only on idempotency?
+        look_for: "Correct but wasteful; six times the load on the provider and the database, more contention on unique keys; the lease is the efficiency layer."
+      - prompt: How does the job prove it finished?
+        look_for: "Writes a completion record for the period and emits a metric; an alert fires if no completion record exists by a deadline."
+
+- key: sdx.coordination.cards
+  type: revision_card
+  title: "Recall: coordination"
+  skills: [sd.distributed_coordination]
+  minutes: 5
+  body:
+    cards:
+      - front: Why can a lease holder act after its lease expired?
+        back: A pause (GC, VM freeze) stops it noticing that time passed.
+      - front: What is a fencing token?
+        back: A number that grows with every lock grant; the resource rejects lower ones.
+      - front: Safe Redis lock acquire command?
+        back: "SET key <random-token> NX PX <ttl-ms>; release with a compare-and-delete script."
+      - front: Raft commit rule?
+        back: An entry is committed once a majority of nodes store it.
+      - front: Failures tolerated by 2f + 1 nodes?
+        back: f — so 3 nodes tolerate 1 and 5 tolerate 2.
+      - front: First question before adding a lock?
+        back: Can a unique index, conditional write or partition owner remove the need?
+
+# ---------------------------------------------------------------------------------------------- fault tolerance
+- key: sdx.fault_tolerance.lesson
+  type: lesson
+  title: Timeouts, retries, circuit breakers, bulkheads, backpressure and disaster recovery
+  skills: [sd.fault_tolerance, sd.idempotency_retries]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Partial failure is normal; give every wait a deadline, every queue a bound and every failure a compartment, then decide in advance what users get when something breaks.
+    what: |-
+      Fault tolerance is the set of patterns that keep a system serving, possibly in a degraded way, when parts of it fail or slow down:
+
+      - **Timeouts** and **deadline propagation**: no call waits forever.
+      - **Retries** with exponential backoff and jitter: absorb transient faults.
+      - **Circuit breakers**: stop calling a dependency that is failing, and fail fast.
+      - **Bulkheads**: isolate resources so one failure cannot consume everything.
+      - **Backpressure** and **load shedding**: refuse work you cannot do instead of queueing it forever.
+      - **Graceful degradation**: serve a reduced experience rather than an error.
+      - **Redundancy and disaster recovery**: replicas and backups, sized by **RPO** (how much data you can afford to lose, measured in time) and **RTO** (how long you can afford to be down).
+    why: |-
+      A slow dependency is often worse than a dead one, because it holds threads, connections and memory. Little's law says requests in flight = arrival rate × latency. At 500 requests per second and 100 ms latency you hold about 50 in flight. If a dependency slows to 10 s and you have no timeout, you need 5,000 in flight; a pool of 200 workers is exhausted in under half a second, your service stops answering anything, and its callers start failing too. That chain is a **cascading failure**, and most large outages look like it.
+    when: |-
+      On every network call (timeouts), on every call that can fail transiently (retries, if safe), around every dependency that can fail independently (breakers, bulkheads), at every queue and service entry (backpressure), and for every user-facing feature you can live without (degradation). DR targets are agreed per system: a payments ledger may need RPO near zero, an analytics store may accept a day.
+    how: |-
+      - **Timeouts**: set connect and read timeouts on every client, from the dependency's latency under normal load plus margin (p99 of 80 ms might get a 250 ms timeout). Propagate a deadline: each hop passes the remaining budget so downstream work stops when the caller has given up. Many HTTP clients have no timeout by default; Python's `requests` waits indefinitely unless you pass `timeout`.
+      - **Retries**: retry only transient failures (timeouts, connection resets, 503, 429 with `Retry-After`) and only idempotent operations or ones carrying an idempotency key. Use exponential backoff with **full jitter**: wait a random time between 0 and `min(cap, base × 2^attempt)`. Cap attempts (often 3), retry at one layer only, and use a retry budget (for example retries at most 10% of requests) so retries cannot multiply load during an overload. Three layers that each make 3 attempts send up to 27 requests to the bottom service for one user request.
+      - **Circuit breaker**: **closed** counts failures over a sliding window; when the failure rate crosses a threshold (say half of the last 20 calls) it goes **open** and fails immediately for a cool-down (say 30 s); then **half-open** lets a few trial calls through and closes on success or reopens on failure. Pair it with a fallback.
+      - **Bulkheads**: separate connection pools, worker pools or queues per dependency, per tenant or per priority, so a slow recommendations service exhausts only its own pool, not the one checkout uses.
+      - **Backpressure and load shedding**: bound every queue; when it is full, reject quickly with 429 or 503 instead of letting latency and memory grow. Shed low-priority work first (analytics before checkout). Pull-based consumers naturally apply backpressure.
+      - **Graceful degradation**: stale cache instead of fresh data, hide a non-critical widget, feature flags that switch off expensive paths, read-only mode while the primary database fails over.
+      - **Disaster recovery**: replicas across availability zones handle machine and zone loss; region loss needs a DR strategy. From cheapest and slowest to most expensive and fastest: backup and restore (RTO hours, RPO = backup interval), pilot light, warm standby, active-active (RTO near zero, RPO = replication lag, or zero with synchronous replication). Untested restores do not count.
+    mental_model: |-
+      A building's fire doors and fuse box. Each failure must stay in its compartment (bulkhead), trip fast (timeout, breaker), and the occupants must still be able to use the rest of the building (degradation). Every wait has a deadline and every queue has a bound.
+    tradeoffs: |-
+      Tight timeouts cause false failures and extra retries; loose ones hold resources. Retries raise success for transient faults but amplify load during an overload, which is when they hurt most. Breakers can trip on a short blip and reject good traffic. Bulkheads leave reserved capacity idle. Shedding load means deliberately failing some users. Active-active DR roughly doubles infrastructure and forces you to handle conflicting writes; backup-and-restore is cheap but means hours of downtime.
+    mistakes:
+      - No timeout on outbound calls, or a timeout longer than the caller's own.
+      - Retrying a non-idempotent POST without an idempotency key.
+      - Retrying at every layer, multiplying load on the struggling service.
+      - Backoff without jitter, so all clients retry in synchronized waves.
+      - Health checks that include downstream dependencies, so one database blip marks the whole fleet unhealthy and the load balancer removes everything.
+      - Unbounded in-memory queues that turn an overload into an out-of-memory crash.
+      - Treating replication as backup; a bad delete replicates instantly.
+      - A DR plan that has never been rehearsed.
+    interview: |-
+      "What happens if X fails or gets slow?" is guaranteed in a design round. Walk it in order: how you **detect** it (timeout, error rate, health check), how you **contain** it (breaker, bulkhead), how you **recover** (retry with backoff, failover), how you **degrade** (fallback), and what the user sees. State RPO and RTO as numbers for the stateful parts.
+    explain_it:
+      - Pick one dependency and say what slow and what dead look like.
+      - Give the timeout value and where it comes from.
+      - State the retry policy, why it is safe (idempotency) and its limit.
+      - Name the breaker or bulkhead that contains it and the fallback.
+      - State RPO and RTO for the data involved.
+    example:
+      language: python
+      code: |-
+        import random
+        import time
+
+        RETRYABLE = (TimeoutError, ConnectionError)
+
+        def call_with_retries(op, *, attempts=3, base_ms=100, cap_ms=2000, budget_ms=1500):
+            """op(timeout_ms) must be idempotent. One overall deadline bounds all attempts."""
+            deadline = time.monotonic() + budget_ms / 1000
+            for attempt in range(attempts):
+                remaining_ms = int((deadline - time.monotonic()) * 1000)
+                if remaining_ms <= 0:
+                    break
+                try:
+                    return op(timeout_ms=remaining_ms)          # pass the remaining budget down
+                except RETRYABLE:
+                    if attempt == attempts - 1:
+                        raise
+                    backoff_ms = random.randint(0, min(cap_ms, base_ms * 2 ** attempt))  # full jitter
+                    time.sleep(min(backoff_ms, remaining_ms) / 1000)
+            raise TimeoutError("deadline exceeded")
+      explanation: Attempts are capped, waits are randomized so clients do not retry in lockstep, and the whole sequence respects one deadline instead of each attempt getting a fresh full timeout.
+    internals: |-
+      Why overload is self-reinforcing: when latency rises, clients time out and retry, raising the arrival rate, which raises latency further. Queues in front of a saturated server grow until requests are already expired by the time they are served, so the server does useless work (goodput falls to zero). Bounded queues, deadline checks before starting work, and retry budgets break this loop.
+    edge_cases:
+      - "A timeout does not mean the operation failed; the server may have completed it (unknown outcome)."
+      - A retry after a timeout may land on a server that is still processing the first attempt.
+      - Restarting a fleet after an outage causes a thundering herd of reconnects and cache misses; ramp traffic gradually.
+      - Breaker state is per instance; with 100 instances each needs its own failures before opening.
+
+- key: sdx.fault_tolerance.check
+  type: concept_check
+  title: "Concept check: timeouts, retries, breakers and DR"
+  skills: [sd.fault_tolerance]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Do the arithmetic where there is some; the numbers are the argument.
+    questions:
+      - id: q1
+        kind: single
+        prompt: A service receives 400 requests per second. A dependency's latency rises from 50 ms to 5 s and the service has no timeout. Roughly how many requests are in flight once it settles?
+        options: ["20", "200", "2,000", "20,000"]
+        answer: [2]
+        explanation: "Little's law: 400 per second × 5 s = 2,000 in flight (it was 400 × 0.05 = 20 before). A 200-worker pool is exhausted, so the service fails even for requests that do not touch the dependency. 20 is the healthy number, a common slip when people forget to redo the multiplication."
+      - id: q2
+        kind: single
+        prompt: What does a circuit breaker do in the half-open state?
+        options:
+          - Rejects every call until an operator resets it
+          - Lets a small number of trial calls through and decides from their outcome whether to close or reopen
+          - Sends half of the traffic to the dependency and half to the fallback
+          - Retries every failed call once
+        answer: [1]
+        explanation: "Half-open probes recovery with a few calls; success closes the breaker, failure reopens it for another cool-down. It is not a 50/50 traffic split, and breakers reset automatically rather than waiting for an operator."
+      - id: q3
+        kind: multi
+        prompt: Which failed calls are reasonable to retry automatically with backoff?
+        options:
+          - A GET for a product that timed out
+          - A POST that creates a payment, has no idempotency key and timed out
+          - A call that returned 503 with a Retry-After header
+          - A call that returned 400 because a field is invalid
+        answer: [0, 2]
+        explanation: "The GET is idempotent and timeouts are often transient; 503 with Retry-After explicitly invites a later retry. The payment POST may already have succeeded, so retrying without a key risks a double charge. A 400 will fail the same way every time."
+      - id: q4
+        kind: single
+        prompt: "A database is backed up nightly at 02:00 and a full restore takes 4 hours. The primary and its replicas are destroyed at 23:00. Which statement is right?"
+        options:
+          - Up to about 21 hours of data can be lost, and the service is down for at least 4 hours
+          - Nothing is lost because replicas hold the data
+          - Up to 4 hours of data can be lost, and the service is down for about 21 hours
+          - RPO and RTO are both zero because backups exist
+        answer: [0]
+        explanation: "Everything written since 02:00 is gone, so the effective RPO is the backup interval (here 21 hours of data). RTO is at least the restore time. The third option swaps RPO and RTO, a frequent confusion."
+      - id: q5
+        kind: single
+        prompt: Why add jitter to exponential backoff?
+        options:
+          - To make each retry faster than the last
+          - To stop many clients that failed together from retrying at the same instants
+          - To guarantee the request eventually succeeds
+          - To keep total retry time below the timeout
+        answer: [1]
+        explanation: "Without jitter, clients that failed at the same moment retry at the same moments (1 s, 2 s, 4 s), producing synchronized spikes that can knock the recovering service over again. Jitter spreads them out; it does not guarantee success or bound total time."
+      - id: q6
+        kind: short
+        prompt: The product page calls pricing (critical) and recommendations (optional). Recommendations has become slow and product pages are timing out. What do you change, in order?
+        model_answer: "Put a short timeout on the recommendations call (from its normal p99), run it in its own connection pool (bulkhead) so it cannot starve the pricing calls, wrap it in a circuit breaker that opens on high error or timeout rates, and fall back to rendering the page without recommendations or with a cached generic list. Alert on the breaker opening. Do not add retries to the slow call, which would add load."
+        explanation: Contain the optional dependency so the critical path keeps working; degradation is a product decision you make in advance.
+
+- key: sdx.fault_tolerance.debug
+  type: debugging_exercise
+  title: "Debugging: the outage that started as a 30-second database failover"
+  skills: [sd.fault_tolerance, sd.idempotency_retries, sd.observability]
+  minutes: 20
+  difficulty: HARD
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 1200}
+  body:
+    scenario: |-
+      An order API (40 instances) calls an inventory service (20 instances), which calls a PostgreSQL primary. At 14:02 the primary fails over to a replica; the failover completes in about 30 seconds. The order API stays at near 100% errors until 14:41, long after the database is healthy. Traffic at the edge did not change.
+    symptoms:
+      - Inventory request rate rises from about 3,000 to about 25,000 per second at 14:03 and stays there.
+      - Inventory p99 latency goes from 40 ms to 9 s; CPU on inventory instances is pinned.
+      - The database is healthy from 14:03 and its query rate is roughly back to normal.
+      - Inventory's request queue depth grows without bound and two instances are killed for running out of memory.
+      - Errors drop only after an engineer scales the order API down to 10 instances.
+    artifacts: |-
+      order-api client config:
+        inventory.timeout_ms: 10000
+        inventory.retries: 3            # immediate, no backoff
+      gateway config:
+        upstream.retries: 2             # retries the whole order request
+      inventory server:
+        worker_queue: unbounded in-memory list
+        health_check: "SELECT 1" against the database
+    tasks:
+      - Explain why the outage outlived the 30-second failover.
+      - Compute the worst-case number of inventory calls produced by one user request.
+      - List the configuration changes you would make and the order you would roll them out.
+      - Say which metrics or alerts would have shown the cause within the first two minutes.
+    hints:
+      - Multiply the attempts at every layer.
+      - What does an unbounded queue do to the latency of requests that are already expired?
+    reference: |-
+      **Cause**: a retry storm that turned a short fault into a stable overload (a metastable failure). During the failover inventory calls failed; the gateway retries each order up to 2 more times (3 attempts) and the order API retries each inventory call up to 3 more times (4 attempts) with no backoff, so one user request can generate 3 × 4 = 12 inventory calls. Inventory saturated; the 10-second client timeout kept work queued long after callers had given up, and the unbounded queue meant servers spent their CPU on requests that were already expired. Errors triggered more retries, keeping load high even after the database recovered. Scaling callers down lowered the offered load below capacity, which is why it finally recovered.
+
+      **Fixes**, in roll-out order:
+
+      - Retry at one layer only: remove gateway retries for this route; keep at most 2 attempts in the order API with exponential backoff and full jitter, plus a retry budget (retries at most 10% of calls).
+      - Timeout from the normal p99: about 200 to 300 ms instead of 10 s, and propagate the caller's deadline so inventory drops work whose deadline has passed.
+      - Bound the inventory queue and shed load with 503 when full; check the deadline before starting work.
+      - Add a circuit breaker in the order API around inventory, with a fallback (accept the order as "pending stock check" if the business allows it).
+      - Make inventory's health check local (process alive and able to serve), not a database query, so a database blip does not remove every instance.
+
+      **Signals**: the ratio of inventory requests to edge requests (it jumped about 8 times, from 3,000 to 25,000 per second, while edge traffic was flat), retry-attempt counters per client, queue depth and the share of requests served after their deadline, and a RED dashboard per hop.
+    rubric:
+      - {key: root_cause, label: "Identifies retry amplification plus unbounded queueing as the reason the overload persisted after the database recovered", points: 3}
+      - {key: arithmetic, label: "Computes the attempts per layer correctly (3 × 4 = 12 inventory calls per user request)", points: 2}
+      - {key: retries_fixed, label: "Retries at one layer, with backoff, jitter and a budget, on idempotent calls only", points: 2}
+      - {key: timeouts_queues, label: "Short timeout from normal p99, deadline propagation, bounded queue with load shedding", points: 2}
+      - {key: signals, label: "Names a concrete signal that would have shown the storm early (fan-out ratio, retry counters, queue depth)", points: 1}
+    follow_ups:
+      - prompt: Is the inventory call safe to retry at all?
+        look_for: "Reads are; a stock reservation is not unless it carries an idempotency key such as order id plus line id."
+      - prompt: Why did scaling the callers down fix it, and why is that not the real fix?
+        look_for: "It reduced offered load below inventory's capacity so the queue drained; the real fix removes the amplification so the system recovers on its own."
+      - prompt: How would you test that the fix works?
+        look_for: "A game day or fault-injection test that fails the database over in staging under production-like load and checks the request ratio and recovery time."
+
+- key: sdx.fault_tolerance.cards
+  type: revision_card
+  title: "Recall: fault-tolerance patterns"
+  skills: [sd.fault_tolerance]
+  minutes: 5
+  body:
+    cards:
+      - front: Little's law?
+        back: In-flight requests = arrival rate × latency.
+      - front: Three circuit-breaker states?
+        back: Closed (counting), open (fail fast), half-open (trial calls).
+      - front: Full-jitter backoff formula?
+        back: Wait random(0, min(cap, base × 2^attempt)).
+      - front: What is a bulkhead?
+        back: Separate pools per dependency or priority so one failure cannot use up everything.
+      - front: RPO vs RTO?
+        back: RPO is how much data you can lose; RTO is how long you can be down.
+      - front: Why are unbounded queues dangerous?
+        back: Latency and memory grow until servers only process already-expired requests.

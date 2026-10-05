@@ -1,6 +1,8 @@
 """Catalog seed commands.
 
     python -m app.cli.catalog validate   # validate seed/*.yaml (no database access); exit 1 on errors
+    python -m app.cli.catalog validate --draft [--only learning/<file>.yaml]
+                                         # authoring: lock errors ignored; content and coverage summary
     python -m app.cli.catalog seed       # validate, then load idempotently into the database
     python -m app.cli.catalog lock       # freeze fingerprints for a NEW seed_version (append-only)
     python -m app.cli.catalog status     # which catalog version is loaded
@@ -48,6 +50,69 @@ def cmd_validate(seed_dir: str) -> int:
     )
     for role, fingerprint in result.file_fingerprints.items():
         print(f"  {role:<44} {fingerprint[:16]}")
+    return 0
+
+
+DRAFT_IGNORED = ("lock.unlocked_version", "lock.changed_without_version_bump")
+
+
+def cmd_validate_draft(seed_dir: str, only: str | None) -> int:
+    """Authoring check for an unreleased seed version: every rule except the lock, plus coverage."""
+    from collections import Counter
+
+    from app.domain.learning.coverage import SkillFacts, coverage_report, summarize_coverage
+
+    result = validate_seed_dir(seed_dir)
+    errors = [i for i in result.errors if i.code not in DRAFT_IGNORED]
+    if only:  # other authors may be editing other files at the same time
+        errors = [i for i in errors if only in i.where]
+    if errors:
+        _print_issues(errors)
+        print(f"Draft INVALID: {len(errors)} error(s)", file=sys.stderr)
+        return 1
+    if result.catalog is None:  # only lock errors: rebuild the catalog without the lock to report coverage
+        from app.domain.catalog.validate import validate_seed
+        from app.infrastructure.seed_files import read_seed
+
+        raw, _ = read_seed(seed_dir)
+        version = str(next(iter(raw.values()))["seed_version"])
+        fake_lock = {version: {"files": dict(result.file_fingerprints)}}
+        result = validate_seed(raw, fake_lock)
+    catalog = result.catalog
+    if catalog is None:  # --only hid another file's errors; this file is fine, coverage needs the whole seed
+        print("Draft valid for the selected file (coverage skipped: other seed files still have errors)")
+        return 0
+    learning = catalog.learning
+    by_file = Counter(c.source_file for c in learning.content)
+    print(f"Draft valid: {len(learning.content)} content items")
+    for name, count in sorted(by_file.items()):
+        if only is None or only in name:
+            types = Counter(c.type for c in learning.content if c.source_file == name)
+            print(f"  {name:<34} {count:>4}  " + ", ".join(f"{t}={n}" for t, n in sorted(types.items())))
+    profile = catalog.profiles[0]
+    targets = {t.skill: t for t in profile.targets}
+    facts = [
+        SkillFacts(
+            s.key,
+            s.name,
+            s.component,
+            targets[s.key].tier if s.key in targets else None,
+            targets[s.key].importance if s.key in targets else 0,
+            bool(targets[s.key].required) if s.key in targets else False,
+        )
+        for s in catalog.skills
+    ]
+    difficulties: dict[str, list[str]] = {}
+    for p in catalog.problems:
+        for m in p.skills:
+            difficulties.setdefault(m.skill, []).append(p.difficulty)
+    rows = coverage_report(facts, learning, difficulties, {})
+    summary = summarize_coverage(rows)
+    print(f"  coverage (all): {summary['all']}")
+    print(f"  coverage (required): {summary['required']}")
+    gaps = [r for r in rows if r.required and r.coverage_state in ("CONTENT_GAP", "UNMEASURED")]
+    for r in gaps:
+        print(f"    {r.coverage_state:<12} {r.tier or '-':<3} {r.skill_key}")
     return 0
 
 
@@ -104,11 +169,17 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.cli.catalog", description=__doc__.splitlines()[0])
     parser.add_argument("command", choices=["validate", "seed", "lock", "status"])
     parser.add_argument("--seed-dir", default=None, help="defaults to SEED_DIR")
+    parser.add_argument(
+        "--draft", action="store_true", help="validate: ignore lock errors (content authoring)"
+    )
+    parser.add_argument(
+        "--only", default=None, help="validate --draft: report learning errors of one file only"
+    )
     args = parser.parse_args(argv)
     seed_dir = args.seed_dir or get_settings().seed_dir
     try:
         if args.command == "validate":
-            return cmd_validate(seed_dir)
+            return cmd_validate_draft(seed_dir, args.only) if args.draft else cmd_validate(seed_dir)
         if args.command == "seed":
             return cmd_seed(seed_dir)
         if args.command == "lock":

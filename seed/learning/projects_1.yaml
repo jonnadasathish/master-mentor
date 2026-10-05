@@ -1,0 +1,956 @@
+# Learning content: defending your own project (architecture walkthrough, decisions, impact, incident story).
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- architecture walkthrough
+- key: proj.walkthrough.lesson
+  type: lesson
+  title: Walking through your project's architecture in five minutes
+  skills: [project.architecture_walkthrough, communication.structured_answers]
+  minutes: 20
+  difficulty: MEDIUM
+  body:
+    summary: A walkthrough is a guided tour of the problem, your role, the components, one request end to end, the data and a hook, in about five minutes.
+    what: |-
+      A project walkthrough is your answer to "tell me about a project you worked on" or "walk me through the architecture". In about five minutes you explain the system well enough that the interviewer could sketch it, you make clear what **you** built, and you leave hooks the interviewer can pick for a deep dive.
+
+      It is not a feature list ("it has login, a dashboard and reports") and it is not a stack list ("React, FastAPI, MySQL, Redis, Docker"). It is the story of how a request moves through components that each exist for a reason.
+    why: |-
+      Your own project is the one place where you cannot bluff, so interviewers use it to measure depth: do you know why each component exists, where the data lives, what happens when something fails, and what you would change? A clear walkthrough also sets the agenda for the rest of the round. The components you mention are the ones you will be asked about, so a good walkthrough steers the conversation toward what you know best.
+    when: |-
+      - The project or hiring-manager round, usually in the first ten minutes.
+      - Behavioral prompts such as "your most challenging project" (the walkthrough is the context part of the story).
+      - Design rounds that start with "design something you have built".
+      - Any time an interviewer asks "how did that work?" about a line on your resume.
+    how: |-
+      Use a fixed structure with a time budget, and rehearse it out loud until it fits:
+
+      1. **Context (about 30 s).** The problem, who used the system and one or two numbers of scale: users, requests per second at peak, rows, orders per day.
+      2. **Your role (about 15 s).** Team size and the part you owned. Say "I" for your work and "we" for the team's.
+      3. **Architecture (about 2 min).** Name the components in the order a request meets them: client, load balancer, API service, database, cache, queue, workers, external providers. Give each one its job in one clause ("Redis caches the product catalogue so list pages do not hit MySQL").
+      4. **One request end to end (about 1 min).** Trace the single most important flow, usually a write: validation, the transaction boundary, what is synchronous and what is handed to a queue.
+      5. **Data (about 30 s).** The main entities and the one constraint that matters most (a unique index, a conditional update, an append-only ledger).
+      6. **Hook (about 15 s).** "The hardest part was X. I can go deeper on that, or on how we tested and deployed it."
+
+      If a whiteboard or shared doc is available, draw the boxes while you talk; the request trace then becomes arrows on the drawing.
+    mental_model: |-
+      Think of a map with three zoom levels. At 10,000 feet you give context and scale. At 1,000 feet you show boxes and arrows. At ground level you walk one request through one transaction and one table. The interviewer chooses where to zoom; your job is to make every level coherent and to say which level you are on ("at a high level… now let me trace one request").
+    tradeoffs: |-
+      - **Breadth versus depth.** Listing twelve microservices leaves no time for anything; diving into one function loses the picture. Group what does not matter ("three internal billing services; I will treat them as one box") and say that you are simplifying.
+      - **Polish versus honesty.** A rehearsed answer is good; a rehearsed answer that overstates scale or your share collapses at the first follow-up.
+      - **Your part versus the system.** Describe the whole system at box level, then zoom into what you owned. Only your part loses context; the whole system without your part hides your contribution.
+    mistakes:
+      - Opening with the technology stack instead of the problem and the scale.
+      - Touring features ("then there is a reports page") instead of components and data flow.
+      - Saying "we" for everything, so the interviewer cannot tell what you did.
+      - Giving no numbers, or numbers you cannot back up when asked how they were measured.
+      - Drawing components you cannot explain (why is there a message broker, what is in it?).
+      - Not knowing how the system is deployed, configured or monitored in production.
+      - Running long; at eight minutes the interviewer has lost the thread and their time for follow-ups.
+    interview: |-
+      Expect interruptions; they are a good sign. Typical follow-ups are "why Redis there?", "where is the transaction boundary?", "what happens if the database is unavailable?", "how does this get deployed?" and "what would break at 10x traffic?". Answer the interruption briefly and return to the tour ("…so that is why it is cached. Continuing with the write path…").
+
+      For a learning or side project, say so plainly and describe it with the same rigour: what you built, what you measured on what hardware, and what you would add before real production traffic. Honest scope is judged far better than inflated scope.
+    explain_it:
+      - Start with the problem, the users and one number of scale.
+      - Say what you personally owned.
+      - Name each component in request order with its job in one clause.
+      - Trace one important write end to end and name the transaction boundary.
+      - Name the key entity and the constraint that protects it.
+      - Close with a hook to the hardest part.
+    example:
+      language: text
+      code: |-
+        [Context, 30 s] An inventory system for a distributor with 12 warehouses that replaced shared
+        spreadsheets. About 3,000 SKUs and 1,500 orders a day; the peak is around 40 requests per second
+        at 9 a.m., when stores reorder.
+        [Role, 15 s] Team of four. I owned the stock and order APIs and the deployment pipeline.
+        [Architecture, 2 min] A Vue single-page app calls a FastAPI service behind a load balancer. The API
+        is stateless and runs as containers on ECS. MySQL on RDS is the source of truth for products,
+        stock and orders. Redis caches the product catalogue and is the Celery broker. Celery workers do
+        slow work off the request path: CSV imports, low-stock alerts and report exports to S3.
+        [One request, 1 min] Placing an order: the API validates the lines, opens a transaction,
+        decrements stock with a conditional UPDATE per line so stock cannot go negative, inserts the order
+        and an outbox row, and commits. A relay publishes the outbox row and a worker sends the
+        confirmation email. The client sends an Idempotency-Key, so a retry returns the same order.
+        [Data, 30 s] Products, warehouses, one stock_levels row per product and warehouse, and an
+        append-only stock_movements ledger from which levels can be rebuilt.
+        [Hook, 15 s] The hardest part was concurrency on popular SKUs. I can go into how we tested that,
+        or into the deployment.
+      explanation: An illustrative script with the time budget marked. Replace every number with one you measured on your own project.
+    edge_cases:
+      - "Project under NDA: rename the domain ('a B2B ordering system'), keep the architecture and the numbers' order of magnitude, and say that you are abstracting."
+      - "Small share of a big system: describe the system in three boxes, then spend most of the time on your component."
+      - "Learning project without users: give load-test numbers with the hardware and say what you would add for production."
+      - "Old project: say what has changed since then and what you would do differently today."
+    misconceptions:
+      - More components sound more impressive. Interviewers reward components you can justify; an unexplained Kafka cluster invites hard questions.
+      - The interviewer wants the business story. One sentence of business context is enough; the rest is engineering.
+- key: proj.walkthrough.worked
+  type: worked_example
+  title: "Worked example: from a feature list to a walkthrough"
+  skills: [project.architecture_walkthrough]
+  minutes: 15
+  difficulty: MEDIUM
+  body:
+    problem: Rewrite a weak project answer ("I built an inventory app with Vue, FastAPI, MySQL and Redis; it has login, products, stock, orders and reports, and it is deployed on AWS") into a five-minute walkthrough an interviewer can follow and probe.
+    steps:
+      - title: Diagnose the weak answer
+        text: |-
+          It lists technologies and features but answers none of the interviewer's real questions: what problem, how big, what did you do, how does a request flow, where is the data and what was hard. Every noun in it ("Redis", "AWS") is an unexplained claim that will be probed. Write down the questions it leaves open; the rewrite must answer each one.
+      - title: Add context and one number
+        text: |-
+          Replace "an inventory app" with the problem and the scale: "12 warehouses tracked stock in spreadsheets, so orders were accepted for items that were out of stock. The system handles about 1,500 orders a day with a peak near 40 requests per second." If the project is a learning project, use the load-test number instead and say so.
+      - title: State your ownership
+        text: |-
+          "Team of four; I owned the stock and order APIs and the CI/CD pipeline." Now every later "I" is credible and the interviewer knows where to dig.
+      - title: Turn the stack into components with jobs
+        text: |-
+          Go in request order and give each box one job: "Vue SPA → load balancer → stateless FastAPI containers → MySQL as source of truth; Redis caches the catalogue and brokers Celery jobs; workers run imports, alerts and exports to S3." A technology that has no job in this sentence should be dropped from the answer or explained.
+      - title: Trace one write
+        text: |-
+          Pick the flow that carries the most risk, here placing an order. Name the transaction boundary and what is asynchronous: "one transaction does the conditional stock decrement, the order insert and an outbox row; email is sent later by a worker." This sentence is where depth shows.
+        code:
+          language: text
+          code: |-
+            POST /orders (Idempotency-Key)
+              -> validate lines
+              -> BEGIN
+                   UPDATE stock_levels SET on_hand = on_hand - :qty
+                    WHERE product_id = :p AND warehouse_id = :w AND on_hand >= :qty   (rowcount must be 1)
+                   INSERT orders, order_lines, outbox_events
+                 COMMIT
+              -> 201 Created
+            outbox relay -> queue -> worker -> email
+      - title: Close with data and a hook
+        text: |-
+          "Stock levels are one row per product and warehouse, with an append-only movements ledger. The hardest part was concurrency on popular SKUs; I can show how we tested it." The hook hands the interviewer a deep dive you have prepared.
+    takeaways:
+      - Every technology you name needs a job in one clause, or it should not be named.
+      - One number of scale and one statement of ownership make the rest believable.
+      - The trace of one risky write is the most valuable minute of the walkthrough.
+      - End by offering the deep dive you are best prepared for.
+- key: proj.walkthrough.check
+  type: concept_check
+  title: "Concept check: structuring a project walkthrough"
+  skills: [project.architecture_walkthrough]
+  minutes: 8
+  difficulty: MEDIUM
+  body:
+    intro: Scenario questions about walkthroughs. Pick what an experienced interviewer would rate highest.
+    questions:
+      - id: q1
+        kind: single
+        prompt: Which opening sentence of a project walkthrough is strongest?
+        options:
+          - "We used Vue, FastAPI, MySQL, Redis, Docker and AWS ECS."
+          - "It is an inventory system for 12 warehouses that replaced spreadsheets; it handles about 1,500 orders a day, and I owned the stock and order APIs."
+          - "It has many features: login, a dashboard, product management, orders and reports."
+          - "It was a very complex, highly scalable microservices system."
+        answer: [1]
+        explanation: "The second option gives the problem, the users, a number of scale and your ownership in one breath, which frames everything after it. The stack list is the tempting choice, but it says nothing about why any component exists; the feature list and the adjectives are unverifiable."
+      - id: q2
+        kind: multi
+        prompt: Which belong in the first five minutes of a walkthrough?
+        options:
+          - The problem and who used the system
+          - One or two numbers of scale
+          - Every API endpoint with its parameters
+          - The path of the most important request through the components
+          - What you personally owned
+          - The history of every refactor
+        answer: [0, 1, 3, 4]
+        explanation: "Context, scale, one request trace and ownership let the interviewer place everything else. Endpoint lists and refactor history are detail for follow-ups; spending the first five minutes on them leaves no time for depth."
+      - id: q3
+        kind: single
+        prompt: "Halfway through, the interviewer asks: 'Why Redis there?' What is the best response?"
+        options:
+          - "\"I will come to that at the end.\""
+          - A short answer with the reason and the alternative, then return to the tour
+          - A ten-minute deep dive into Redis data structures and persistence
+          - "\"It is the industry standard for caching.\""
+        answer: [1]
+        explanation: "A brief reason ('catalogue reads were 90% of traffic; a cache-aside with a 60-second TTL took them off MySQL; a read replica was the alternative') shows judgment and keeps the structure. Deferring sounds evasive, the long dive loses the walkthrough, and 'industry standard' is not a reason."
+      - id: q4
+        kind: single
+        prompt: You built one of five services in a team project. How should you present it?
+        options:
+          - Present the whole system as your work, since you understand it
+          - Describe only your service, without the rest
+          - Describe the whole system at box level, then zoom into your service and say clearly what you owned
+          - Avoid the project and pick a smaller solo one
+        answer: [2]
+        explanation: "The system view gives context and the zoom shows depth and ownership. Claiming the whole system is the tempting option, but it collapses when follow-ups reach parts you did not build; describing only your service hides why it was designed the way it was."
+      - id: q5
+        kind: single
+        prompt: "The interviewer asks what happens when the database primary fails, and you never worked on that. What do you do?"
+        options:
+          - Invent a plausible failover design
+          - Say you do not know and move on
+          - Say what you do know (for example, that RDS Multi-AZ was enabled by the platform team), reason about what the application would see and say how you would find out
+          - Change the subject to your caching layer
+        answer: [2]
+        explanation: "Separating what you know from what you are reasoning about is exactly what is being measured. Invented detail is the tempting choice and the most damaging, because the next follow-up exposes it; a bare 'I do not know' throws away the chance to show reasoning."
+      - id: q6
+        kind: short
+        prompt: Give the six parts of a five-minute walkthrough with a rough time for each.
+        model_answer: "Context and scale (30 s), your role (15 s), components in request order with their jobs (2 min), one important request end to end with the transaction boundary (1 min), the main data and its key constraint (30 s), a hook to the hardest part (15 s)."
+        explanation: A fixed structure is what lets you stay within five minutes and recover after interruptions.
+- key: proj.walkthrough.interview
+  type: interview_question
+  title: "Interview question: five-minute architecture walkthrough of your project"
+  skills: [project.architecture_walkthrough, communication.structured_answers]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 600}
+  body:
+    prompt: |-
+      "Walk me through the architecture of your main project. You have five minutes."
+
+      Answer about your **own** project out loud, ideally recording yourself or sketching boxes as you go. Use a timer: stop at five minutes even if you are not finished, then rate the key points and answer the follow-ups.
+    key_points:
+      - Opens with the problem, the users and at least one number of scale within the first 30 seconds.
+      - States what you personally owned, using "I" for your work.
+      - Names each component in request order and gives each one its job.
+      - Traces one important write end to end and names the transaction boundary or the sync/async split.
+      - Names the main entities and the constraint that protects the most important one.
+      - Ends with a hook to the hardest part and finishes within five minutes.
+    model_answer: |-
+      See the example script in the walkthrough lesson: context and scale, ownership, components in request order (SPA, load balancer, stateless API, database, cache, queue, workers), the order write traced through one transaction with an outbox row and an idempotency key, the stock table and ledger, and a closing hook to concurrency testing. Your answer should have the same shape with your own components and measured numbers.
+    pitfalls:
+      - Spending the first minute on the technology list.
+      - Running past five minutes because there was no time budget.
+      - Mentioning a component (queue, cache, search index) you cannot explain when asked.
+    follow_ups:
+      - prompt: Why is that component there? What would you lose if you removed it?
+        look_for: Names the concrete load or failure it handles, the simpler alternative and why that was not enough.
+      - prompt: Draw the path of a write request. Where does the transaction start and end?
+        look_for: A precise boundary, what is inside it, what happens after commit (events, cache invalidation) and why.
+      - prompt: How does a change get from your laptop to production?
+        look_for: Branch, CI checks, image build, migration step, deploy strategy and how a bad deploy is rolled back.
+      - prompt: Which part did you build yourself, and what would you change in it today?
+        look_for: A specific component, an honest weakness and a concrete improvement with its cost.
+- key: proj.walkthrough.scale
+  type: interview_question
+  title: "Interview question: what breaks first at 10x traffic?"
+  skills: [project.architecture_walkthrough, sd.deep_dive_bottlenecks]
+  minutes: 20
+  difficulty: HARD
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    prompt: |-
+      "Suppose traffic to your project grew ten times overnight. What breaks first, how would you know, and what would you do about it, in order?"
+
+      Answer about your own project. Start from its real numbers; if you do not have them, say which numbers you would collect first.
+    key_points:
+      - States the current baseline (peak requests per second, database queries per request, data size, resource utilisation).
+      - Identifies the first bottleneck with arithmetic, not a guess (for example, database CPU at 30% today becomes 300%).
+      - Says which evidence would confirm it (metrics, slow-query log, a load test at 10x) before changing anything.
+      - Orders fixes by cost (query and index fixes, connection pooling, caching, read replicas, async work, then partitioning).
+      - Names what scales easily (stateless app containers behind a load balancer) and why.
+      - Mentions at least one non-obvious limit (connection count, a hot row, a cache stampede, a third-party rate limit, a cron job that grows with data).
+    model_answer: |-
+      Today the API peaks near 40 requests per second with about 4 queries each, so roughly 160 queries per second, and RDS CPU peaks around 25%. At 10x the app tier is easy: the containers are stateless, so I add tasks. The first real limit is MySQL. CPU would go past 100% on the current instance, and the connection count grows with the number of tasks: 4 tasks with a pool of 10 is 40 connections, 40 tasks would be 400, more than this instance's max_connections, which RDS derives from instance memory. Before changing anything I would load-test at 10x and read the slow-query log. Then, cheapest first: fix the top queries and indexes, cap the pool size per task, move catalogue reads behind the Redis cache, send reporting queries to a read replica, and push non-urgent writes such as audit events through the queue. The non-obvious risk is the hot row: the top-selling SKU's stock row serialises all orders for it, so at 10x lock waits on that row would show up first in p99 latency.
+    pitfalls:
+      - Jumping straight to sharding or microservices.
+      - Saying "add more servers" without saying which tier is the bottleneck.
+      - Giving no numbers at all, so no bottleneck can be argued.
+    follow_ups:
+      - prompt: The hot SKU row is now the bottleneck. What are your options?
+        look_for: Shorter transactions, conditional update without a prior read, splitting stock into buckets or reserving in batches, and the consistency cost of each.
+      - prompt: How would you run a 10x load test without hurting production?
+        look_for: A production-like environment with realistic data volume, a recorded traffic mix, a ramp, and the metrics to watch (p95/p99, errors, DB CPU, connections).
+      - prompt: Which of your fixes adds the most operational risk, and how do you contain it?
+        look_for: Names a fix (replica lag, cache staleness, async consistency), its failure mode and a guardrail or alert.
+- key: proj.walkthrough.cards
+  type: revision_card
+  title: "Recall: the project walkthrough"
+  skills: [project.architecture_walkthrough]
+  minutes: 5
+  body:
+    cards:
+      - front: The six parts of a five-minute walkthrough?
+        back: Context and scale, your role, components in request order, one request traced, key data, a hook.
+      - front: What must every component you name come with?
+        back: Its job in one clause, or leave it out.
+      - front: The most valuable minute of a walkthrough?
+        back: Tracing one risky write end to end, including the transaction boundary.
+      - front: How to present a team project?
+        back: Whole system at box level, then zoom into what you owned and say "I" for it.
+      - front: Asked about a part you never touched?
+        back: Say what you know, reason aloud about the rest, say how you would find out.
+      - front: Learning project without users?
+        back: Say so, give load-test numbers with the hardware, and what you would add for production.
+
+# ---------------------------------------------------------------------------------------------- trade-offs and decisions
+- key: proj.tradeoffs.lesson
+  type: lesson
+  title: Defending your design decisions with alternatives and costs
+  skills: [project.tradeoffs_decisions, sd.tradeoff_articulation]
+  minutes: 20
+  difficulty: MEDIUM
+  body:
+    summary: A defended decision names the constraint, the options considered, why one won, what it cost and what would change your mind.
+    what: |-
+      Defending a decision means explaining why your project uses X rather than Y, in terms of the constraints you had, the alternatives you rejected, the cost you accepted and the condition under which you would choose differently. It is the spoken form of an architecture decision record (ADR).
+
+      Five parts make a complete answer:
+
+      - **Constraint**: the requirement or limit that forced a choice, ideally with a number.
+      - **Options**: two or three real alternatives.
+      - **Decision and reason**: why the chosen option fits the constraint better.
+      - **Cost**: what you gave up (complexity, consistency, latency, money, flexibility).
+      - **Reversal condition**: what would have to change for the other option to win.
+    why: |-
+      "Why did you use X?" is how interviewers tell people who chose from people who inherited, and people who understand costs from people who repeat slogans. Every real decision has a cost; a candidate who cannot name it either did not make the decision or does not understand it. Being able to say when you would choose differently shows the judgment expected of an engineer who will make such decisions on the job.
+    when: |-
+      - Any "why" follow-up during a walkthrough ("why MySQL?", "why a queue?", "why not microservices?").
+      - "What alternatives did you consider?" and "what would you do differently?".
+      - When an interviewer proposes an alternative ("wouldn't MongoDB be faster here?").
+      - Behavioral prompts about a difficult technical decision.
+    how: |-
+      Prepare the three or four biggest decisions in your project in the five-part form. Common ones and their honest costs:
+
+      - **Relational database (MySQL/PostgreSQL) over a document store.** Reason: multi-row transactions across stock and orders, foreign keys, unique constraints and ad-hoc reporting with SQL. Cost: schema migrations for every change, and write scaling beyond one primary is harder.
+      - **Monolith over microservices.** Reason: one deployable, in-process calls and single-database transactions for a team of four. Cost: everything deploys together and one slow module can affect all endpoints. Reversal: independent teams or very different scaling needs per module.
+      - **Queue over a synchronous call.** Reason: the user should not wait for email or reports, and a provider outage should not fail the request. Cost: eventual consistency, a broker to run, and consumers that must be idempotent because delivery is at least once.
+      - **Cache-aside with a TTL over write-through.** Reason: simple, and the cache can be flushed safely. Cost: a staleness window up to the TTL unless you also delete on write, and a stampede risk when hot keys expire.
+      - **Short-lived JWT access tokens over server-side sessions.** Reason: any API instance can verify a token without a session lookup. Cost: a token cannot be revoked before it expires without adding a denylist, which reintroduces a lookup.
+
+      If you inherited a decision, say so, then evaluate it: "it was there when I joined; I think it optimised for X; I would keep it because… or change it when…".
+    mental_model: |-
+      Every decision is a purchase. You paid with something: complexity, consistency, latency, money or team time. Naming the price and what you got for it is the answer; "it is best practice" is a refusal to show the receipt.
+    tradeoffs: |-
+      - **Committing versus hedging.** "It depends" is only an answer when you immediately say on what, and then choose for your actual constraints.
+      - **Holding versus updating under pushback.** Hold your position when the interviewer's alternative ignores your constraint; update when they add information you did not have, and say what changed your mind.
+      - **Admitting a mistake versus defending it.** Defending a decision you now think was wrong costs more credibility than saying "with what I know now, I would do Y, because…".
+    mistakes:
+      - "Reasons that are slogans: 'industry standard', 'best practice', 'it is fast', 'it scales'."
+      - No alternatives, or a strawman alternative nobody would choose.
+      - Being unable to name the cost of the chosen option.
+      - Presenting an inherited decision as your own choice.
+      - Attacking the interviewer's alternative instead of comparing it on your constraints.
+      - "Answering with 'it depends' and never saying on what."
+    interview: |-
+      The question appears as "why X?", "what if you had used Y?", "what would you do differently?" or "what was the hardest technical decision?". Interviewers often push back on purpose to see whether you can hold a reasoned position or fold at the first challenge. A strong answer compares the options on two or three criteria that matter for your workload, admits where the alternative would win, and states the condition that would flip the decision.
+    explain_it:
+      - State the constraint, with a number if you have one.
+      - Name two real alternatives.
+      - Say why the chosen option fits that constraint better.
+      - Name the cost you accepted.
+      - Say what would make you choose differently.
+    example:
+      language: text
+      code: |-
+        Decision: send order-confirmation email through a Celery queue, not inside the request.
+        Constraint: the email provider's p99 latency was about 2 s and it had several short outages a month;
+                    the order API target was p95 under 300 ms.
+        Options:    (1) call the provider synchronously, (2) FastAPI BackgroundTasks in the same process,
+                    (3) a queue with separate workers.
+        Chosen:     (3). The request only commits the order and an outbox row; a worker sends the email
+                    and retries with backoff.
+        Cost:       a broker and workers to run, emails arrive seconds later, and the send must be
+                    idempotent because a task can run twice.
+        Reversal:   at a few orders a day with no latency target, (2) or even (1) is simpler and enough.
+      explanation: The five-part form written as a short decision record. Prepare one for each major decision in your project.
+    misconceptions:
+      - There is one right answer the interviewer wants. They want the reasoning; a well-argued choice of the less popular option scores well.
+      - Changing your mind looks weak. Updating on new information, and saying why, looks senior.
+- key: proj.tradeoffs.worked
+  type: worked_example
+  title: "Worked example: defending 'why a queue for notifications?'"
+  skills: [project.tradeoffs_decisions]
+  minutes: 15
+  difficulty: MEDIUM
+  body:
+    problem: The interviewer asks why your order service sends confirmation emails through a queue and workers instead of directly, then pushes back twice. Build the answer step by step.
+    steps:
+      - title: Recognise the weak answer
+        text: |-
+          "Queues are best practice for scalability" names no constraint, no alternative and no cost. The interviewer will reply "scalability of what?", and the answer has nowhere to go.
+      - title: Lead with the constraint
+        text: |-
+          "The email provider's p99 was around two seconds and it had short outages; our order endpoint targeted p95 under 300 ms. Calling it inside the request would have made our latency and availability depend on theirs."
+      - title: Compare real options
+        text: |-
+          Three options on two criteria, user-facing latency and what happens on failure: a synchronous call (slow, fails the order when the provider fails), FastAPI `BackgroundTasks` (fast, but it runs in the same process after the response, so a crash or a deploy loses the email and there are no retries), and a queue with workers (fast, survives restarts, retries with backoff).
+      - title: Name the cost and the guard
+        text: |-
+          "The cost is a broker and workers to operate, a delay of a few seconds, and at-least-once delivery, so the worker records a delivery row keyed by order id and skips orders already sent. We also write the event to an outbox table in the order transaction, so a broker outage cannot lose it."
+        code:
+          language: python
+          code: |-
+            @celery_app.task(bind=True, max_retries=5, acks_late=True)
+            def send_order_confirmation(self, order_id: int) -> None:
+                with session_scope() as s:
+                    if s.get(EmailDelivery, ("order_confirmation", order_id)):
+                        return                                   # already sent: a redelivery is a no-op
+                    order = s.get(Order, order_id)
+                    try:
+                        provider.send(to=order.customer_email, template="order_confirmation", data=order.summary())
+                    except ProviderTimeout as exc:
+                        raise self.retry(exc=exc, countdown=2 ** self.request.retries)
+                    s.add(EmailDelivery(kind="order_confirmation", ref_id=order_id))
+      - title: Handle pushback 1 (simplicity)
+        text: |-
+          "Isn't that over-engineered?" Agree with the condition: "At ten orders a day, yes; BackgroundTasks would do. At our volume a lost confirmation created a support ticket, and we had already seen provider outages, so durability was worth one more component." This holds the position on your constraint without dismissing the challenge.
+      - title: Handle pushback 2 (new information)
+        text: |-
+          "What if the business needs the email to be guaranteed before the order shows as confirmed?" That is a new requirement, so update: the order would get a `CONFIRMATION_PENDING` state until the worker reports success, and the UI would show that state. Say explicitly that the requirement changed the answer.
+    takeaways:
+      - Lead with the constraint and its number, not the technology.
+      - Compare two or three real options on the criteria that matter for this workload.
+      - Name the cost and the guard you added for it.
+      - Hold on your constraints; update on new information and say what changed.
+- key: proj.tradeoffs.check
+  type: concept_check
+  title: "Concept check: defending decisions"
+  skills: [project.tradeoffs_decisions]
+  minutes: 8
+  difficulty: MEDIUM
+  body:
+    intro: Choose what shows the strongest engineering judgment.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "\"Why MySQL for your inventory system?\" Which answer is strongest?"
+        options:
+          - "It is the industry standard and it is very fast."
+          - "Placing an order changes stock and orders together, so we needed multi-row transactions and unique constraints; a document store would have pushed that into application code. The cost is harder write scaling beyond one primary, which our 40 requests per second did not need."
+          - "MongoDB does not support transactions."
+          - "The team already knew it."
+        answer: [1]
+        explanation: "The second answer links the choice to a concrete requirement, names the alternative and its weakness for this workload, and states the cost with a number. 'MongoDB does not support transactions' is the tempting technical-sounding reason, but it is false: MongoDB has supported multi-document transactions since version 4.0. Team familiarity is a legitimate supporting reason but not a full defence on its own."
+      - id: q2
+        kind: multi
+        prompt: Which statements name a real cost of the decision they follow?
+        options:
+          - "Short-lived JWTs: a token cannot be revoked before it expires without a denylist."
+          - "Queue for emails: it makes the system scalable."
+          - "Cache-aside with a 60 s TTL: a reader can see a stale value for up to 60 s unless we also delete on write."
+          - "Monolith: all modules deploy together, so one risky change blocks the others."
+          - "Microservices: they follow modern best practice."
+        answer: [0, 2, 3]
+        explanation: "Revocation, staleness and coupled deploys are specific prices paid for the choice. 'Makes it scalable' and 'modern best practice' are benefits or slogans, not costs."
+      - id: q3
+        kind: single
+        prompt: The architecture used Django before you joined, and the interviewer asks why Django. What is best?
+        options:
+          - Explain why you chose Django
+          - "Say it was inherited, explain what it optimised for (admin, ORM, migrations) and whether you would keep it for this workload"
+          - Say you do not know because you did not choose it
+          - Criticise the original team's choice
+        answer: [1]
+        explanation: "Honesty about who decided plus your own evaluation shows judgment. Claiming the decision is the tempting choice but collapses under 'what alternatives did you evaluate?'; 'I don't know' and criticism both skip the evaluation that is being asked for."
+      - id: q4
+        kind: single
+        prompt: "The interviewer says: 'MongoDB would have been faster for your product catalogue.' Your catalogue is 3,000 rows and orders need transactions with stock. Best response?"
+        options:
+          - Agree immediately and say you would switch
+          - Argue that MongoDB is always slower than MySQL
+          - "Ask what they mean by faster, note that 3,000 rows fit in memory either way, and explain that transactions with stock were the deciding constraint; agree a document model could win for a large, schema-varied catalogue served on its own"
+          - Say both are fine and it does not matter
+        answer: [2]
+        explanation: "This holds the position on your actual constraint, avoids a false universal claim and states when the alternative would win. Folding at once looks like the decision was never understood; 'always slower' is false and easy to attack."
+      - id: q5
+        kind: single
+        prompt: Which is a reversal condition for "we kept a monolith"?
+        options:
+          - When the code gets messy
+          - "When separate teams need to deploy independently, or one module needs to scale very differently (for example, a report generator using far more CPU than the API)"
+          - When microservices become more popular
+          - Never; monoliths are always better
+        answer: [1]
+        explanation: "A reversal condition is observable and tied to the original constraint (team size, deploy coupling, scaling profile). Messy code is fixed by refactoring within the monolith; popularity is not a constraint."
+      - id: q6
+        kind: short
+        prompt: Give the five parts of a defended decision and one sentence for each about your own project's database choice.
+        model_answer: "Constraint (what forced a choice, with a number), options (two real alternatives), decision and reason (why it fits the constraint), cost (what you gave up), reversal condition (what would make the other option win). For example: orders and stock change together; MySQL versus a document store; MySQL for transactions and constraints; harder write scaling and migrations; a write volume beyond one primary or a highly variable schema."
+        explanation: Rehearsing the five parts for each major decision lets you answer any "why" follow-up in under a minute.
+- key: proj.tradeoffs.interview
+  type: interview_question
+  title: "Interview question: defend the most important decision in your project"
+  skills: [project.tradeoffs_decisions, sd.tradeoff_articulation]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: |-
+      "What was the most important technical decision in your project? Why did you make it, what did you reject, and what did it cost you?"
+
+      Answer about your own project, out loud, in about three minutes, then answer the follow-ups.
+    key_points:
+      - Picks a decision with real consequences (data store, sync versus async, service boundaries, auth model), not a library choice.
+      - States the constraint that forced the choice, with a number where possible.
+      - Names at least two real alternatives and compares them on criteria that matter for the workload.
+      - Names the cost accepted and any guard added for it.
+      - States a reversal condition.
+      - Is honest about who made the decision.
+    model_answer: |-
+      The most important decision was making order placement a single MySQL transaction with a conditional stock update, instead of reserving stock in Redis and syncing to MySQL later. The constraint was that overselling had been the main business complaint, and peaks were only about 40 requests per second. Redis reservations would have been faster, but they make Redis a second source of truth that must be reconciled after a crash. A pessimistic `SELECT … FOR UPDATE` then UPDATE would also work but holds locks longer. The conditional `UPDATE … WHERE on_hand >= qty` is a single atomic statement, and checking the affected-row count tells us whether it succeeded. The cost is contention on hot SKUs, which serialise on one row, and that write throughput is bounded by one primary. I would revisit it if a single SKU needed hundreds of orders per second, for example during flash sales.
+    pitfalls:
+      - Picking a trivial decision (a date library) because it is safe.
+      - Listing benefits only.
+    follow_ups:
+      - prompt: If you started today, would you make the same choice? Why?
+        look_for: A direct yes or no with the reason, and what is different today (scale, team, tooling).
+      - prompt: When would the alternative you rejected have been the better choice?
+        look_for: A concrete workload or constraint under which the alternative wins, stated fairly.
+      - prompt: What did this decision make harder later?
+        look_for: A specific later cost (a migration, a scaling limit, a testing difficulty) and how it was handled.
+- key: proj.tradeoffs.redo
+  type: interview_question
+  title: "Interview question: what would you do differently?"
+  skills: [project.tradeoffs_decisions]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 600}
+  body:
+    prompt: |-
+      "If you built your project again from scratch, what would you do differently, and why?"
+
+      Answer about your own project in about two minutes.
+    key_points:
+      - Names one or two specific changes, not "everything" or "nothing".
+      - Explains the evidence that showed the original choice was weak (an incident, a slow query, a painful migration, a test gap).
+      - States the cost of the new approach as well as its benefit.
+      - Keeps what worked and says why it would stay.
+      - Frames it as learning, without blaming others.
+    model_answer: |-
+      Two things. First, I would add an append-only stock_movements ledger from day one. We only stored the current level, so when a count was wrong we could not tell which movement caused it; adding the ledger later meant a backfill with gaps. The cost is more rows and a reconciliation job. Second, I would run integration tests against real MySQL in Docker instead of SQLite, because two bugs reached staging that SQLite could not show: a strict-mode error and a locking difference. I would keep the monolith and the outbox; both paid off.
+    pitfalls:
+      - "\"Nothing, it went well\", which signals no reflection."
+      - Proposing a rewrite in a fashionable stack without a reason tied to an observed problem.
+    follow_ups:
+      - prompt: How would you introduce that change into the running system today, without a rewrite?
+        look_for: An incremental path (expand and contract migration, dual writes or backfill, feature flag) and how to verify it.
+      - prompt: What made you realise the original choice was a problem?
+        look_for: A specific signal (incident, metric, review comment, a test that could not be written).
+- key: proj.tradeoffs.cards
+  type: revision_card
+  title: "Recall: defending decisions"
+  skills: [project.tradeoffs_decisions]
+  minutes: 5
+  body:
+    cards:
+      - front: Five parts of a defended decision?
+        back: Constraint, options, decision and reason, cost, reversal condition.
+      - front: Why is "best practice" not a reason?
+        back: It names no constraint and no cost; the interviewer cannot evaluate it.
+      - front: The cost of short-lived JWTs?
+        back: No revocation before expiry unless you add a denylist lookup.
+      - front: The cost of a queue instead of a synchronous call?
+        back: Eventual consistency, a broker to run, and consumers that must be idempotent.
+      - front: Inherited decision?
+        back: Say it was inherited, then give your own evaluation and whether you would keep it.
+      - front: Hold or update under pushback?
+        back: Hold on your constraints; update on new information and say what changed.
+
+# ---------------------------------------------------------------------------------------------- metrics and impact
+- key: proj.metrics.lesson
+  type: lesson
+  title: Quantifying your project's impact with numbers you can defend
+  skills: [project.metrics_impact, behavioral.impact]
+  minutes: 20
+  difficulty: MEDIUM
+  body:
+    summary: An impact claim is a metric with a baseline, an after value, a period, a measurement method and your share, ready for cross-examination.
+    what: |-
+      Quantifying impact means describing what your project changed with numbers that someone else could check. A complete claim has six parts:
+
+      - the **metric** (p95 latency of the order endpoint, orders processed per day, support tickets per week, monthly cloud cost);
+      - the **baseline** (before);
+      - the **after** value;
+      - the **period** over which it was measured;
+      - the **method** (APM dashboard, access logs, a SQL query, a load test, the cloud bill);
+      - **your contribution** to the change.
+
+      Useful metric families: user or business outcome (orders, conversion, tickets), performance (p50/p95/p99 latency, throughput), reliability (error rate, incidents per month, time to recover), cost (money, instance count), delivery (deploy frequency, build or test duration) and scale (rows, requests per second, users).
+    why: |-
+      Numbers turn "I improved performance" into a claim the interviewer can probe, and probing is the point: "compared to what?", "measured how?", "how much of that was you?". A defensible number signals that you measure before and after changing things, which is how good engineers work. An inflated number that falls apart under one follow-up costs more than having no number.
+    when: |-
+      - In the context part of a walkthrough (scale) and at the end of it (result).
+      - Behavioral questions about impact, ownership or a hard problem.
+      - When asked "how do you know it worked?" or "how did you measure that?".
+    how: |-
+      1. Pick one or two metrics per project that the project was meant to move.
+      2. Get the baseline before changing anything; if you did not, reconstruct it from logs or monitoring history and say so.
+      3. Use percentiles for latency, not averages: an average hides the slow tail users complain about.
+      4. Measure over a comparable period (same weekday traffic, same season) and say which.
+      5. Think about attribution: what else changed at the same time (traffic, a hardware upgrade, another team's fix)?
+      6. Round honestly ("about 40%", "from roughly 900 ms to 250 ms"); false precision like 37.4% invites the question of where it came from.
+      7. For a learning project, use load tests, query timings with `EXPLAIN`, CI duration or image size, and state the hardware and the conditions.
+    mental_model: |-
+      Treat every number as a statement under cross-examination. Before you say it, answer four questions: compared to what, measured how, over what period, and how much was yours. If you cannot answer one of them, weaken the claim until you can.
+    tradeoffs: |-
+      - **Business versus technical metrics.** Business metrics (tickets, revenue) are persuasive but hard to attribute to one engineer; technical metrics (p95, error rate) are attributable but need a sentence on why they mattered.
+      - **Precision versus honesty.** An estimate with a stated method ("about 30 engineer-hours a month, from the ticket counts") is better than a precise number you cannot explain.
+      - **Improvement versus its cost.** A 40% latency cut that doubled the instance bill is a different story; mention the cost.
+    mistakes:
+      - Quoting averages that hide a worse tail.
+      - Percentages without a baseline, or impossible ones ("reduced latency by 300%").
+      - Claiming a team result as personal.
+      - Vanity metrics as impact (lines of code, number of microservices, coverage percentage alone).
+      - Presenting a laptop benchmark as production performance.
+      - Ignoring confounders, such as traffic dropping during the same week.
+    interview: |-
+      Common forms are "what impact did your project have?", "how did you measure it?" and "what number are you proudest of?". The follow-ups test the method: "what was the baseline?", "what else changed?", "was that p50 or p99?", "what did the improvement cost?". A strong answer survives all four.
+    explain_it:
+      - Name the metric and why it mattered to users or the business.
+      - Give the baseline, the after value and the period.
+      - Say how it was measured.
+      - Say what else could explain the change and why you think it does not.
+      - Say what part was yours.
+    example:
+      language: python
+      code: |-
+        def percentile(samples_ms: list[int], p: int) -> int:
+            """Nearest-rank percentile (p in 1..100) using integer arithmetic only."""
+            ordered = sorted(samples_ms)
+            rank = (p * len(ordered) + 99) // 100        # ceil(p * n / 100)
+            return ordered[max(rank, 1) - 1]
+
+        def compare(before_ms: list[int], after_ms: list[int]) -> None:
+            for p in (50, 95, 99):
+                b, a = percentile(before_ms, p), percentile(after_ms, p)
+                print(f"p{p}: {b} ms -> {a} ms ({(b - a) * 100 // b}% lower)")
+
+        # before_ms / after_ms: request durations of POST /orders parsed from the access log,
+        # same weekday, 09:00-11:00, one week apart. Report sample sizes alongside the result.
+      explanation: Compute percentiles from raw durations for the same traffic window before and after; one week apart on the same weekday controls for the daily traffic pattern.
+    edge_cases:
+      - "No baseline recorded: reconstruct it from logs or dashboards and say so, or present the number as an estimate with its method."
+      - "The improvement is in a metric nobody tracks: explain the link to one they do (fewer timeouts means fewer failed orders)."
+      - "Confidential numbers: give relative changes and orders of magnitude, and say you are doing so."
+    misconceptions:
+      - Bigger percentages are always better. A believable 30% with a method beats an unexplained 10x.
+      - Only production numbers count. Well-described load-test or query-timing numbers are honest evidence for a learning project.
+- key: proj.metrics.check
+  type: concept_check
+  title: "Concept check: impact numbers"
+  skills: [project.metrics_impact]
+  minutes: 8
+  difficulty: MEDIUM
+  body:
+    intro: Judge each claim the way an interviewer probing it would.
+    questions:
+      - id: q1
+        kind: single
+        prompt: Which impact claim is most defensible?
+        options:
+          - "I made the API much faster."
+          - "I improved performance by 37.4%."
+          - "p95 of the order endpoint fell from about 900 ms to 250 ms, measured in our APM over the same weekday peak, after I replaced an N+1 query with one join."
+          - "The system now handles millions of requests."
+        answer: [2]
+        explanation: "It names the metric, baseline, after value, period, method and your change. The false-precision 37.4% is the tempting one because it sounds measured, but it gives no metric, baseline or method, and the extra decimal invites the question of where it came from."
+      - id: q2
+        kind: single
+        prompt: "After your change, average latency fell from 120 ms to 90 ms but p99 rose from 400 ms to 1,200 ms. What do you report?"
+        options:
+          - "Latency improved by 25%."
+          - "Both numbers: the typical request got faster but the slowest 1% got three times slower, and I would investigate the tail before calling it an improvement"
+          - Only the p99, since averages are useless
+          - Nothing, the result is inconclusive
+        answer: [1]
+        explanation: "Reporting the average alone hides a regression that affects real users; that is the tempting but misleading choice. The tail tripled, which matters for timeouts and user experience, so both numbers and the next step are the honest answer."
+      - id: q3
+        kind: multi
+        prompt: Which are acceptable sources for an impact number, if you state them?
+        options:
+          - An APM or monitoring dashboard covering the period
+          - A SQL query over the orders table before and after
+          - A load test against a production-like environment, with the setup described
+          - A number you remember a manager saying in a meeting, presented as your own measurement
+          - The cloud bill for the months before and after
+        answer: [0, 1, 2, 4]
+        explanation: "Dashboards, queries, described load tests and bills can all be checked and explained. A remembered figure presented as your own measurement cannot survive 'how did you measure it?'; if you use it, attribute it and call it approximate."
+      - id: q4
+        kind: single
+        prompt: "What is wrong with \"I reduced response time by 300%\"?"
+        options:
+          - Nothing, it is a big improvement
+          - "A reduction cannot exceed 100%; the speaker probably means the old time was 4x the new one (a 75% reduction) or that throughput tripled"
+          - It should be written as 3x
+          - It needs a decimal place
+        answer: [1]
+        explanation: "Reducing by 100% would mean zero time, so 300% is impossible as a reduction. Going from 400 ms to 100 ms is a 75% reduction, or 4x faster. Mixing these up tells the interviewer the number was not computed carefully."
+      - id: q5
+        kind: single
+        prompt: "You and two teammates cut the monthly AWS bill by 40%. Your part was right-sizing the RDS instance. How do you say it?"
+        options:
+          - "I cut the AWS bill by 40%."
+          - "Our team cut the bill by about 40%; my part was right-sizing RDS from metrics, which was roughly a third of the saving."
+          - "We did some cost work."
+          - "I was responsible for all cost optimisation."
+        answer: [1]
+        explanation: "It gives the team result, your specific contribution and its approximate share. Claiming the whole 40% is the tempting choice and collapses under 'what did the others do?'; vague 'we did some work' hides your contribution."
+      - id: q6
+        kind: short
+        prompt: Your project is a learning project with no real users. Which numbers can you honestly present, and how?
+        model_answer: "Load-test results (requests per second at a stated p95 on stated hardware), query timings before and after an index with EXPLAIN, test count and CI duration, image size or startup time, and data volume used in testing. Each one with the conditions, and an explicit statement that it is a load test or a local measurement, not production traffic."
+        explanation: Honest, described measurements are evidence; invented production numbers are a liability.
+- key: proj.metrics.interview
+  type: interview_question
+  title: "Interview question: what number shows your impact?"
+  skills: [project.metrics_impact, behavioral.impact]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 600}
+  body:
+    prompt: |-
+      "What single number best shows the impact of your project, and how do you know it is true?"
+
+      Answer about your own project in about two minutes, then take the follow-ups.
+    key_points:
+      - Names one specific metric and says why it mattered to users or the business.
+      - Gives a baseline and an after value with units.
+      - Gives the measurement period and the method or tool.
+      - Uses a percentile for latency claims, or explains why another statistic fits.
+      - Addresses attribution (what else changed, what part was yours).
+      - Mentions the cost of the improvement, if any.
+    model_answer: |-
+      Oversold orders per week, because each one meant a cancelled order and a support call. Before the new stock service it averaged about 25 a week, from the support ticket tag over two months; in the two months after launch it was 1 or 2, and both were traced to manual stock adjustments, not the code path. The change that mattered was the conditional stock update inside the order transaction, which I built and load-tested with 50 concurrent orders on one SKU. Order volume was flat over the period, so traffic does not explain it. The cost was slightly higher p99 on hot SKUs because orders for them serialise on one row.
+    pitfalls:
+      - Choosing a vanity metric (lines of code, number of services).
+      - A number with no method behind it.
+    follow_ups:
+      - prompt: How did you measure the baseline?
+        look_for: A concrete source and period, or an honest statement that it was reconstructed or estimated.
+      - prompt: What else changed in the same period that could explain the improvement?
+        look_for: Names real confounders (traffic, other releases, seasonality) and why they do or do not explain it.
+      - prompt: What did the improvement cost?
+        look_for: A specific cost (latency, money, complexity, team time) and why it was worth paying.
+- key: proj.metrics.cards
+  type: revision_card
+  title: "Recall: impact numbers"
+  skills: [project.metrics_impact]
+  minutes: 5
+  body:
+    cards:
+      - front: Six parts of an impact claim?
+        back: Metric, baseline, after value, period, method, your contribution.
+      - front: Why percentiles, not averages, for latency?
+        back: The average hides the slow tail that causes timeouts and complaints.
+      - front: Four questions a number must survive?
+        back: Compared to what, measured how, over what period, how much was yours.
+      - front: 400 ms down to 100 ms is a reduction of…?
+        back: 75% (4x faster); a reduction can never exceed 100%.
+      - front: Numbers for a learning project?
+        back: Load tests, query timings, CI duration, with hardware and conditions stated.
+
+# ---------------------------------------------------------------------------------------------- incident and debugging story
+- key: proj.incident.lesson
+  type: lesson
+  title: Telling an incident or hard-bug story with a real root cause
+  skills: [project.incident_debugging_story, engineering.debugging]
+  minutes: 20
+  difficulty: MEDIUM
+  body:
+    summary: A good incident story moves from impact to detection, mitigation, evidence-driven investigation, a mechanical root cause, the fix and the prevention.
+    what: |-
+      An incident or hard-bug story is a three-to-four-minute account of a real problem in your project: what users saw, how it was noticed, how you stopped the damage, how you found the cause, what the cause actually was at the level of code or infrastructure, how you fixed it and what you changed so that it cannot silently happen again.
+
+      Keep three things separate that weak stories blur together:
+
+      - **Symptom**: what was observed (orders failing with 500s, stock going negative).
+      - **Trigger**: what made it happen at that moment (a promotion doubled concurrent orders).
+      - **Root cause**: the mechanism that made the failure possible (a read-modify-write on stock without a lock or an atomic update).
+    why: |-
+      Debugging is a large part of the job, and a story about a real bug is the best evidence of how you debug: whether you form hypotheses and test them, read logs and metrics, reproduce before fixing and prevent recurrence. It also shows ownership and calm under pressure. Interviewers probe these stories hard because vague ones ("we restarted it and it went away") are common.
+    when: |-
+      - "Tell me about the hardest bug you fixed" or "a production incident you handled".
+      - Behavioral prompts about failure, ownership or pressure.
+      - As the hook at the end of a project walkthrough.
+    how: |-
+      Structure the story in this order:
+
+      1. **Impact** (one sentence, with a number): "about 60 orders over two days were accepted for stock we did not have".
+      2. **Detection**: how it surfaced (alert, reconciliation job, customer report) and how long it went unnoticed.
+      3. **Mitigation**: what stopped the damage first (rollback, feature flag, manual correction), and why mitigation came before diagnosis.
+      4. **Investigation**: hypotheses in the order you tested them, the evidence that ruled each in or out, and the reproduction.
+      5. **Root cause**: the mechanism in one or two sentences, precise enough that an engineer could write the failing test.
+      6. **Fix**: the code or configuration change and why it removes the mechanism, not just the trigger.
+      7. **Prevention**: the test, alert, constraint or review rule that would catch the class of bug next time.
+      8. **Lesson**: one sentence on what you do differently now.
+    mental_model: |-
+      Tell it as a detective story where every step answers "how did you know?". A hypothesis without evidence is a guess; a fix without a reproduction is a hope. If the interviewer could stop you at any step and ask "how did you know that?", you should have an answer.
+    tradeoffs: |-
+      - **Detail versus time.** Enough context to understand the mechanism (one or two sentences of architecture), not the whole system.
+      - **Speed of mitigation versus preserving evidence.** Restarting a process may stop the damage but destroy the state you needed; capture logs, a heap dump or the slow-query log first when you safely can.
+      - **Quick fix versus structural fix.** A retry or a bigger timeout may hide the bug; say whether you shipped a quick mitigation first and the structural fix afterwards.
+    mistakes:
+      - No root cause ("we restarted it and it was fine").
+      - Naming "human error" or "a bug" as the root cause instead of the mechanism and the missing guard.
+      - Blaming another team or person.
+      - Skipping impact and detection, so the stakes are unclear.
+      - A hero story in which you alone saved the day with no process.
+      - No prevention step, so the same class of bug can recur.
+      - Inventing or embellishing details that unravel under follow-up questions.
+    interview: |-
+      Follow-ups target the method: "how did you rule out the other causes?", "why didn't your tests catch it?", "how would you detect it faster now?", "what would you have done if you could not reproduce it?". Pick a story whose mechanism you understand deeply; a smaller bug you can explain precisely beats a dramatic outage you only watched.
+    explain_it:
+      - Open with impact and a number.
+      - Say how it was detected and how fast.
+      - Say what you did first to stop the damage.
+      - Walk the hypotheses and the evidence for each.
+      - State the root cause as a mechanism, separate from the trigger.
+      - Give the fix, the prevention and one lesson.
+    example:
+      language: python
+      code: |-
+        # Root cause: read-modify-write without a lock. In MySQL InnoDB a plain SELECT is a
+        # non-locking consistent read, so two concurrent orders can both read on_hand = 1.
+        def reserve_buggy(conn, product_id, warehouse_id, qty):
+            with conn.cursor() as cur:
+                cur.execute("SELECT on_hand FROM stock_levels WHERE product_id=%s AND warehouse_id=%s",
+                            (product_id, warehouse_id))
+                (on_hand,) = cur.fetchone()
+                if on_hand < qty:
+                    raise OutOfStock()
+                cur.execute("UPDATE stock_levels SET on_hand=%s WHERE product_id=%s AND warehouse_id=%s",
+                            (on_hand - qty, product_id, warehouse_id))      # both write 0: one sale is lost
+
+        # Fix: one atomic conditional UPDATE; the row lock it takes serialises concurrent orders.
+        def reserve_fixed(conn, product_id, warehouse_id, qty):
+            with conn.cursor() as cur:
+                cur.execute("UPDATE stock_levels SET on_hand = on_hand - %s "
+                            "WHERE product_id=%s AND warehouse_id=%s AND on_hand >= %s",
+                            (qty, product_id, warehouse_id, qty))
+                if cur.rowcount != 1:
+                    raise OutOfStock()
+      explanation: A lost-update bug in stock reservation and its fix. Prevention added a concurrency test with many threads ordering the last units of one SKU, and a CHECK constraint (on_hand >= 0, enforced from MySQL 8.0.16).
+    edge_cases:
+      - "You never handled a production incident: use a hard bug from development or a learning project, with the same structure and honest scope."
+      - "The root cause was never fully proven: say so, give the strongest evidence and the guard you added anyway."
+      - "The incident was caused by your change: own it plainly; that is a strength in this story, not a weakness."
+    misconceptions:
+      - The bigger the outage, the better the story. Depth of understanding and the quality of the investigation matter more than scale.
+      - Admitting your own mistake hurts. Owning the cause and showing the prevention is usually the strongest version.
+- key: proj.incident.check
+  type: concept_check
+  title: "Concept check: incident stories and root causes"
+  skills: [project.incident_debugging_story, engineering.debugging]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Separate symptoms, triggers and root causes, and read the code carefully.
+    questions:
+      - id: q1
+        kind: single
+        prompt: Orders failed with 500 errors for 20 minutes during a promotion. Which statement is a root cause?
+        options:
+          - The order endpoint returned 500 errors.
+          - The promotion doubled concurrent traffic.
+          - "Each request held a database connection while calling the slow payment provider, so the pool of 10 connections per container was exhausted and new requests timed out waiting for one."
+          - The developer made a mistake.
+        answer: [2]
+        explanation: "The third option is the mechanism: it explains why higher traffic caused failures and suggests the fix (do not hold a connection or transaction across an external call). The 500s are the symptom and the promotion is the trigger, which is the tempting answer because it happened right before. 'A mistake' explains nothing."
+      - id: q2
+        kind: single
+        prompt: Stock is going negative in production right now. What do you do first?
+        options:
+          - Find the root cause before touching anything
+          - "Mitigate: stop further damage (for example, block orders for affected SKUs or roll back the last release) while capturing logs, then investigate"
+          - Write a postmortem
+          - Restart all containers and see if it stops
+        answer: [1]
+        explanation: "Mitigation comes first because every minute adds bad orders, but capture the evidence you will need. Investigating first is the tempting engineer's instinct and lets the damage continue; a blind restart may destroy evidence and does not address a logic bug."
+      - id: q3
+        kind: single
+        prompt: Two requests run this code at the same moment for the last unit of a SKU, on MySQL InnoDB with the default REPEATABLE READ isolation. What can happen?
+        code:
+          language: python
+          code: |-
+            cur.execute("SELECT on_hand FROM stock_levels WHERE id = %s", (sid,))
+            (on_hand,) = cur.fetchone()
+            if on_hand >= 1:
+                cur.execute("UPDATE stock_levels SET on_hand = %s WHERE id = %s", (on_hand - 1, sid))
+                create_order(cur, sid)
+            conn.commit()
+        options:
+          - Nothing; REPEATABLE READ prevents it
+          - "Both read on_hand = 1, both write 0 and both create an order: one unit is sold twice"
+          - The second request deadlocks every time
+          - The second UPDATE fails with a constraint error
+        answer: [1]
+        explanation: "The plain SELECT is a non-locking consistent read, so both transactions see 1. Each then writes the value it computed, 0, so the second write silently overwrites the first: a lost update. REPEATABLE READ is the tempting answer, but it gives each transaction a stable snapshot; it does not stop this pattern. SELECT … FOR UPDATE or a conditional `on_hand = on_hand - 1 WHERE on_hand >= 1` fixes it."
+      - id: q4
+        kind: multi
+        prompt: Which actions prevent the class of bug in q3, not just this instance?
+        options:
+          - A concurrency test that runs many parallel orders for the last units of one SKU
+          - A database CHECK constraint or unsigned column so stock cannot go below zero
+          - Manually correcting the stock numbers
+          - A code-review rule that stock changes must be atomic conditional updates or locked reads
+          - Telling the team to be more careful
+        answer: [0, 1, 3]
+        explanation: "A test, a database guard and a review rule each catch future instances. Correcting the data is mitigation for this incident only; 'be more careful' is not a mechanism."
+      - id: q5
+        kind: single
+        prompt: "The interviewer asks why your tests did not catch the bug. Which answer is strongest?"
+        options:
+          - "Tests can never catch everything."
+          - "Our tests ran one request at a time against SQLite, so they could not show a race between two transactions on MySQL; we added an integration test against MySQL that fires 50 concurrent orders and asserts that stock never goes negative."
+          - "The QA team missed it."
+          - "We did not have time to write tests."
+        answer: [1]
+        explanation: "It names the specific gap (no concurrency, a different database) and the test that now closes it. The first answer is true but empty; blaming QA or time avoids the question."
+      - id: q6
+        kind: short
+        prompt: Apply "five whys" to "the nightly report job crashed" and stop at a cause you can fix with a mechanism.
+        model_answer: "Why did it crash? It ran out of memory. Why? It loaded all order rows into a list. Why did that start failing now? The table grew past a few million rows. Why was that not noticed? There was no memory alert on the worker and no test with realistic volume. Fix: stream rows in batches with a server-side cursor or keyset pagination, add a memory alarm on the worker, and test the job with production-like volume."
+        explanation: Each why moves from symptom to mechanism to the missing guard; stopping at 'it crashed' or at blame gives nothing to fix.
+- key: proj.incident.interview
+  type: interview_question
+  title: "Interview question: your hardest bug or incident"
+  skills: [project.incident_debugging_story, engineering.debugging]
+  minutes: 18
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    prompt: |-
+      "Tell me about the hardest production bug or incident you have dealt with on your project."
+
+      Answer with a real story from your own work in three to four minutes, then take the follow-ups. If you have never handled a production incident, use the hardest bug from development and say so.
+    key_points:
+      - Opens with the impact, with a number (users, orders, minutes, money).
+      - Says how the problem was detected and how long it went unnoticed.
+      - Describes the mitigation and why it came before the diagnosis.
+      - Walks through hypotheses with the evidence that ruled each in or out, including a reproduction.
+      - States the root cause as a mechanism, separate from the trigger.
+      - Describes the fix and a prevention step (test, alert, constraint or process).
+      - Owns their part without blaming others.
+    model_answer: |-
+      During a promotion, about 60 orders over two days were accepted for stock we did not have. The nightly reconciliation flagged negative counts on four SKUs. First I disabled ordering for those SKUs with a feature flag and corrected the counts. My first hypothesis was a bad CSV import, but the stock_movements ledger showed no imports on those SKUs. Access logs showed pairs of orders for the same SKU within a few milliseconds of each other, which pointed to a race. I reproduced it with a script firing 20 concurrent orders at one SKU with one unit left: three succeeded. The root cause was a read-then-write on the stock row: the SELECT was a non-locking read, so two transactions read the same value and both wrote it back minus one. The promotion only triggered it by increasing concurrency. The fix was a single conditional UPDATE with an affected-row check. For prevention I added a concurrency integration test against MySQL in CI, a CHECK constraint on on_hand, and an alert when reconciliation finds any negative row. The lesson I kept is that any shared counter is a concurrency problem until proven otherwise.
+    pitfalls:
+      - Ending at "we restarted it".
+      - Spending two minutes on context before the problem appears.
+      - Describing a bug you only watched someone else fix.
+    follow_ups:
+      - prompt: How did you rule out the other hypotheses?
+        look_for: Specific evidence per hypothesis (logs, ledger, metrics, a reproduction), not intuition.
+      - prompt: Why didn't your tests or monitoring catch it earlier?
+        look_for: The specific gap (no concurrency test, a different database in tests, no alert on the invariant) and what now closes it.
+      - prompt: If the same class of problem happened tonight, how would you find out and how fast?
+        look_for: A concrete alert or check with a threshold and an expected detection time.
+      - prompt: What would you have done if you could not reproduce it?
+        look_for: Add targeted logging or metrics around the suspected path, guard the invariant in the database, and widen the evidence before guessing at a fix.
+- key: proj.incident.cards
+  type: revision_card
+  title: "Recall: incident stories"
+  skills: [project.incident_debugging_story]
+  minutes: 5
+  body:
+    cards:
+      - front: Symptom, trigger, root cause — the difference?
+        back: What was seen; what set it off; the mechanism that made it possible.
+      - front: Order of an incident story?
+        back: Impact, detection, mitigation, investigation, root cause, fix, prevention, lesson.
+      - front: Mitigate or diagnose first in an active incident?
+        back: Mitigate first, while preserving the evidence you will need.
+      - front: Why is "human error" not a root cause?
+        back: It names no mechanism and no missing guard, so nothing changes.
+      - front: A fix versus a prevention?
+        back: The fix removes this mechanism; prevention catches the whole class next time.
+      - front: The question every story step must answer?
+        back: "\"How did you know?\" — evidence, not intuition."

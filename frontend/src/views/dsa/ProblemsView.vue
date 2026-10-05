@@ -9,6 +9,7 @@ import Icon from '../../components/common/Icon.vue'
 import PageHeader from '../../components/common/PageHeader.vue'
 import Skeleton from '../../components/common/Skeleton.vue'
 import StatusPill from '../../components/common/StatusPill.vue'
+import SkillPracticeFallback from '../../components/learning/SkillPracticeFallback.vue'
 import { outcomeLabel } from '../../practice/vocabulary'
 import { plural } from '../../presentation/format'
 import { useCatalogSkillsStore, useSkillsStore } from '../../stores/data'
@@ -152,6 +153,11 @@ onMounted(async () => {
       v-else-if="error"
       :error="error"
       @retry="load"
+    />
+    <SkillPracticeFallback
+      v-else-if="!shown.length && filters.skill && !filters.q && !filters.difficulty && !filters.status"
+      :skill="filters.skill"
+      :skill-name="skills.nameOf(filters.skill)"
     />
     <EmptyState
       v-else-if="!shown.length"

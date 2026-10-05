@@ -1,0 +1,655 @@
+# Practical engineering 2: measuring and fixing performance, and Redis/caching in practice.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- performance and profiling
+- key: eng.performance_profiling.lesson
+  type: lesson
+  title: Measure before you optimise — latency percentiles, profilers, N+1 and pool exhaustion
+  skills: [engineering.performance_profiling, db.query_optimization]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Find where the time goes with percentiles, traces and profiles, change the dominant cost, and verify with the same measurement.
+    what: |-
+      Performance work is a loop: **define** the metric and the workload, **measure** where time or resources go, **change** the single biggest cost, and **re-measure** under the same workload. The tools differ by layer:
+
+      - **Latency percentiles** per endpoint (p50, p95, p99) say how slow and for whom.
+      - **Distributed traces** split one request into spans (database, HTTP calls, waiting for a pool, serialisation) and show which layer dominates.
+      - **Profilers** show where time goes inside one process. Sampling profilers (`py-spy`, Linux `perf`) capture stacks periodically with low overhead and are safe in production; deterministic profilers (`cProfile`) record every call, are exact about call counts, and add significant overhead.
+      - **Database tools** show query cost: query count per request, the slow-query log, `pg_stat_statements` in PostgreSQL, and `EXPLAIN (ANALYZE, BUFFERS)` for one query.
+    why: |-
+      Intuition about performance is usually wrong. If serialisation is 5% of a request, making it ten times faster saves under 5% (Amdahl's law), while the real cost — 100 sequential queries — is untouched. Measuring first also gives you the number you need to prove the fix: "p95 went from 1,350 ms to 190 ms under the same replayed traffic" is evidence; "it feels faster" is not.
+    when: |-
+      - A latency or error SLO is breached, or a release regresses p95.
+      - Infrastructure cost grows faster than traffic.
+      - Capacity planning before a launch or a traffic event.
+      - Interview prompts such as "this endpoint got slow, what do you do?" or "how would you find the bottleneck?".
+    how: |-
+      **1. Read the right numbers.** Averages hide tails: an endpoint with p50 80 ms and p99 2,400 ms has a minority of very slow requests that an average of 150 ms conceals. Percentiles cannot be averaged across hosts — merge histograms instead. Tails matter more with fan-out: if a page calls 100 backends and each is slow 1% of the time, about 63% of pages hit at least one slow call (1 − 0.99¹⁰⁰).
+
+      **2. Find the layer with a trace.** Typical findings: many small database spans (N+1), one long database span (a bad plan), a long gap before the first query (waiting for a pool connection or a worker), a long external call (missing timeout, slow partner).
+
+      **3. Know the classic culprits.**
+
+      - **N+1 queries**: an ORM loads 50 orders, then lazily loads each order's customer — 51 round trips. At 2 ms each that is about 100 ms of pure waiting, and it grows with page size.
+      - **Missing or unusable index**: a sequential scan over millions of rows; `EXPLAIN ANALYZE` shows `Seq Scan` and a large `Rows Removed by Filter`.
+      - **Connection pool exhaustion**: every connection is checked out, requests queue at checkout and eventually fail with a pool timeout, often while the database is nearly idle because connections are held during slow non-database work.
+      - **Work in a loop** that should be batched: an HTTP call or a cache lookup per item instead of one multi-get.
+      - **Blocking I/O inside an async event loop**, which stalls every other request on that loop.
+
+      **4. Use Little's law to size and to sanity-check**: in-flight work = arrival rate × time in system. At 400 requests per second, each holding a database connection for 50 ms, about 20 connections are busy on average; if the hold time grows to 250 ms you need about 100, and a pool of 15 queues.
+
+      **5. Profile inside the process** when the trace says "application CPU". Read a flame graph: each box is a function, width is the share of samples that included it, and the stack grows upward; the x-axis is not time. Look for wide plateaus. A CPU profile misses time spent waiting (I/O, locks, pool); use wall-clock mode (`py-spy` with `--idle`) or traces for that.
+
+      **6. Change one thing and re-measure** with the same workload and dataset size.
+    mental_model: |-
+      Latency = service time + waiting time, and there are queues everywhere: the load balancer, worker threads, the connection pool, the database's CPU and locks. As utilisation of any queue approaches 100%, waiting time grows sharply, not linearly. Many "slow code" incidents are really a queue filling because something upstream holds a resource longer.
+    tradeoffs: |-
+      - **Eager loading vs over-fetching**: `JOIN` or batched loads fix N+1 but can fetch columns or rows you do not need.
+      - **Indexes**: faster reads, slower writes, more disk and memory; every index must be maintained on every insert.
+      - **Caching** removes load but adds staleness and invalidation work.
+      - **Bigger pools** reduce queueing in the app but push more concurrent work onto the database, which may be the real limit.
+      - **Profiling in production** is realistic; deterministic profilers are too expensive there, sampling profilers usually are not.
+    mistakes:
+      - Optimising without a profile or trace, then measuring the wrong thing.
+      - Averaging percentiles across hosts or reporting only the mean.
+      - Benchmarking on a tiny dataset where every query is fast and every plan is a sequential scan.
+      - Measuring once with a cold or warm cache and calling it a result.
+      - Load generators that wait for each response before sending the next (closed loop) under-report latency during stalls — the "coordinated omission" problem.
+      - Running `EXPLAIN ANALYZE` on an `UPDATE` or `DELETE` in production without a transaction you roll back — it really executes the statement.
+      - Raising the pool size to "fix" exhaustion that is caused by holding connections during HTTP calls.
+    interview: |-
+      Expect "an endpoint's p95 doubled after a release — walk me through it" or "how do you find a slow query?". Interviewers listen for: which metric and percentile, how you find the layer (traces), concrete culprits (N+1, plan, pool, external call), a way to verify (same workload, same percentile), and a way to prevent recurrence (query-count assertions, performance budget in CI, alerts on p95 per endpoint).
+    explain_it:
+      - Name the metric, percentile and workload you measure.
+      - Locate the layer with a trace before profiling code.
+      - Name the culprit with evidence (query count, plan node, pool wait).
+      - Fix one thing, re-measure, and add a guard against regression.
+    example:
+      language: python
+      code: |-
+        from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
+
+        # N+1: one query for the orders, then one lazy load of items per order.
+        orders = session.scalars(select(Order).where(Order.customer_id == cid).limit(50)).all()
+        payload = [{"id": o.id, "skus": [i.sku for i in o.items]} for o in orders]   # 1 + 50 queries
+
+        # Fixed: two queries — the orders, then all their items with WHERE order_id IN (...).
+        orders = session.scalars(
+            select(Order)
+            .where(Order.customer_id == cid)
+            .options(selectinload(Order.items))
+            .limit(50)
+        ).all()
+      explanation: "The fix is cheap; finding it is the skill. A test that counts queries for this endpoint (for example via a SQLAlchemy `before_cursor_execute` event listener) keeps it fixed."
+    complexity: N+1 costs 1 + N round trips; batching makes it a constant number of queries, independent of page size.
+    internals: |-
+      A sampling profiler interrupts the process at a fixed rate (often around 100 times per second), records the current stack of each thread, and aggregates identical stacks. Because it never instruments calls, overhead is low and it can attach to a running production process. A flame graph is that aggregate drawn as nested boxes, sorted alphabetically within each level so identical stacks merge — which is why the horizontal axis means "share of samples", not time order.
+    edge_cases:
+      - A fast query run 500 times per request is worse than one slow query run once.
+      - p99 regressions with an unchanged p50 often point to a shared resource (pool, lock, GC pause) rather than to the code path everyone runs.
+      - "Plans change with data: a query that was fast on 10,000 rows picks a different plan at 10 million."
+    misconceptions:
+      - "Low database CPU means the database is not involved — requests can be waiting for a pooled connection or a lock."
+      - "A faster language fixes a slow endpoint — when the time is in I/O or waiting, the language barely matters."
+- key: eng.performance_profiling.visual_flame
+  type: visual_explanation
+  title: "Visual: reading a flame graph"
+  skills: [engineering.performance_profiling]
+  minutes: 6
+  body:
+    summary: Width is the share of samples, the stack grows upward, and the widest box near the top is where the time is spent.
+    frames:
+      - caption: A CPU flame graph of a request handler (1,000 samples). Read bottom-up — each box is called by the box below it.
+        diagram: |-
+          | json.dumps 9% |  | format_price 41%        |
+          | serialize 12%    | render_row 46%           | load_orders 30% | other 12% |
+          | handle_list_orders 100%                                                  |
+          ----------------------------------------------------------------------------
+          widths are shares of the 1,000 samples, not elapsed time order
+      - caption: The widest box with nothing wide above it is the hot spot. Here format_price is 41% on its own.
+        diagram: |-
+          handle_list_orders 100%
+            └─ render_row 46%
+                 └─ format_price 41%   <- self time is large: look here first
+                      └─ locale.currency (called per row)
+            └─ serialize 12%
+          fix candidate: format once per currency, not once per row
+      - caption: A CPU profile cannot see waiting. If the trace says the request took 900 ms but CPU samples cover 60 ms, the rest is I/O or queueing.
+        diagram: |-
+          trace:     |----- 900 ms request ----------------------------------|
+          CPU busy:  |==|      |=|       |==|                 60 ms in total
+          waiting:      ...pool...  ...db...   ...partner API...
+          use a wall-clock profile (py-spy --idle) or the trace spans instead
+- key: eng.performance_profiling.check
+  type: concept_check
+  title: "Concept check: performance measurement"
+  skills: [engineering.performance_profiling]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: These questions test whether you read performance numbers correctly before trying to fix anything.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "An endpoint reports mean 150 ms, p50 80 ms, p99 2,400 ms. What does this tell you?"
+        options:
+          - Most requests are around 150 ms, so it is fine
+          - A small fraction of requests are very slow; the mean hides them, so investigate traces of the slow requests specifically
+          - The p99 is a measurement error because it is far from the mean
+          - All requests got slower by the same amount
+        answer: [1]
+        explanation: "Half the requests take under 80 ms, yet 1% take over 2.4 s: a long tail. The mean mixes the two and describes almost no real request. Tails are real and usually come from a shared resource or a specific input, so pull traces of requests above p99."
+      - id: q2
+        kind: single
+        prompt: Two hosts with equal traffic report p99 = 100 ms and p99 = 300 ms. What is the fleet p99?
+        options: ["200 ms", "300 ms", "It cannot be computed from these two numbers; merge the latency histograms or raw samples", "100 ms"]
+        answer: [2]
+        explanation: "Percentiles are not additive. The fleet p99 depends on the full distributions; it lies between the two values but its position is unknown. Averaging (200 ms) is the tempting and wrong answer. Collect histograms and merge them."
+      - id: q3
+        kind: multi
+        prompt: Which observations are signs of connection pool exhaustion?
+        options:
+          - "Errors like `QueuePool limit of size 5 overflow 10 reached, connection timed out`"
+          - Time waiting to check out a connection is a large share of request latency
+          - Database CPU is low while application latency is high
+          - The slow-query log is full of multi-second queries
+        answer: [0, 1, 2]
+        explanation: "Exhaustion is queueing in the application: a pool timeout error, long checkout waits, and often an idle database because connections are held during non-database work. Many slow queries can cause exhaustion, but they point to a different root cause (query plans) rather than being a sign of exhaustion itself."
+      - id: q4
+        kind: single
+        prompt: A service handles 400 requests per second and each request holds a database connection for 50 ms. How many connections are in use on average?
+        options: ["8", "20", "50", "400"]
+        answer: [1]
+        explanation: "Little's law: in use = arrival rate × hold time = 400 × 0.05 s = 20. If hold time grows to 250 ms (for example an N+1 regression), you need about 100 — which is how a code change turns into pool exhaustion."
+      - id: q5
+        kind: single
+        prompt: A CPU profile of a slow endpoint is flat — no function stands out and total CPU is low — yet p95 is 1.2 s. What is the most likely explanation?
+        options:
+          - The profiler is broken
+          - The time is spent waiting (I/O, locks, pool checkout), which a CPU profile does not record; use traces or a wall-clock profile
+          - Python is too slow for this endpoint
+          - The endpoint needs more CPU cores
+        answer: [1]
+        explanation: "CPU profilers sample only while code runs on the CPU. Waiting on the network, the database or a lock is invisible to them. More cores or a faster language would not help time that is spent waiting."
+      - id: q6
+        kind: short
+        prompt: A teammate wants to rewrite the JSON serialiser in a native extension because the orders endpoint is slow. What do you ask and check first?
+        model_answer: "What does the trace or profile show — what share of request time is serialisation? If it is 5%, even an infinitely fast serialiser saves 5% (Amdahl). Check the span breakdown for database time, query count per request, pool wait and external calls, and which percentile regressed. Agree on the metric and the workload, then fix the dominant cost first and re-measure."
+        explanation: Every optimisation proposal should start from the measured share of time it can remove.
+- key: eng.performance_profiling.latency_regression
+  type: debugging_exercise
+  title: "Debugging scenario: latency went from 200 ms to 2 s after a release"
+  skills: [engineering.performance_profiling, engineering.debugging]
+  minutes: 30
+  difficulty: HARD
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 1800}
+  body:
+    scenario: |-
+      Release 4.18.0 of the orders service went out at 14:00 UTC. Within ten minutes the `GET /v1/orders` p50 rose from about 180 ms to over 1.3 s and p99 to almost 5 s; a few requests now fail. Traffic is unchanged. The service runs SQLAlchemy against PostgreSQL with the default pool (5 connections plus 10 overflow per process). Diagnose it from the artifacts.
+    symptoms:
+      - Latency rose at every percentile right after the release, with unchanged traffic.
+      - About 0.6% of requests fail with a pool timeout.
+      - Database CPU rose moderately but is far from saturated.
+      - Other endpoints of the same service are slower too, though less.
+    artifacts: |-
+      Release 4.18.0 change list (excerpt):
+
+      ```text
+      #2291  orders list: include customer name and item count for each order
+      #2295  gunicorn: 8 workers per pod instead of 4
+      #2302  bump requests 2.31 -> 2.32
+      ```
+
+      Metrics for GET /v1/orders?limit=50:
+
+      ```text
+                                  13:00-14:00   14:10-15:10
+      requests/min                1,200         1,200
+      p50 latency                 180 ms        1,350 ms
+      p99 latency                 420 ms        4,900 ms
+      DB queries per request      3             103
+      pool checkout wait p95      1 ms          900 ms
+      DB CPU                      22%           41%
+      errors                      0.0%          0.6%
+      ```
+
+      One slow request after the release (trace):
+
+      ```text
+      GET /v1/orders                                              1,420 ms
+        db  SELECT ... FROM orders WHERE ... LIMIT 50                 6 ms
+        db  SELECT ... FROM customers WHERE id = $1          2 ms  x 50
+        db  SELECT count(*) FROM order_items WHERE order_id = $1   2 ms  x 50
+        pool checkout waits (sum across the calls)                ~900 ms
+        serialize response                                            8 ms
+      ```
+
+      Error log:
+
+      ```text
+      sqlalchemy.exc.TimeoutError: QueuePool limit of size 5 overflow 10 reached, connection timed out, timeout 30.00
+      ```
+    tasks:
+      - Decide which change in the release explains the query count, and argue why the others do not.
+      - Explain why 100 extra 2 ms queries produce far more than 200 ms of extra latency.
+      - Explain why other endpoints of the same service also slowed down.
+      - Propose the immediate mitigation and the code fix (with the query shape).
+      - Propose how to verify the fix and two guards that would have caught this before full rollout.
+    hints:
+      - 103 = 3 + 50 + 50.
+      - While a request runs 100 sequential queries, how long does it hold its connection?
+      - Pools are shared by all endpoints in the process.
+    reference: |-
+      **Cause.** #2291 adds a lazy load of each order's customer and a per-order `count(*)` — a classic N+1, 100 extra queries per page of 50. #2295 changes concurrency, not query count (and doubles the potential database connections per pod, worth checking against `max_connections`, but it does not produce 103 queries). #2302 is a client library bump unrelated to database access.
+
+      **Why latency explodes.** 100 sequential queries add at least 100 round trips of query time plus network and driver overhead, and the request holds its pooled connection for the whole time. Hold time rises several-fold, so by Little's law the number of connections needed rises several-fold; the pool of 15 per process saturates, requests queue at checkout (900 ms p95 wait), and the slowest ones hit the 30 s pool timeout. Waiting, not the queries themselves, is most of the added latency.
+
+      **Why other endpoints slow down.** They share the same pool, so they queue behind the orders requests.
+
+      **Mitigation.** Roll back 4.18.0 (or disable #2291 behind its flag) — fastest, safest.
+
+      **Fix.** Fetch the customer with a join (or `selectinload`) and the counts in one grouped query:
+
+      ```sql
+      SELECT order_id, count(*) FROM order_items WHERE order_id = ANY($1) GROUP BY order_id;
+      ```
+
+      That makes the endpoint 3–4 queries regardless of page size. Do not "fix" it by enlarging the pool; that moves the queue to the database.
+
+      **Verify and prevent.** Replay the same traffic in staging and compare p50/p95 and queries per request with 4.17. Add a test that asserts the query count for the endpoint stays constant when the page size grows; alert on queries per request and pool wait per endpoint; use a canary that compares p95 against the previous version before full rollout.
+    rubric:
+      - {key: culprit, label: "Attributes the 103 queries to #2291 and rules out the worker and library changes with reasons", points: 2}
+      - {key: amplification, label: "Explains latency growth through longer connection hold time and pool queueing", points: 3}
+      - {key: shared_pool, label: "Explains why other endpoints slowed through the shared pool", points: 1}
+      - {key: fix, label: "Mitigates by rollback or flag, then fixes with a join or batched IN query, not a bigger pool", points: 2}
+      - {key: prevention, label: "Proposes a query-count test and a canary or per-endpoint latency alert", points: 2}
+    follow_ups:
+      - prompt: The worker increase in #2295 also changed something. What risk does it add even after the N+1 is fixed?
+        look_for: "Each worker has its own pool, so maximum database connections per pod double; with many pods this can exceed PostgreSQL max_connections, so check the total or use a pooler such as PgBouncer."
+      - prompt: How would you write the query-count guard so it does not break on harmless changes?
+        look_for: "Assert that the count does not grow with page size (compare 5 vs 50 items) or allow a small fixed budget, rather than pinning an exact number."
+- key: eng.performance_profiling.full_scan
+  type: debugging_exercise
+  title: "Debugging scenario: a query scans millions of rows"
+  skills: [engineering.performance_profiling, db.indexing, db.query_optimization]
+  minutes: 25
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 1500}
+  body:
+    scenario: |-
+      On PostgreSQL 16, the "my open orders" screen takes over 2 s and the nightly sales report has started timing out. `pg_stat_statements` puts both queries at the top by total time. The table has 12 million rows, about 40,000 customers, and 92% of rows are SHIPPED or CANCELLED. Find the causes and propose indexes or rewrites.
+    symptoms:
+      - The open-orders query takes about 2.1 s for every customer, even customers with three orders.
+      - The daily report query reads the whole table every night.
+      - The table has an index on created_at, but neither query uses it as expected.
+    artifacts: |-
+      ```sql
+      CREATE TABLE orders (
+        id          bigint PRIMARY KEY,
+        customer_id bigint      NOT NULL,
+        status      text        NOT NULL,   -- PENDING | PAID | SHIPPED | CANCELLED
+        created_at  timestamptz NOT NULL,
+        total_cents bigint      NOT NULL
+      );
+      CREATE INDEX orders_created_at_idx ON orders (created_at);
+
+      -- Query A: the open-orders screen
+      SELECT id, status, created_at, total_cents
+      FROM orders
+      WHERE customer_id = 4821 AND status IN ('PENDING', 'PAID')
+      ORDER BY created_at DESC
+      LIMIT 20;
+
+      -- Query B: the nightly report
+      SELECT count(*), sum(total_cents) FROM orders WHERE date(created_at) = '2026-09-30';
+      ```
+
+      ```text
+      EXPLAIN (ANALYZE) for query A:
+      Limit  (actual time=2140.512..2146.873 rows=20 loops=1)
+        ->  Gather Merge  (actual time=2140.510..2146.866 rows=20 loops=1)
+              Workers Planned: 2
+              Workers Launched: 2
+              ->  Sort  (actual time=2121.004..2121.009 rows=8 loops=3)
+                    Sort Key: created_at DESC
+                    Sort Method: top-N heapsort  Memory: 28kB
+                    ->  Parallel Seq Scan on orders  (actual time=3.118..2119.442 rows=8 loops=3)
+                          Filter: ((customer_id = 4821) AND (status = ANY ('{PENDING,PAID}'::text[])))
+                          Rows Removed by Filter: 3999992
+      Planning Time: 0.412 ms
+      Execution Time: 2146.951 ms
+      ```
+    tasks:
+      - Read the plan for query A and say how many rows were read in total and why (note loops=3).
+      - Explain why the created_at index does not help query A.
+      - Propose an index for query A, justify the column order, and consider a partial index.
+      - Explain why query B cannot use the created_at index, and rewrite it so it can. Explain why an expression index on date(created_at) is not the answer here.
+      - Say how you would create the index on a busy production table and how you would verify the result.
+    hints:
+      - In a parallel plan the row counts shown are per process, averaged over loops.
+      - Which column narrows 12 million rows to a few hundred?
+      - The cast from timestamptz to date depends on the session's TimeZone setting.
+    reference: |-
+      **Query A.** Rows shown are per-loop averages: about 4 million removed × 3 processes ≈ 12 million rows read to return 24 matches — the whole table. There is no index on `customer_id`, the filter that cuts the table to a few hundred rows per customer. The `created_at` index could only give rows in date order across all customers, so the planner would walk most of the table anyway.
+
+      **Index for A.** Lead with the equality column, then the sort column: `CREATE INDEX CONCURRENTLY orders_customer_created_idx ON orders (customer_id, created_at DESC);` The planner seeks to the customer, reads in `created_at` order, filters status, and stops after 20 rows. Since only 8% of rows are open and the screen only asks for open orders, a smaller **partial index** matches exactly: `... ON orders (customer_id, created_at DESC) WHERE status IN ('PENDING', 'PAID');` — the query's predicate implies the index predicate, so it is usable. (`(customer_id, status, created_at)` also works well; with two status values the planner may need a small sort, which is cheap for a few dozen rows.) A B-tree can be scanned backwards, so `DESC` is optional for a single-column order.
+
+      **Query B.** Wrapping the column in a function hides it from the plain index. Rewrite as a half-open range with an explicit time zone: `WHERE created_at >= '2026-09-30 00:00+00' AND created_at < '2026-10-01 00:00+00'`. An expression index on `date(created_at)` is rejected by PostgreSQL because the cast from `timestamptz` depends on the session TimeZone (it is not immutable); the range form is also clearer about which day boundary the business means.
+
+      **Rollout and verification.** `CREATE INDEX CONCURRENTLY` avoids blocking writes, takes longer, cannot run inside a transaction block, and leaves an INVALID index behind if it fails (drop and retry). Verify with `EXPLAIN (ANALYZE, BUFFERS)`: expect an Index Scan on the new index, a few dozen buffers and single-digit milliseconds. Remember each new index adds write cost on every insert and update.
+    rubric:
+      - {key: plan_reading, label: "Reads the parallel plan correctly, about 12 million rows read in total", points: 2}
+      - {key: why_not_index, label: "Explains that customer_id is unindexed and the created_at index does not narrow the search", points: 2}
+      - {key: index_design, label: "Proposes customer_id first then created_at, and discusses a partial index for open statuses", points: 3}
+      - {key: sargable, label: "Rewrites query B as a half-open timestamp range and explains the function on the column", points: 2}
+      - {key: rollout, label: "Uses CREATE INDEX CONCURRENTLY and verifies with EXPLAIN ANALYZE", points: 1}
+    follow_ups:
+      - prompt: "Would an index on status alone help query A?"
+        look_for: "Barely: about 8% of rows are open, roughly a million rows, still far too many; low-selectivity leading columns rarely help on their own."
+      - prompt: When would you reject adding the partial index?
+        look_for: "If other queries need non-open orders by customer, if write load is high and the table already has many indexes, or if the status list changes often and would silently stop matching."
+- key: eng.performance_profiling.cards
+  type: revision_card
+  title: "Recall: performance measurement"
+  skills: [engineering.performance_profiling]
+  minutes: 5
+  body:
+    cards:
+      - front: Why not average p99 across hosts?
+        back: Percentiles are not additive; merge histograms instead.
+      - front: Little's law?
+        back: In-flight work = arrival rate × time in system.
+      - front: What does flame graph width mean?
+        back: Share of samples containing that frame — not elapsed time order.
+      - front: Signature of N+1 queries?
+        back: Query count per request grows with the number of items returned.
+      - front: CPU profile flat but request slow?
+        back: Time is spent waiting (I/O, locks, pool); use traces or wall-clock profiling.
+      - front: Caution with EXPLAIN ANALYZE?
+        back: It executes the statement; wrap writes in a transaction and roll back.
+
+# ---------------------------------------------------------------------------------------------- caching in practice
+- key: eng.caching_practice.lesson
+  type: lesson
+  title: Redis and caching in practice — stale reads, invalidation order, stampedes and TTLs
+  skills: [engineering.caching_practice, sd.caching]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Cache-aside with commit-then-delete, a TTL with jitter as the safety net, single-flight on misses, and never trust the cache for decisions that need the truth.
+    what: |-
+      A cache keeps a copy of data closer to the reader so most reads skip the slower source of truth. Patterns:
+
+      - **Cache-aside** (most common): the application reads the cache; on a miss it reads the database and stores the value with a TTL. On a write it updates the database and then deletes the cache key.
+      - **Read-through / write-through**: a cache layer loads and writes on the application's behalf; write-through updates cache and store together on every write.
+      - **Write-behind**: writes go to the cache and are flushed to the store later — fast, but data can be lost if the cache fails before the flush.
+
+      Redis is the usual store: an in-memory key-value server that executes commands one at a time, with TTLs, atomic operations (`INCR`, `SET ... NX PX`) and eviction policies.
+    why: |-
+      A product page read 5,000 times per second from a database query that takes 20 ms needs about 100 busy database connections (Little's law); with a 95% hit ratio it needs about 5. Caching buys latency and capacity — but every cached value is a copy that can be wrong, so the engineering is about bounding how wrong and for how long.
+    when: |-
+      - Read-heavy data that is expensive to compute and tolerates bounded staleness (catalog, profiles, configuration, rendered fragments).
+      - Hot keys that would overload one database row or shard.
+      - Not as the source of truth for decisions that must be exact (stock for checkout, balances, permissions just revoked) — read the primary there, or use atomic operations on the store.
+    how: |-
+      **Invalidation order.** Update the database, **commit**, then delete the key. Deleting before commit (or inside the transaction) lets a concurrent reader miss, read the old committed row and put it back. Prefer delete over set: two concurrent writers that both `SET` can finish in the opposite order and leave the older value. A narrow race remains even with commit-then-delete (a reader that read the old row just before the commit writes it after the delete), so always keep a TTL as the upper bound on staleness; some teams add a delayed second delete.
+
+      **Replica lag.** Repopulating the cache from a read replica right after a write can cache the old value for a whole TTL. After a write, return the value you wrote or read from the primary.
+
+      **Stampede (dogpile).** When a hot key expires, thousands of concurrent misses hit the database at once. Mitigate with single-flight: one request takes a short lock (`SET lock:k <token> NX PX 5000`) and recomputes while others wait briefly or serve the stale value; or refresh early before expiry (probabilistic early refresh); or keep a stale copy and revalidate in the background.
+
+      **TTL jitter.** Keys written together (cache warm-up at deploy) with the same TTL expire together and cause a synchronized miss storm. Add random jitter, for example 3,600 s plus or minus up to 10%.
+
+      **Other practicalities.** Cache negative results briefly (a missing product) so misses do not hammer the database. Version your keys (`product:v3:{id}`) so a serialisation change does not read old formats. Put timeouts on the Redis client and fall back to the database when the cache is down. Use `SCAN`, never `KEYS`, on large keyspaces. Set `maxmemory` and a `maxmemory-policy` such as `allkeys-lru`; the default `noeviction` makes writes fail with an out-of-memory error when memory is full.
+    mental_model: |-
+      Every cached value is a promise: "this is the truth, or was within the last TTL seconds". Invalidation tries to keep the promise tighter; the TTL is what keeps it at all when invalidation fails. Ask of every key: who writes the truth, who deletes the copy, and what happens in the gap between them.
+    tradeoffs: |-
+      - **Short TTL**: fresher data, lower hit ratio, more database load. **Long TTL**: the opposite, and longer damage when invalidation misses.
+      - **Delete on write** is simple and safe; **update on write** keeps the hit ratio but races between writers.
+      - **Local in-process cache**: no network hop and immune to Redis outages, but each instance is stale independently and invalidation must be broadcast.
+      - **Distributed lock for single-flight** adds complexity; for a cache the lock is an optimisation, so an occasional duplicate recomputation is acceptable.
+    mistakes:
+      - Deleting the key before the transaction commits.
+      - Populating the cache from a lagging replica right after a write.
+      - Cache keys that omit a dimension of the query (tenant, locale, page size), which serves one user's data to another.
+      - No TTL "because we invalidate", so one missed invalidation is permanent.
+      - Using `KEYS pattern` for invalidation, which is O(N) and blocks the single command thread.
+      - Releasing a lock with a plain `DEL` without checking the token, which can delete another holder's lock.
+      - Letting a Redis outage take the service down instead of degrading to the database.
+    interview: |-
+      Caching questions in project and design rounds usually probe the failure modes: "how do you keep it consistent?", "what happens when the hot key expires?", "what if Redis is down?", "a user updates and still sees the old value — why?". Strong answers name the write order (commit then delete), the race that remains and the TTL that bounds it, a stampede mitigation, and which data must bypass the cache.
+    explain_it:
+      - Name the pattern (cache-aside) and the write order (commit, then delete).
+      - State the remaining race and how the TTL bounds staleness.
+      - Explain stampede protection and TTL jitter.
+      - Say which reads must bypass the cache and how the service degrades without Redis.
+    example:
+      language: python
+      code: |-
+        import random
+
+        TTL = 600
+
+        def get_product(pid: int) -> dict:
+            key = f"product:v3:{pid}"
+            cached = cache.get(key)                 # client configured with a short socket timeout
+            if cached is not None:
+                return decode(cached)
+            row = primary.fetch_product(pid)        # single-flight omitted for brevity
+            cache.set(key, encode(row), ex=TTL + random.randint(0, TTL // 10))   # jittered TTL
+            return row
+
+        def update_product(pid: int, changes: dict) -> dict:
+            with primary.transaction():
+                row = primary.update_product(pid, changes)
+            cache.delete(f"product:v3:{pid}")       # after commit, and delete rather than set
+            return row                              # return what we wrote, not a replica read
+      explanation: The TTL with jitter bounds staleness and spreads expiries; the delete after commit closes most of the stale-repopulation window.
+    internals: |-
+      Redis executes commands on a single thread (I/O threading in recent versions does not change that commands run one at a time), which makes single commands atomic but means one slow command such as `KEYS *` on millions of keys stalls every client. Expiry is applied lazily on access plus by a periodic sampling of keys with TTLs, so expired keys stop being returned immediately but may occupy memory briefly.
+    edge_cases:
+      - Empty results — cache them with a short TTL or you never cache the most common miss.
+      - Large values (megabytes) that make each hit slow and saturate network bandwidth.
+      - Keys whose computation fails — do not cache the error for a full TTL.
+    misconceptions:
+      - "A cache hit ratio of 99% means the cache is correct — it measures how often you used the copy, not how often the copy was right."
+      - "Write-through removes staleness — concurrent writers and partial failures can still leave cache and store different."
+- key: eng.caching_practice.check
+  type: concept_check
+  title: "Concept check: caching in practice"
+  skills: [engineering.caching_practice]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Each question is a real failure mode of cache-aside with Redis.
+    questions:
+      - id: q1
+        kind: single
+        prompt: With cache-aside, which write order is the safest default?
+        options:
+          - Delete the cache key, then update the database
+          - Update the database and set the cache to the new value inside the same transaction
+          - Update the database, commit, then delete the cache key
+          - Update the cache, then the database
+        answer: [2]
+        explanation: "Deleting before the commit lets a concurrent reader miss, read the still-old row and repopulate the stale value. Setting on write races between two writers (the older write can land last). Commit-then-delete leaves only a narrow race, which the TTL bounds."
+      - id: q2
+        kind: single
+        prompt: A product key read 20,000 times per second expires, and the database is overwhelmed for a few seconds. What is the best targeted fix?
+        options:
+          - Remove the TTL so the key never expires
+          - Single-flight the recomputation (one request rebuilds the value under a short lock while others wait briefly or get the stale copy) and refresh early
+          - Increase the database connection pool
+          - Use a longer TTL for every key
+        answer: [1]
+        explanation: "The problem is many simultaneous misses for one key (a stampede). Coalescing them into one recomputation removes the burst. No TTL makes staleness unbounded; a bigger pool only lets more duplicate queries reach the database."
+      - id: q3
+        kind: single
+        prompt: Why add random jitter to TTLs?
+        options:
+          - To make cache hits faster
+          - So that keys written at the same time (for example at warm-up) do not all expire at the same moment and cause a synchronized miss storm
+          - Because Redis requires it
+          - To make invalidation unnecessary
+        answer: [1]
+        explanation: "Ten thousand keys warmed at deploy with TTL 3,600 s all expire one hour later. Jitter spreads the expiries out. It changes nothing about hit latency or correctness."
+      - id: q4
+        kind: multi
+        prompt: Which Redis practices are risky in production?
+        options:
+          - "Invalidating with `KEYS product:*` on a large keyspace"
+          - "Caching without TTLs while `maxmemory-policy` is `noeviction`"
+          - "Iterating keys with `SCAN` and a `MATCH` pattern"
+          - "Taking a lock with `SET lock:k <token> NX PX 5000`"
+        answer: [0, 1]
+        explanation: "KEYS is O(N) and blocks every other command while it runs. With no TTL and noeviction, Redis rejects writes once memory is full. SCAN is incremental and is the safe alternative; SET with NX and PX is the standard atomic way to take a lock with an expiry."
+      - id: q5
+        kind: single
+        prompt: There is no cache. A user updates their display name, the page reloads, and shows the old name for about a second. Reads go to a read replica. What is happening and what is the usual fix?
+        options:
+          - The browser cache; add Cache-Control headers
+          - Replication lag; read your own writes from the primary for a short time after a write (or pin the session to the primary)
+          - The database lost the write
+          - A deadlock; retry the update
+        answer: [1]
+        explanation: "Asynchronous replicas lag the primary by milliseconds to seconds. Read-your-writes consistency routes that user's reads to the primary briefly. The write was not lost — it reached the primary."
+      - id: q6
+        kind: short
+        prompt: "Stampede protection takes `SET lock:k <token> NX PX 5000` and releases with `DEL lock:k`. What can go wrong, and how do you fix it?"
+        model_answer: "If the holder takes longer than 5 s, the lock expires and a second request takes it. When the first one finishes, its DEL removes the second request's lock, so a third request can enter and the protection collapses. Release only if the value still equals your own token, atomically (a small Lua script that compares and deletes), and keep the protected work well under the lock TTL. For a cache this lock is an optimisation, so occasional duplicate work is acceptable; for correctness-critical locking a Redis lock alone is not enough."
+        explanation: Lock ownership must be checked on release; expiry without ownership turns one lock into several.
+- key: eng.caching_practice.stale_inventory
+  type: debugging_exercise
+  title: "Debugging scenario: the inventory API returns stale values after a write"
+  skills: [engineering.caching_practice, engineering.debugging, sd.caching]
+  minutes: 25
+  difficulty: HARD
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 1500}
+  body:
+    scenario: |-
+      A warehouse tool sets stock levels through `PUT /stock/{sku}`, and the storefront reads `GET /stock/{sku}`. Reads use Redis (cache-aside, 10-minute TTL) in front of a PostgreSQL read replica; writes go to the primary. Customers have ordered items that were already out of stock, and warehouse staff say the API sometimes "ignores" their update for several minutes.
+    symptoms:
+      - After setting a SKU to 0, the PUT response itself sometimes shows the old quantity.
+      - When that happens, GET returns the old quantity for up to 10 minutes, then corrects itself.
+      - It affects roughly 5% of writes overall and much more at peak, when replica lag is highest.
+      - The primary always holds the right value.
+    artifacts: |-
+      ```python
+      CACHE_TTL = 600  # seconds
+
+      def get_stock(sku: str) -> int:
+          cached = redis.get(f"stock:{sku}")
+          if cached is not None:
+              return int(cached)
+          qty = replica.fetch_val("SELECT qty FROM stock WHERE sku = %s", sku)
+          redis.set(f"stock:{sku}", qty, ex=CACHE_TTL)
+          return qty
+
+      def set_stock(sku: str, qty: int) -> int:
+          with primary.transaction():
+              primary.execute("UPDATE stock SET qty = %s WHERE sku = %s", qty, sku)
+              redis.delete(f"stock:{sku}")          # invalidate
+          return get_stock(sku)                     # return the fresh value
+      ```
+
+      Timeline of one bad write (application logs, UTC):
+
+      ```text
+      12:00:00.000  PUT /stock/ABC qty=0   BEGIN (primary)
+      12:00:00.004  redis DEL stock:ABC
+      12:00:00.009  COMMIT
+      12:00:00.010  replica SELECT qty FROM stock WHERE sku='ABC'  -> 7   (replica lag ~350 ms)
+      12:00:00.011  redis SET stock:ABC 7 EX 600
+      12:00:00.012  200 {"sku": "ABC", "qty": 7}
+      12:03:10.554  GET /stock/ABC -> 7 (cache hit)
+      peak replica lag p99: 800 ms
+      ```
+    tasks:
+      - Explain the timeline step by step and name the dominant cause.
+      - Find a second, independent race in set_stock that can cause the same symptom even with zero replica lag.
+      - Fix the code and explain why each change is needed.
+      - Explain why the checkout must not rely on this cache at all, and what it should do instead.
+      - Propose tests or monitoring that would have caught this.
+    hints:
+      - Where does get_stock read from, and when does set_stock call it?
+      - The DEL happens before COMMIT. What can a concurrent reader do between them?
+    reference: |-
+      **Dominant cause.** `set_stock` deletes the key, commits, then immediately calls `get_stock`, which misses and reads the **replica**. The replica is 350 ms behind, returns the old 7, and the code caches that stale value for 600 s — so one write is undone in the cache for ten minutes, and the PUT response itself is wrong. Higher replica lag at peak explains why it is worse then.
+
+      **Second race.** The `DEL` runs inside the transaction, before `COMMIT`. A concurrent `GET` in that window misses, reads the still-old committed value (from the replica or even the primary) and repopulates the cache. Invalidation must happen after the commit.
+
+      **Fix.**
+
+      ```python
+      def set_stock(sku: str, qty: int) -> int:
+          with primary.transaction():
+              primary.execute("UPDATE stock SET qty = %s WHERE sku = %s", qty, sku)
+          redis.delete(f"stock:{sku}")      # after commit
+          return qty                        # what we wrote; no replica read
+      ```
+
+      Shorten the TTL for volatile data (for example 30–60 s with jitter) so any remaining race is bounded tightly; optionally repopulate only from the primary or add a delayed second delete.
+
+      **Checkout.** Display stock can be slightly stale; reserving stock cannot. Checkout must decrement atomically on the primary, for example `UPDATE stock SET qty = qty - 1 WHERE sku = %s AND qty >= 1` and check that one row was updated, so overselling is impossible regardless of any cache.
+
+      **Tests and monitoring.** An integration test with a fake replica that returns the previous value after a write, asserting the PUT response and the next GET return the new value; a test that runs a concurrent read between the update and the commit. In production, sample keys and compare cache values with the primary (a staleness metric), and alert on oversell events.
+    rubric:
+      - {key: timeline, label: "Explains the replica read after the write that caches the stale value for the full TTL", points: 3}
+      - {key: second_race, label: "Finds the delete-before-commit race independent of replica lag", points: 2}
+      - {key: fix, label: "Moves the delete after commit and returns the written value instead of re-reading the replica", points: 2}
+      - {key: checkout, label: "Makes checkout an atomic conditional decrement on the primary instead of trusting the cache", points: 2}
+      - {key: detection, label: "Proposes a lag-simulating test or a staleness metric", points: 1}
+    follow_ups:
+      - prompt: Why delete the key after the write instead of setting it to the new value?
+        look_for: "Two concurrent writers that both SET can complete in the opposite order and leave the older value; delete makes the next reader load the committed truth."
+      - prompt: Even with commit-then-delete, a narrow race remains. Describe it.
+        look_for: "A reader misses, reads the old row just before the commit, is delayed, and writes the old value after the delete; the TTL bounds it and a delayed second delete narrows it."
+      - prompt: How should the storefront behave if Redis is unavailable?
+        look_for: "Short client timeouts, fall back to the database with load shedding or a circuit breaker, and never fail the page just because the cache is down."
+- key: eng.caching_practice.interview
+  type: interview_question
+  title: "Interview question: protect a hot key from a stampede"
+  skills: [engineering.caching_practice, sd.caching]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: "A flash-sale product page is read about 30,000 times per second and served from Redis with cache-aside. Every time the key expires the database spikes and p99 jumps for several seconds. Explain what happens and design the fix, including what you would do if Redis itself became the bottleneck for this one key."
+    key_points:
+      - "Names the stampede: all concurrent misses recompute the same value at the same moment."
+      - "Single-flight on the miss: one request rebuilds under a short lock with an owner token, the others wait briefly or get the stale copy."
+      - "Refreshes before expiry (early or probabilistic refresh, or stale-while-revalidate) so readers never see a hard miss."
+      - "Adds TTL jitter so related keys do not expire together."
+      - "For a single very hot key, adds a short-TTL in-process cache in each instance (or replicates the key) to take load off one Redis node."
+      - "Mentions observability: hit ratio, recomputation count, database load per key."
+    model_answer: "When the key expires, thousands of in-flight requests miss together and each runs the same expensive query — a stampede. I would let only one request rebuild the value: it takes SET lock NX PX with a unique token, recomputes, sets the value and releases the lock only if the token still matches; others serve the previous value (kept with a longer TTL as a stale copy) or wait a few milliseconds and re-read. Better still, refresh in the background shortly before expiry so there is never a hard miss. Jitter the TTLs. If one Redis node is saturated by 30,000 reads per second of one key, put a one-to-five-second in-process cache in each application instance, which cuts Redis traffic to a few requests per second per instance. I would watch hit ratio, rebuilds per minute and database queries for that key."
+    pitfalls:
+      - Removing the TTL entirely, which makes staleness unbounded.
+      - Proposing a bigger database or pool, which treats the burst as capacity rather than duplication.
+      - A lock released with a plain DEL and no owner check.
+    follow_ups:
+      - prompt: The price changes during the sale. How stale can the in-process cache be, and how do you shorten that?
+        look_for: "Bounded by its short TTL; for faster updates broadcast an invalidation (pub/sub) or version the key and accept seconds of staleness for display, with checkout reading the authoritative price."
+      - prompt: What if the rebuilding request crashes while holding the lock?
+        look_for: "The lock expiry releases it; waiters time out and retry, and serving the stale copy keeps users unaffected."
+- key: eng.caching_practice.cards
+  type: revision_card
+  title: "Recall: caching in practice"
+  skills: [engineering.caching_practice]
+  minutes: 5
+  body:
+    cards:
+      - front: Safe cache-aside write order?
+        back: Update the database, commit, then delete the key.
+      - front: Why delete rather than set on write?
+        back: Concurrent setters can finish out of order and leave the older value.
+      - front: What is a cache stampede?
+        back: Many concurrent misses on one expired hot key all recomputing it at once.
+      - front: Purpose of TTL jitter?
+        back: Spread expiries of keys written together so they do not miss together.
+      - front: KEYS vs SCAN?
+        back: KEYS is O(N) and blocks Redis; SCAN iterates incrementally.
+      - front: Safe release of a Redis lock?
+        back: Delete only if the value equals your token, atomically (Lua compare-and-delete).

@@ -1,7 +1,7 @@
 # Role profile: internal preparation benchmark. NOT a claim about any company's interview loop.
 # Owner doc: docs/domain/ROLE_PROFILE.md. Gate *logic* is owned by docs/domain/READINESS_MODEL.md;
 # this file owns gate *parameters*. Changing any value requires a DECISION_LOG entry and seed_version bump.
-seed_version: seed-v1
+seed_version: seed-v2
 profile_key: backend_fullstack_sde2
 name: Software Engineer — Backend/Full-Stack (SDE-2 benchmark)
 role: SOFTWARE_ENGINEER_BACKEND_FULLSTACK

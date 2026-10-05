@@ -52,9 +52,30 @@ def copy_seed(tmp_path: Path, mutate: Callable[[dict[str, Any]], None] | None = 
         raw, _ = read_seed(target)
         mutate(raw)
         for role, data in raw.items():
-            name = FILES.get(role) or f"role_profiles/{role.split(':', 1)[1]}.yaml"
+            name = FILES.get(role) or _role_file(role)
             (target / name).write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
     return target
+
+
+def _role_file(role: str) -> str:
+    folder = "learning" if role.startswith("learning:") else "role_profiles"
+    return f"{folder}/{role.split(':', 1)[1]}.yaml"
+
+
+def retire_learning_skill(raw: dict[str, Any], skill: str) -> None:
+    """Remove a skill from the curriculum and drop content that only teaches it (for skill-retirement
+    tests)."""
+    for track in raw["learning:curriculum"]["tracks"]:
+        for topic in track["topics"]:
+            if skill in topic["skills"]:
+                topic["skills"].remove(skill)
+        track["topics"][:] = [t for t in track["topics"] if t["skills"]]
+    for role, data in raw.items():
+        if role.startswith("learning:") and role != "learning:curriculum":
+            for item in data["content"]:
+                if skill in item["skills"]:
+                    item["skills"].remove(skill)
+            data["content"][:] = [c for c in data["content"] if c["skills"]]
 
 
 def bump_version(raw: dict[str, Any], version: str) -> None:

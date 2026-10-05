@@ -14,6 +14,7 @@ import { formatMinutes, shortDate } from '../presentation/format'
 import { missionText } from '../presentation/mission'
 import { stateFromGapStatus } from '../presentation/language'
 import { summarizeCategory } from '../presentation/prepare'
+import CurriculumSection from '../components/learning/CurriculumSection.vue'
 import { PREPARE_CATEGORIES } from '../presentation/language'
 import { outcomeLabel } from '../practice/vocabulary'
 import {
@@ -310,6 +311,7 @@ onMounted(() =>
           </li>
         </ul>
       </section>
+      <CurriculumSection track="dsa" />
     </template>
   </div>
 </template>

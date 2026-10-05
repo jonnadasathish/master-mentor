@@ -1,0 +1,344 @@
+# Learning content: operating systems — stack and heap, virtual memory, paging, TLB, page faults, mmap, swapping, file systems and fsync (Linux-oriented).
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- virtual memory
+- key: os.memory_virtual.lesson
+  type: lesson
+  title: Virtual memory, paging and what a page fault costs
+  skills: [os.memory_virtual]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Every process sees a private range of virtual addresses; the MMU translates them page by page to physical memory, and the kernel fills in missing pages on demand.
+    what: |-
+      **Virtual memory** gives each process its own address space. A pointer value is a virtual address; the CPU's memory management unit (MMU) translates it to a physical address using **page tables** the kernel maintains per process. Memory is managed in **pages**, 4 KiB by default on x86-64 Linux, with optional huge pages of 2 MiB or 1 GiB.
+
+      Inside one address space the layout is, roughly from low to high: program code, globals, the **heap** (grows up), memory-mapped regions (shared libraries, `mmap` files, large allocations), and one **stack** per thread (grows down).
+
+      - The **stack** holds call frames: return addresses, arguments and local variables. Allocation is a pointer bump, freed automatically on return, and its size is fixed when the thread starts (commonly 8 MiB for the main thread on Linux, from `ulimit -s`). Deep recursion overflows it.
+      - The **heap** holds data whose lifetime is not tied to a call. `malloc` (or a language runtime) manages it, getting memory from the kernel via `brk` or `mmap`; glibc serves large requests (128 KiB and above by default, the threshold adapts) with a dedicated `mmap`.
+    why: |-
+      Virtual memory gives isolation (a process cannot even name another's memory), lets every program link at the same addresses, lets the kernel share one physical copy of a library or a forked process's pages, and allows lazy allocation: physical memory is assigned only when a page is first touched. It also lets the system use more virtual memory than RAM by evicting rarely used pages, at the cost of disk I/O when they are needed again.
+    when: |-
+      - Reading memory metrics: `VSZ` (virtual size, what is mapped) vs `RSS` (resident set, what is in RAM right now). A large VSZ is normal; RSS and its growth are what matter.
+      - Explaining latency spikes that correlate with memory pressure, swapping or a cold start.
+      - Choosing `mmap` vs `read` for large files, or explaining why a container was OOM-killed although the heap looked small.
+    how: |-
+      **Translation.** On x86-64 with 4-level paging a 48-bit virtual address splits into four 9-bit indexes and a 12-bit offset. Each index selects one of 512 entries in a 4 KiB table; the last entry gives the physical frame, and the offset selects the byte. A walk can therefore need four memory reads before the real access.
+
+      **TLB.** The translation lookaside buffer caches recent translations so most accesses skip the walk. Its reach is small (entries × page size), so a working set scattered over many gigabytes misses often; huge pages multiply the reach by 512 for 2 MiB pages. Switching to another process changes the page-table root, so cached translations for the old process stop helping unless they are tagged (PCID).
+
+      **Page faults.** If the page-table entry is missing or forbids the access, the CPU raises a page fault and the kernel decides:
+
+      - **Minor fault**: the data is already in RAM or needs no I/O. Examples: first touch of a freshly allocated anonymous page (the kernel hands out a zeroed frame), a copy-on-write copy after fork, or a file page already in the page cache that is not yet mapped. Costs roughly a microsecond or less of kernel work.
+      - **Major fault**: the kernel must read from disk, for example a file page not in the page cache or a page that was swapped out. Costs a storage read: tens to hundreds of microseconds on SSD, milliseconds on a spinning disk.
+      - **Invalid access**: no mapping at all, or a write to a read-only page that is not copy-on-write; the process gets `SIGSEGV`.
+
+      **mmap.** Maps a file (or anonymous memory) into the address space. Reading the mapped region faults pages in from the page cache, so a file can be processed with pointer access and no `read()` copies. `MAP_SHARED` writes go back to the file; `MAP_PRIVATE` writes are copy-on-write and stay private.
+
+      **Pressure, swapping and thrashing.** When free memory runs low, the kernel reclaims pages: clean file pages are simply dropped (they can be re-read), dirty ones are written back, and anonymous pages go to swap if swap is configured. If the combined working set of running processes exceeds RAM, pages evicted now are needed again moments later: the system spends its time on major faults instead of work. That is **thrashing**. Without enough swap or reclaimable memory, the OOM killer (or the cgroup memory limit in a container) kills a process.
+    mental_model: |-
+      Virtual memory is a library catalogue: every reader has their own numbered list of books (virtual pages), and the librarian (kernel) decides which shelf (physical frame) holds each one. The TLB is the sticky note of the last few shelf numbers you looked up. A minor fault is "the book is on the cart, just shelve it"; a major fault is "it is in the warehouse, wait for the van"; thrashing is when the reading room is so small that every book you fetch forces another one back to the warehouse.
+    tradeoffs: |-
+      - Lazy allocation and overcommit let programs reserve large ranges cheaply, but the failure moves from `malloc` returning NULL to an OOM kill later, at an unpredictable point.
+      - Swap smooths out memory spikes and frees memory held by idle pages, but a latency-sensitive service that touches swapped pages stalls on disk. Many low-latency deployments use little or no swap and set memory limits instead.
+      - Huge pages improve TLB reach for large heaps (databases, JVMs), but they can waste memory and, with transparent huge pages, compaction can cause latency spikes; several databases recommend disabling THP.
+      - mmap avoids copies and lets the kernel manage caching, but I/O errors arrive as signals (`SIGBUS`) instead of return codes and you control less about when data is read or written.
+    mistakes:
+      - Treating VSZ as memory usage. A process can map gigabytes it never touches; RSS (or PSS for shared pages) is what uses RAM.
+      - Calling every page fault an error or a disk read. Most are minor faults and part of normal operation.
+      - Assuming `free` showing little free memory means memory pressure. Linux uses idle RAM for the page cache; look at `available`.
+      - Believing `malloc` success means the memory exists. With overcommit, physical pages are assigned on first touch and may not be available then.
+      - Putting large buffers on the stack or recursing deeply; stack size is fixed per thread.
+    interview: |-
+      Common forms: "what happens when a program accesses an address?", "what is the difference between stack and heap?", "what is a page fault, and is it bad?", "why did my container get OOM-killed?" and debugging prompts about latency that correlates with memory. Good answers walk through translation, TLB, minor vs major faults, and connect them to observable Linux metrics.
+    explain_it:
+      - Virtual address, page table, physical frame, in that order.
+      - What the TLB caches and why huge pages help.
+      - Minor vs major fault with an example of each and a rough cost.
+      - "How you would observe it (`/usr/bin/time -v`, `ps -o min_flt,maj_flt`, `vmstat` si/so, `sar -B`)."
+    example:
+      language: python
+      code: |-
+        import mmap, resource
+
+        def faults() -> tuple[int, int]:
+            r = resource.getrusage(resource.RUSAGE_SELF)
+            return r.ru_minflt, r.ru_majflt
+
+        before = faults()
+        buf = bytearray(256 * 1024 * 1024)        # 256 MiB, zero-filled: touches every page
+        after = faults()
+        print("minor faults:", after[0] - before[0])   # about 65,536 (256 MiB / 4 KiB), fewer with THP
+        print("major faults:", after[1] - before[1])   # 0: anonymous memory needs no disk read
+
+        with open("big.log", "rb") as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as m:
+            lines = sum(1 for _ in iter(m.readline, b""))   # pages fault in from the page cache, or from disk if cold
+      explanation: "Allocating and zeroing anonymous memory causes one minor fault per page. Reading a mapped file causes major faults only when its pages are not already cached; a second run is all minor faults. (On Linux the exact counts vary with transparent huge pages and allocator behaviour.)"
+    complexity: "Rough latencies: TLB hit about a nanosecond, page-table walk tens of nanoseconds, DRAM about 100 ns, minor fault under a microsecond to a few microseconds, major fault from SSD around 100 µs, from HDD several milliseconds."
+    internals: |-
+      The kernel tracks pages on active and inactive LRU lists (multi-generational LRU on recent kernels when enabled) to choose eviction victims. `vm.swappiness` biases reclaim between dropping file pages and swapping anonymous pages. In a container the cgroup memory limit counts both anonymous memory and page cache charged to the group; page cache is reclaimed first, and the OOM killer runs only when the group cannot reclaim enough.
+    edge_cases:
+      - A thread's stack overflow hits a guard page and the process gets SIGSEGV, not a clean exception (Python's recursion limit exists to stop before that).
+      - "Truncating a file that another process has mmapped makes its later accesses beyond the new end raise SIGBUS."
+      - A process forked from a large parent can trigger many copy-on-write minor faults right after fork as both sides write.
+    misconceptions:
+      - Swap is only used when RAM is completely full. The kernel may swap out idle anonymous pages earlier to keep page cache, depending on swappiness.
+      - Huge pages are always faster. They help TLB-heavy workloads and can hurt through memory waste and compaction stalls.
+- key: os.memory_virtual.visual
+  type: visual_explanation
+  title: "Visual: from a virtual address to a byte in RAM"
+  skills: [os.memory_virtual]
+  minutes: 8
+  body:
+    summary: One load instruction on x86-64 Linux, followed through the TLB, the page-table walk and a page fault.
+    frames:
+      - caption: The 48-bit virtual address is split into four 9-bit table indexes and a 12-bit page offset.
+        diagram: |-
+          virtual address (48 bits used)
+          | PML4 idx | PDPT idx |  PD idx  |  PT idx  |   offset   |
+          |  9 bits  |  9 bits  |  9 bits  |  9 bits  |  12 bits   |
+          512 entries per table x 8 bytes = one 4 KiB page per table
+          offset 12 bits -> 4 KiB pages
+      - caption: Fast path. The TLB already holds the translation for this page, so no table is read.
+        diagram: |-
+          CPU --(virtual page 0x7f3a1c2)--> TLB  hit
+                                            |
+                                            v
+                              physical frame 0x1b44f + offset  -->  cache / RAM
+          cost: about one cycle on top of the memory access
+      - caption: TLB miss. The hardware walks four levels starting from the page-table root register (CR3).
+        diagram: |-
+          CR3 -> PML4[idx1] -> PDPT[idx2] -> PD[idx3] -> PT[idx4] -> frame
+                 read 1        read 2        read 3      read 4
+          the result is installed in the TLB for next time
+          (with a 2 MiB huge page the walk stops at PD: one level less, 512x more reach)
+      - caption: Entry not present. The CPU raises a page fault and the kernel decides what kind it is.
+        diagram: |-
+          page fault
+            |-- address not in any mapping            -> SIGSEGV
+            |-- anonymous page never touched          -> zeroed frame        (minor)
+            |-- file page already in page cache       -> map it              (minor)
+            |-- copy-on-write page written            -> copy the frame      (minor)
+            |-- file page not cached / page in swap   -> read from disk      (major, ~100 us on SSD)
+          then the instruction is retried and succeeds
+- key: os.memory_virtual.check
+  type: concept_check
+  title: "Concept check: virtual memory, paging and faults"
+  skills: [os.memory_virtual]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Linux on x86-64 unless stated otherwise.
+    questions:
+      - id: q1
+        kind: single
+        prompt: A process shows VSZ 12 GiB and RSS 400 MiB on a 4 GiB machine, and the machine is healthy. How is that possible?
+        options:
+          - The kernel compresses the rest of the memory
+          - VSZ counts mapped address space, most of which has never been touched and has no physical pages
+          - The remaining 11 GiB or so are in swap
+          - ps reports VSZ in a different unit
+        answer: [1]
+        explanation: "Virtual size includes reserved heap arenas, thread stacks and mapped files that were never touched; physical frames are assigned on first touch. Assuming the rest is in swap is the tempting error; swap would show in the swap metrics and the process would be faulting heavily."
+      - id: q2
+        kind: multi
+        prompt: Which of these normally cause a minor (not major) page fault?
+        options:
+          - Writing for the first time to memory just returned by malloc
+          - Writing to a copy-on-write page after fork
+          - Reading a page of an mmapped file that is not in the page cache
+          - Reading an mmapped file page that another process recently read
+        answer: [0, 1, 3]
+        explanation: "First-touch anonymous memory gets a zeroed frame, copy-on-write copies a frame in RAM, and a file page already in the page cache only needs mapping: no I/O, so minor. A file page that is not cached must be read from storage, which is a major fault."
+      - id: q3
+        kind: single
+        prompt: Why do huge pages (2 MiB) help a database with a 64 GiB buffer pool?
+        options:
+          - They make each memory read faster at the DRAM level
+          - Each TLB entry covers 512 times more memory, so far fewer TLB misses and shorter page walks
+          - They prevent the pages from ever being swapped
+          - They reduce the size of the database files
+        answer: [1]
+        explanation: "The benefit is TLB reach and a shorter walk. DRAM latency is unchanged. Explicit huge pages (hugetlbfs) are not swapped, but that is a side effect, not why they speed up access, and transparent huge pages can be split and swapped."
+      - id: q4
+        kind: single
+        prompt: "`free -m` shows 300 MiB free and 9 GiB `buff/cache` on a 16 GiB server. Is the server short of memory?"
+        options:
+          - Yes, only 300 MiB is left
+          - Not necessarily; most page cache is reclaimable, so check the available column and the fault and swap rates
+          - Yes, the page cache is a memory leak in the kernel
+          - No, Linux never runs out of memory while cache exists
+        answer: [1]
+        explanation: "Linux fills idle RAM with cached file data and drops clean pages on demand, so 'free' is usually small. 'available' estimates what can be handed out without swapping. Cache does not guarantee safety either: dirty pages and pinned memory are not instantly reclaimable."
+      - id: q5
+        kind: single
+        prompt: A recursive function in a C extension recurses a million levels deep in a worker thread. What happens?
+        options:
+          - The heap grows to hold the frames
+          - The thread hits the guard page at the end of its fixed-size stack and the process gets SIGSEGV
+          - The kernel grows the thread's stack without limit
+          - Only that thread raises an exception
+        answer: [1]
+        explanation: "Thread stacks have a fixed size chosen at creation, with a guard page below. Overrunning it faults, and SIGSEGV kills the whole process. Frames are never moved to the heap automatically. CPython's recursion limit exists to fail with an exception before this point for Python frames."
+      - id: q6
+        kind: short
+        prompt: Define thrashing and give two ways to stop it on a Linux server running several services.
+        model_answer: "Thrashing is when the combined working set of running processes exceeds physical memory, so pages evicted are needed again almost immediately and the system spends most of its time on major faults and swap I/O instead of useful work (high si/so in vmstat, high wait time, little progress). Fixes: reduce the working set (fewer workers, smaller caches or heaps), add RAM, cap services with cgroup memory limits so one cannot evict the others, or move a service to another machine. Adding more swap does not fix it; it only allows more thrashing."
+        explanation: A full answer defines it by working set vs RAM, names the observable symptom and gives a fix that reduces demand or isolates it.
+- key: os.memory_virtual.debug_swap
+  type: debugging_exercise
+  title: "Debugging: p99 latency spikes every few minutes"
+  skills: [os.memory_virtual, engineering.debugging]
+  minutes: 20
+  difficulty: HARD
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 1200}
+  body:
+    scenario: |-
+      A Python API runs as 12 gunicorn workers on a 16 GiB VM with 4 GiB of swap. A nightly analytics job was moved onto the same VM last week. Since then, p99 latency jumps from 40 ms to over 2 seconds for a minute or two, several times an hour. Median latency is unchanged. CPU utilisation averages 35% and the database team says its side looks normal.
+    symptoms:
+      - The slow requests are spread across all endpoints, including a health check that does no I/O.
+      - Spikes start a few seconds after the analytics job begins each batch.
+      - The first requests to a worker that has been idle for a while are the slowest.
+      - No errors are logged; requests just take longer.
+    artifacts: |-
+      $ vmstat 5            (during a spike, columns trimmed)
+       r  b   swpd   free  cache   si    so    us sy id wa
+       3  9 3172M   110M  1210M  18400  9600   12  9 41 38
+
+      $ ps -o pid,rss,maj_flt,min_flt,cmd -C gunicorn | head -4
+        PID    RSS  MAJFLT    MINFLT  CMD
+       2211  610M   48213   2918822  gunicorn: worker [api]
+       2212  598M   51007   2877410  gunicorn: worker [api]
+       2213  640M   46660   3011934  gunicorn: worker [api]
+
+      $ cat /proc/sys/vm/swappiness
+      60
+    tasks:
+      - Read the artifacts and name the mechanism causing the spikes.
+      - Explain why even the health check is slow and why idle workers suffer most.
+      - List the measurements that would confirm the diagnosis.
+      - Propose an immediate mitigation and a lasting fix, with their trade-offs.
+    hints:
+      - Look at the si and so columns, b (blocked processes) and wa together.
+      - What does a major fault mean for a worker whose code pages or heap were swapped out?
+      - Which process introduced the extra memory demand?
+    reference: |-
+      **Diagnosis.** Memory pressure from the analytics job pushes the API workers' anonymous pages (their Python heaps) out to swap and evicts page cache. When a request arrives, the worker touches swapped pages and takes **major page faults**: each one is a disk read, hundreds of them per request add up to seconds. vmstat shows heavy swap-in and swap-out (`si`/`so` in the thousands), 9 processes blocked in uninterruptible sleep (`b`), high I/O wait (`wa` 38%) with idle CPU, and the worker major-fault counters are in the tens of thousands. The health check is slow because the interpreter itself, the request-handling code and the framework's objects live in pages that were swapped out; the endpoint's own work is irrelevant. Idle workers were the best eviction candidates because their pages had not been touched recently.
+
+      **Confirm.** Watch `vmstat 1` and `sar -B` (`majflt/s`) during a spike; sample `ps -o maj_flt` before and after; check per-process swap with `grep VmSwap /proc/<pid>/status` or `smem`; correlate with the analytics job's RSS; check the pressure-stall information in `/proc/pressure/memory` (Linux 4.20 and later) for rising `some`/`full` stall time.
+
+      **Mitigate now.** Move the analytics job off the VM or run it with a cgroup memory limit (for example `systemd-run -p MemoryMax=4G`) so it reclaims its own pages instead of the API's. Restarting workers clears their swapped state only temporarily.
+
+      **Lasting fix.** Isolate workloads (separate hosts or containers with memory limits and reservations), size the worker count so the API's working set fits in RAM with headroom, and alert on major faults and swap-in rate, not only on CPU. Lowering `vm.swappiness` reduces the preference for swapping anonymous memory but does not create memory; disabling swap entirely turns the slowdown into OOM kills, which may be preferable for a latency-sensitive service but must be a deliberate choice.
+    rubric:
+      - {key: mechanism, label: "Names swapping of the workers' anonymous memory and major page faults as the cause, citing si/so, b and wa", points: 3}
+      - {key: health_check, label: Explains why a no-I/O endpoint and idle workers are slow (interpreter and heap pages swapped out), points: 2}
+      - {key: confirm, label: "Lists at least two concrete confirmations (majflt rate, VmSwap per process, PSI or sar -B, correlation with the job)", points: 2}
+      - {key: fix, label: "Proposes isolation via memory limits or separate hosts plus a capacity fix, not only a restart", points: 2}
+      - {key: tradeoff, label: States the trade-off of lowering swappiness or disabling swap (OOM kills instead of stalls), points: 1}
+    follow_ups:
+      - prompt: Would moving the API to a container with a memory limit alone solve it?
+        look_for: Only if the analytics job is also limited or the API's memory is protected (memory.min/low); a limit on the API alone does not stop the other process from evicting it.
+      - prompt: The CPU is mostly idle during spikes. Why does adding CPU cores not help?
+        look_for: The bottleneck is disk reads for page faults; threads are blocked in D state waiting on I/O, not waiting for a CPU.
+      - prompt: How would the symptoms differ if the problem were page-cache eviction of data files rather than swapping?
+        look_for: Major faults or read I/O on file pages (bi rises) without swap activity (si/so near zero); affects code that reads files or mmaps, and swapping metrics stay flat.
+- key: os.memory_virtual.interview
+  type: interview_question
+  title: "Interview question: stack, heap and what malloc really gives you"
+  skills: [os.memory_virtual]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: |-
+      A program calls `malloc(1 GiB)` on a Linux machine with 2 GiB of free RAM, the call succeeds, and the program then writes to every byte. Walk through what happens in virtual and physical memory, and contrast where this memory lives with where a function's local variables live.
+    key_points:
+      - Explains that malloc for a large size maps a fresh anonymous region (glibc uses mmap above its threshold) and only reserves virtual addresses.
+      - "Explains lazy allocation: each first write to a 4 KiB page causes a minor fault and the kernel assigns a zeroed frame, about 262,144 faults for 1 GiB of 4 KiB pages (fewer with transparent huge pages)."
+      - Mentions overcommit and the consequence that failure shows up as OOM kill later rather than malloc returning NULL.
+      - Contrasts the stack (per thread, fixed size, frames freed on return, pointer bump) with the heap (shared by threads, explicit or GC-managed lifetime).
+      - Connects to observable metrics (RSS grows as pages are touched; VSZ jumps at malloc time).
+    model_answer: |-
+      A 1 GiB request is above glibc's mmap threshold, so malloc maps a new anonymous region. At that moment only virtual address space is reserved; VSZ jumps by 1 GiB and RSS barely moves. Linux allows this because of overcommit: under the default heuristic it refuses only obviously impossible requests.
+
+      As the program writes, each first touch of a page traps into the kernel as a minor fault; the kernel finds a free frame, zeroes it, maps it and resumes the instruction. With 4 KiB pages that is about 262,144 faults, and RSS grows to about 1 GiB. If RAM ran out, the kernel would reclaim page cache, swap, or finally invoke the OOM killer.
+
+      Local variables live on the thread's stack, a fixed-size region allocated when the thread starts; a call pushes a frame and returning pops it, so there is no allocator work and no explicit free. The heap is shared by all threads and holds data whose lifetime outlives a call.
+    pitfalls:
+      - Saying malloc immediately takes 1 GiB of RAM.
+      - Confusing the stack data structure with the call stack region.
+      - Forgetting that the first touch of each page is the expensive part.
+    follow_ups:
+      - prompt: What changes if the program calls calloc instead and never writes?
+        look_for: Fresh mmapped anonymous memory is already zero, so glibc need not touch it and RSS stays low until pages are accessed; reads may map the shared zero page.
+      - prompt: How could you pre-fault the memory to avoid fault latency later in a latency-sensitive service?
+        look_for: Touch every page at start-up, use MAP_POPULATE or mlock/mlockall; trade-off is start-up time and RAM held even if unused.
+      - prompt: Why does this program's RSS not drop after free() on small allocations?
+        look_for: Small allocations come from heap arenas; freed chunks are reused but often not returned to the kernel because of fragmentation; large mmapped chunks are unmapped on free.
+- key: os.memory_virtual.filesystems
+  type: concept
+  title: File descriptors, inodes, the page cache and fsync
+  skills: [os.memory_virtual, os.processes_threads]
+  minutes: 12
+  difficulty: MEDIUM
+  body:
+    summary: "A write() that returns success has usually only reached the page cache in RAM; durability on Linux requires fsync, and sometimes an fsync of the directory too."
+    explanation: |-
+      **Three layers between a process and the disk.**
+
+      - A **file descriptor** is a small integer, an index into the process's fd table. Each entry points to an **open file description** that holds the current offset and flags (`O_APPEND`, `O_NONBLOCK`). After `fork()` or `dup()`, two descriptors can share one description and therefore one offset.
+      - The description points to an **inode**: the file's metadata (owner, permissions, size, timestamps, link count) and the location of its data blocks. The inode has no name. A **directory** is a file mapping names to inode numbers; a hard link is a second name for the same inode. `rm` (unlink) removes a name; the data is freed only when the link count is zero **and** no process still has it open, which is why deleting a huge log file does not free disk space until the writer closes it.
+      - The **page cache** holds file data in RAM. `read()` copies from it (reading from disk on a miss); `write()` copies into it, marks pages dirty and returns. Background writeback flushes dirty pages later (typically within tens of seconds, tunable with `vm.dirty_*`).
+
+      **Durability.** `fsync(fd)` blocks until the file's dirty data and metadata reach stable storage (as far as the device honours flush requests). `fdatasync` skips metadata that is not needed to read the data back, such as modification time. A newly created or renamed file also needs an `fsync` on its **directory** so the name entry is durable. The standard atomic-replace pattern is: write to a temporary file, `fsync` it, `rename` over the target (atomic on the same filesystem), then `fsync` the directory.
+
+      **Errors.** On Linux, if writeback fails, the error is reported to the next `fsync`, and the failed pages may be marked clean, so retrying `fsync` can succeed without the data ever being written. PostgreSQL changed in 2018 to treat an fsync failure as fatal and recover from its write-ahead log for this reason.
+    points:
+      - fd table entry, open file description (offset), inode (metadata and blocks), then data in the page cache.
+      - write() success means the data is in the page cache, not on disk; a power loss can lose it.
+      - Durability needs fsync on the file, and on the directory for new or renamed files.
+      - Deleted-but-open files keep their space; find them with `lsof +L1`.
+      - Databases batch many commits per fsync (group commit) because each fsync costs a device flush.
+    example:
+      language: python
+      code: |-
+        import os
+
+        def write_atomically(path: str, data: bytes) -> None:
+            tmp = path + ".tmp"
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+            try:
+                os.write(fd, data)          # lands in the page cache (a robust version loops on short writes)
+                os.fsync(fd)                # data and inode on stable storage
+            finally:
+                os.close(fd)
+            os.replace(tmp, path)           # atomic rename on the same filesystem
+            dir_fd = os.open(os.path.dirname(path) or ".", os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)            # make the new directory entry durable
+            finally:
+                os.close(dir_fd)
+    misconceptions:
+      - close() flushes data to disk. It does not; it only releases the descriptor.
+      - "Two processes appending with `O_APPEND` can overwrite each other. On a local Linux filesystem each write moves to the current end and writes as one step, so they do not overwrite; NFS does not guarantee this."
+- key: os.memory_virtual.cards
+  type: revision_card
+  title: "Recall: memory, paging and the page cache"
+  skills: [os.memory_virtual]
+  minutes: 5
+  body:
+    cards:
+      - front: VSZ vs RSS?
+        back: VSZ is mapped address space; RSS is the part currently in physical RAM.
+      - front: Minor vs major page fault?
+        back: Minor needs no disk I/O; major reads the page from disk or swap.
+      - front: What does the TLB cache, and how do huge pages help?
+        back: Virtual-to-physical translations; a 2 MiB page covers 512 times more per entry.
+      - front: What is thrashing?
+        back: Working set exceeds RAM, so the system spends its time on major faults instead of work.
+      - front: Does write() returning success mean the data is on disk?
+        back: No, it is in the page cache; fsync (plus a directory fsync for new names) makes it durable.
+      - front: Why does deleting an open log file not free space?
+        back: The inode is freed only when no name and no open descriptor refer to it.

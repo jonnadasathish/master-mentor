@@ -1,4 +1,4 @@
-import { PREPARE_CATEGORIES } from '../presentation/language'
+import { PREPARE_NAV, prepareRoute } from '../presentation/language'
 
 /** Primary navigation. Developer/system tools are deliberately absent (they live under Settings → Developer). */
 export interface NavItem {
@@ -19,11 +19,11 @@ export const NAV_ITEMS: NavItem[] = [
     icon: 'prepare',
     to: { name: 'prepare' },
     prefixes: ['/prepare', '/skills', '/log', '/baseline'],
-    children: PREPARE_CATEGORIES.map((c) => ({
+    children: PREPARE_NAV.map((c) => ({
       key: c.slug,
       label: c.label,
       icon: c.icon,
-      to: c.slug === 'dsa' ? { name: 'dsa' } : { name: 'track', params: { slug: c.slug } },
+      to: prepareRoute(c.slug),
       prefixes: [`/prepare/${c.slug}`],
     })),
   },

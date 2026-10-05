@@ -1,0 +1,634 @@
+# Learning content: distributed systems II — real-time delivery and fan-out, security in design, observability (RED/USE, SLOs, alerting).
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- real-time delivery
+- key: sdx.realtime.lesson
+  type: lesson
+  title: Real-time delivery, fan-out and WebSockets at scale
+  skills: [sd.realtime_delivery, network.realtime_protocols]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Real-time delivery is a fast path in front of a durable store; choose the transport, route each message to the connection that holds the user, and decide where fan-out happens.
+    what: |-
+      Real-time delivery gets a new event (a message, a status change, a new post) to interested clients within roughly a second, without them asking repeatedly. It has three parts:
+
+      - **Transport** to the client: short polling, long polling, Server-Sent Events (SSE), WebSockets, or mobile push (APNs, FCM) when the app is in the background.
+      - **Routing**: finding which server holds the recipient's open connection and getting the event there.
+      - **Fan-out**: turning one event into deliveries to many recipients, either when the event is written or when recipients read.
+    why: |-
+      Polling every few seconds wastes requests and still adds up to one interval of delay: a million clients polling every 5 s is 200,000 requests per second, almost all returning nothing. Persistent connections cut the delay to network latency, but they make the edge tier stateful, and fan-out to large audiences can multiply one write into millions of operations.
+    when: |-
+      - **Short polling**: low-frequency updates, small scale, simplest to operate.
+      - **Long polling**: the server holds the request until there is data or about 30 s pass; works through any HTTP infrastructure.
+      - **SSE**: one-way server-to-client updates over plain HTTP (notifications, order status, live scores), with automatic reconnection and a `Last-Event-ID` header to resume.
+      - **WebSockets**: two-way, low-latency traffic on one long-lived connection (chat, collaborative editing, games). Opened with an HTTP Upgrade handshake (status 101), then frames flow both ways.
+      - **Mobile push**: when the app is not running; delivery is best-effort and controlled by the platform.
+    how: |-
+      **Separate the connection tier from the logic tier.** Gateways hold sockets and do little else; stateless services do the work. Each gateway registers its users in a **connection registry** (`user_id -> gateway_id`, in Redis with a TTL refreshed by heartbeats). To deliver, a service looks up the gateway and sends the event to it directly or through a per-gateway pub/sub channel. If the user is offline, it stores the event and triggers a push notification.
+
+      **Make the store the source of truth.** Persist the message with a per-conversation sequence number first, then deliver over the socket as a best-effort fast path. Clients remember the last sequence they saw and, on reconnect, ask for everything after it. This gives at-least-once delivery; clients de-duplicate by message id and order by sequence number.
+
+      **Fan-out choices:**
+
+      - **On write (push model)**: when an event happens, write it into every recipient's inbox or feed. Reads are cheap; writes cost one operation per recipient, which explodes for an account with millions of followers.
+      - **On read (pull model)**: store the event once; each reader merges events from the sources they follow at read time. Writes are cheap; reads are expensive and slower.
+      - **Hybrid**: push for ordinary senders, pull for very large ones, merged at read time.
+      - For huge live audiences (millions watching one stream), fan out through a tree of pub/sub relays and accept sampling: not every viewer needs every comment.
+
+      **Capacity numbers to reason with**: each open connection costs a file descriptor plus kernel and application buffers, often a few KB to tens of KB. At 20 KB per connection, 100,000 connections need about 2 GB of memory per gateway. Heartbeats every 20 to 30 s keep load balancers and NAT devices from closing idle connections (many have idle timeouts around 60 s, configurable).
+    mental_model: |-
+      The socket is a doorbell, the database is the mailbox. A ring can be missed; the mail is always there to collect. Design so that losing every connection at once loses no data, only a few seconds of latency.
+    tradeoffs: |-
+      WebSockets give the lowest latency and two-way traffic but need stateful gateways, connection-aware deploys and a registry. SSE is simpler and works with HTTP tooling but is one-way. Long polling works everywhere but costs a request per update. Fan-out on write makes reads fast at the price of write amplification and storage per recipient; fan-out on read is the reverse. At-least-once with client de-duplication is simpler than trying to make delivery exactly-once.
+    mistakes:
+      - Treating the WebSocket as the only copy of a message, so a dropped connection loses it.
+      - Running business logic in the gateway, so deploying logic disconnects every user.
+      - Deploys that kill all connections at once; clients reconnect in a storm. Drain gradually and reconnect with jittered backoff.
+      - Pure fan-out on write with celebrity accounts.
+      - Broadcasting presence changes to every contact of every user; presence traffic can exceed message traffic.
+      - Forgetting ordering; delivering in arrival order across gateways can reorder a conversation.
+      - Load balancer idle timeouts closing quiet connections because there are no heartbeats.
+    interview: |-
+      Expected moves: pick a transport with a reason, show the gateway plus registry plus store path, state the delivery guarantee (at-least-once, ordered per conversation, de-duplicated by id), handle offline users, and size the gateway tier from concurrent connections. Typical follow-ups: what happens when a gateway dies, how you deploy without disconnecting everyone, celebrity fan-out, and presence.
+    explain_it:
+      - Name the transport and why it fits (direction, latency, client type).
+      - Trace one message from sender to store to registry lookup to gateway to recipient.
+      - State the guarantee and how the client recovers after a reconnect.
+      - Choose fan-out on write, read or hybrid, with the numbers that justify it.
+      - Size the connection tier and describe a gateway failure.
+    example:
+      language: python
+      code: |-
+        # Delivery after the message is durably stored with a per-conversation sequence number.
+        def deliver(message, recipients):
+            for user_id in recipients:
+                gateway = registry.get(f"conn:{user_id}")       # set by the gateway, TTL refreshed by heartbeat
+                if gateway is None:
+                    push_queue.enqueue(user_id, message.id)     # offline: mobile push, client syncs on open
+                    continue
+                pubsub.publish(f"gw:{gateway}", {"user": user_id, "msg": message.id, "seq": message.seq})
+
+        # Client side after reconnecting: the store, not the socket, is the source of truth.
+        def resync(conversation_id, last_seen_seq):
+            return messages.after(conversation_id, last_seen_seq, limit=200)
+      explanation: Losing the publish (gateway crashed) is harmless because the client resyncs from its last sequence number; duplicates are dropped by message id.
+    internals: |-
+      A WebSocket starts as an HTTP/1.1 request with `Upgrade: websocket`; the server answers `101 Switching Protocols` and the same TCP connection then carries framed messages in both directions, with ping and pong control frames for liveness. Because it is one long TCP connection, an L4 load balancer pins it to one gateway for its lifetime, so rebalancing only happens as clients reconnect.
+    edge_cases:
+      - A user with several devices has several connections; the registry maps a user to a set of connections.
+      - A gateway dies; its registry entries expire after the TTL, and clients reconnect elsewhere and resync.
+      - Clock-based ordering across senders is unreliable; use a server-assigned sequence per conversation.
+      - Very large groups turn fan-out on write into a burst; cap group size or switch large groups to pull.
+
+- key: sdx.realtime.check
+  type: concept_check
+  title: "Concept check: transports, routing and fan-out"
+  skills: [sd.realtime_delivery]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Each question is a design decision; say the reason before you look.
+    questions:
+      - id: q1
+        kind: single
+        prompt: A food-delivery web app shows live order status (placed, cooking, picked up). The client never sends data on this channel. Which transport is the simplest good fit?
+        options: ["WebSockets", "Server-Sent Events", "Short polling every second", "Mobile push only"]
+        answer: [1]
+        explanation: "Updates flow one way, so SSE over plain HTTP is enough and comes with reconnection and Last-Event-ID resume. WebSockets would work but add two-way machinery that is not needed; one-second polling wastes requests; push alone does not update an open web page."
+      - id: q2
+        kind: single
+        prompt: An account with 30 million followers posts once. Under pure fan-out on write, roughly how many feed inserts does that one post cause?
+        options: ["1", "About 30 thousand", "About 30 million", "It depends only on how many followers are online"]
+        answer: [2]
+        explanation: "Fan-out on write inserts the post into every follower's feed, online or not: 30 million writes for one post. That is why large accounts are usually handled with fan-out on read and merged in at read time."
+      - id: q3
+        kind: multi
+        prompt: Which choices make a chat system tolerate a gateway crash without losing messages?
+        options:
+          - Persist each message with a per-conversation sequence number before delivering it
+          - Keep undelivered messages only in the gateway's memory
+          - Have clients request messages after their last seen sequence number on reconnect
+          - De-duplicate on the client by message id
+        answer: [0, 2, 3]
+        explanation: "Durable storage plus resync from the last sequence makes the socket a fast path only; de-duplication handles the redelivery that resync causes. Memory on the gateway dies with the gateway, which is exactly the failure being asked about."
+      - id: q4
+        kind: single
+        prompt: How does a backend service find where to send an event for a connected user when there are 300 WebSocket gateways?
+        options:
+          - Broadcast the event to all 300 gateways
+          - Look up the user's gateway in a connection registry kept fresh by heartbeats
+          - Hash the user id to a gateway, ignoring where the user actually connected
+          - Ask the client to poll for it
+        answer: [1]
+        explanation: "A registry (user to gateway, with a TTL) routes each event to one gateway. Broadcasting multiplies traffic by 300; hashing only works if the load balancer also routes connections by that hash, which breaks when gateways are added or fail."
+      - id: q5
+        kind: single
+        prompt: Each gateway holds 100,000 connections at about 20 KB of buffers and state each. Roughly how much memory do connections alone need per gateway?
+        options: ["About 20 MB", "About 200 MB", "About 2 GB", "About 20 GB"]
+        answer: [2]
+        explanation: "100,000 × 20 KB = 2,000,000 KB, about 2 GB. 200 MB would be 2 KB per connection, below what kernel socket buffers alone usually take."
+      - id: q6
+        kind: short
+        prompt: You deploy a new gateway version and two million clients are connected. How do you roll it out without an outage?
+        model_answer: "Keep business logic out of gateways so they change rarely. Roll gateways in small batches: stop sending new connections to a draining gateway, ask its clients to reconnect over a few minutes (a server close message or a hint), and let clients reconnect with jittered exponential backoff. Clients resync from their last sequence number, so no data is lost. Watch connection count, reconnect rate and resync load on the message store during the roll-out."
+        explanation: The risk is a reconnect storm hitting the registry and message store at once; draining and jitter spread it over time.
+
+- key: sdx.realtime.interview
+  type: interview_question
+  title: "Interview question: live comments for a stream with two million viewers"
+  skills: [sd.realtime_delivery, sd.queues_async, sd.rate_limiting]
+  minutes: 15
+  difficulty: HARD
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    prompt: |-
+      A live-streaming product shows a comment stream next to the video. A popular stream has two million concurrent viewers, and at peaks viewers post about 5,000 comments per second. Explain how comments get from posters to viewers within a couple of seconds, and what you would do differently from a one-to-one chat.
+    key_points:
+      - "Computes the naive fan-out: 5,000 comments per second × 2 million viewers = 10 billion deliveries per second, which is not feasible, and no viewer can read 5,000 comments per second anyway."
+      - "Samples or rate-limits what each viewer receives (for example a few dozen comments per second per stream, plus the viewer's own and friends' comments)."
+      - "Fans out through a tree: comment ingestion publishes to a per-stream topic, regional relays subscribe, and gateways subscribe to the relays for the streams their viewers watch."
+      - "Uses a one-way transport (SSE or WebSocket) and does not persist a per-viewer copy; stores comments once for replay and moderation."
+      - "Applies posting rate limits and moderation before fan-out, and explains how a newly joined viewer gets recent context (last N comments from a cache)."
+    model_answer: |-
+      One-to-one chat stores and delivers every message to every member. Here that would be 5,000 × 2,000,000 = 10 billion deliveries per second, and nobody can read 5,000 comments a second. So I separate ingestion from display. Posts go through rate limiting and moderation into a per-stream topic and are stored once. A selector per stream picks what to show (a sample of a few dozen per second, weighted toward friends and highlighted comments) and publishes it. Regional relays subscribe to that stream and forward to the gateways that have viewers of it; each gateway pushes to its local viewers over SSE or WebSocket. A viewer who joins gets the last 50 shown comments from a cache. The poster always sees their own comment immediately from the client. This keeps the per-gateway load proportional to the sampled rate, not the raw posting rate.
+    pitfalls:
+      - Reusing the chat design with per-recipient inboxes.
+      - Ignoring that the display rate is a product decision that bounds the fan-out.
+      - Forgetting moderation and abuse before fan-out.
+    follow_ups:
+      - prompt: How many relay subscriptions does a gateway hold, and why does that matter?
+        look_for: "One per distinct live stream its viewers watch, not one per viewer; this keeps upstream fan-out proportional to gateways times streams."
+      - prompt: A relay node dies. What do viewers see?
+        look_for: "Gateways re-subscribe to another relay; viewers miss a few seconds of sampled comments, which is acceptable because comments are not a guaranteed-delivery stream."
+      - prompt: How do you stop one stream from overwhelming the system?
+        look_for: "Per-stream and per-user posting limits, a cap on the display rate per stream, and bulkheads so a hot stream does not starve others."
+
+- key: sdx.realtime.cards
+  type: revision_card
+  title: "Recall: real-time delivery"
+  skills: [sd.realtime_delivery]
+  minutes: 5
+  body:
+    cards:
+      - front: SSE vs WebSockets in one line?
+        back: SSE is one-way over HTTP with resume; WebSockets are two-way framed TCP.
+      - front: Where does a backend find a user's connection?
+        back: A connection registry (user to gateway) refreshed by heartbeats.
+      - front: Fan-out on write costs what?
+        back: One write per recipient at post time; cheap reads.
+      - front: Celebrity problem fix?
+        back: Hybrid fan-out; pull large accounts at read time.
+      - front: How does a client recover missed messages?
+        back: Ask the store for everything after its last seen sequence number.
+      - front: Why heartbeats on idle sockets?
+        back: Detect dead peers and stop load balancers or NAT from closing the connection.
+
+# ---------------------------------------------------------------------------------------------- security in design
+- key: sdx.security.lesson
+  type: lesson
+  title: Security in system design, from the edge to the database row
+  skills: [sd.security_design, security.web_basics]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Decide where identity is proven, where every access decision is made, how data is protected in transit and at rest, where secrets live and how tenants are kept apart.
+    what: |-
+      Security in a design round is not a list of buzzwords; it is a set of boundaries you can draw on the diagram:
+
+      - **Authentication (authn)**: proving who the caller is (user, service).
+      - **Authorization (authz)**: deciding whether this caller may perform this action on this specific object.
+      - **Encryption in transit**: TLS on every hop, including internal ones.
+      - **Encryption at rest**: disks, backups and sensitive fields encrypted with managed keys.
+      - **Secrets management**: credentials and keys stored, delivered and rotated by a dedicated system.
+      - **Multi-tenancy isolation**: one customer can never see or slow down another.
+    why: |-
+      The most common serious API flaw is not broken cryptography but a missing per-object check: `GET /invoices/1043` returns someone else's invoice because the service checked that the caller was logged in, not that the invoice was theirs. OWASP's API Security Top 10 lists broken object-level authorization first. A design that puts these checks in the right place makes that class of bug hard to write.
+    when: |-
+      In every design, briefly, once the high-level architecture is drawn; in depth when the system holds money, health or personal data, serves multiple organisations, or exposes a public API.
+    how: |-
+      **Authn at the edge, authz at the owner.** The API gateway validates the credential (session cookie or token: signature, expiry, audience) and forwards a verified identity (user id, tenant id, roles) to services. Each service that owns data makes the object-level decision, because only it knows who owns invoice 1043. Never take the tenant id or user id from the request body; take it from the verified identity.
+
+      **Tokens**: JWT access tokens can be verified without a database call, but cannot be revoked before they expire, so keep them short-lived (minutes) and pair them with a refresh token that can be revoked. Opaque tokens with a lookup are easier to revoke and cost a call (cacheable).
+
+      **Service to service**: do not trust the internal network. Use mutual TLS or signed service tokens so each service knows which service is calling, and grant each only the permissions it needs (least privilege).
+
+      **In transit**: TLS (1.2 or 1.3) from client to edge and between internal services; HSTS for browsers.
+
+      **At rest**: volume or storage encryption protects against lost disks and leaked backups, not against an attacker who can query the application. For sensitive fields use **envelope encryption**: a data encryption key (DEK) encrypts the data, a key-encryption key held in a key management service (KMS) encrypts the DEK, and only the encrypted DEK is stored beside the data. Rotation re-wraps DEKs without re-encrypting all data. A per-tenant key also allows **crypto-shredding**: delete the key and that tenant's data becomes unreadable, including in backups.
+
+      **Secrets**: keep them in a secrets manager, fetched at runtime by the service's identity, never in the repository, the container image or the frontend bundle; prefer short-lived generated credentials; rotate; never log them.
+
+      **Multi-tenancy models**:
+
+      - **Pooled**: shared tables with a `tenant_id` column. Cheapest; isolation depends on every query filtering by tenant, so add defence in depth (PostgreSQL row-level security policies, a data-access layer that requires the tenant).
+      - **Schema or database per tenant**: stronger isolation, per-tenant backup and restore, more operational overhead.
+      - **Stack per tenant (silo)**: strongest and most expensive; for large or regulated customers.
+
+      Also isolate **performance**: per-tenant rate limits and quotas so a noisy tenant cannot starve others. Include the tenant in cache keys, search filters and object-storage paths, and use short-lived pre-signed URLs for file downloads.
+
+      **Accountability**: an append-only audit log of who did what to which object, kept outside the reach of the application's normal write path.
+    mental_model: |-
+      Draw trust boundaries as lines on the diagram. Every arrow that crosses a line needs an answer to three questions: who is calling (authn), may they do this to this object (authz), and can anyone read or change it on the way (TLS). Every box that stores data needs two more: who holds the key, and which tenant does this row belong to.
+    tradeoffs: |-
+      Stateless JWTs remove a lookup per request but make revocation slow; opaque tokens are revocable but need a lookup. Pooled tenancy is cheap and easy to operate but one missing filter leaks data; per-tenant databases are safer but costly at thousands of tenants. Field-level encryption protects against database-level leaks but blocks indexing and range queries on those fields (searchable workarounds such as a keyed hash for equality lookups exist). Centralising authz in a policy service gives consistency but adds a dependency on every request.
+    mistakes:
+      - Checking that the caller is logged in but not that the object belongs to them.
+      - Trusting a `tenant_id` or `user_id` sent by the client.
+      - Long-lived JWTs with no revocation strategy.
+      - TLS only at the edge, plain text inside, on the assumption the internal network is safe.
+      - Saying "the database is encrypted" as if it protected against application-level access.
+      - Secrets in environment files committed to the repository or baked into images.
+      - Cache keys without the tenant, so one tenant is served another's cached response.
+      - Logging tokens, passwords or full card numbers.
+    interview: |-
+      Spend one to three minutes on security in a normal round, unprompted: where authn happens, where authz happens, TLS everywhere, encryption and key management for sensitive data, how tenants are isolated, rate limiting and audit. Go deeper when the prompt involves money, health or multiple organisations. Interviewers notice when a candidate forgets object-level authorization on an API that takes an id.
+    explain_it:
+      - Draw the trust boundaries and the credential that crosses each one.
+      - Say which component makes the object-level access decision and with what data.
+      - Name what is encrypted, with which keys, held where.
+      - State the tenancy model and the defence in depth behind it.
+      - Name one realistic attack and the control that stops it.
+    example:
+      language: sql
+      code: |-
+        -- PostgreSQL row-level security as defence in depth for a pooled multi-tenant table.
+        ALTER TABLE documents ENABLE ROW LEVEL SECURITY;
+
+        CREATE POLICY tenant_isolation ON documents
+          USING (tenant_id = current_setting('app.tenant_id')::uuid);
+
+        -- The application sets the tenant from the verified token at the start of each transaction:
+        --   SET LOCAL app.tenant_id = '<tenant id from the token>';
+        -- A query that forgets "WHERE tenant_id = ..." still only sees the caller's rows.
+      explanation: The application still filters by tenant; the policy catches the query that forgets to. Note that table owners and superusers bypass RLS unless it is forced, so the application must connect as a role without that privilege.
+    edge_cases:
+      - Background jobs and admin tools run without a user request; they still need an explicit identity and tenant scope.
+      - Exports and analytics pipelines copy data outside the tenancy controls; apply the same filters and encryption there.
+      - A support engineer impersonating a user must be audited as themselves.
+    misconceptions:
+      - "Internal services do not need authentication. Lateral movement after one compromised service is how small breaches become large ones."
+      - "Hashing passwords with a fast hash such as SHA-256 is enough. Use a slow, salted password hash such as bcrypt, scrypt or Argon2."
+
+- key: sdx.security.check
+  type: concept_check
+  title: "Concept check: security boundaries in a design"
+  skills: [sd.security_design]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: For each scenario, name the boundary that failed before you choose.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "The gateway validates the JWT, then the invoice service runs `SELECT * FROM invoices WHERE id = :id` for `GET /invoices/:id`. What is the flaw?"
+        options:
+          - The JWT should be validated again in the invoice service
+          - There is no object-level authorization; any logged-in user can read any invoice by id
+          - Invoice ids should be UUIDs instead of integers
+          - The query should use a read replica
+        answer: [1]
+        explanation: "Authentication happened; authorization of this caller for this object did not. The fix is to filter by the owner or tenant from the verified identity. UUIDs make ids harder to guess but are not access control; re-validating the token does not add an ownership check."
+      - id: q2
+        kind: multi
+        prompt: Which statements about encryption at rest are accurate?
+        options:
+          - Volume encryption protects against a stolen disk or a leaked snapshot
+          - Volume encryption stops an attacker who has a valid application database login
+          - In envelope encryption, a key in the KMS encrypts the data keys, and data keys encrypt the data
+          - Deleting a tenant's key can make that tenant's data in old backups unreadable
+        answer: [0, 2, 3]
+        explanation: "Volume encryption is transparent to anyone who can query the database, so option 1 is false. Envelope encryption and crypto-shredding are as described: the KMS key wraps per-tenant or per-object data keys, and without the data key the ciphertext in backups is useless."
+      - id: q3
+        kind: single
+        prompt: Why are JWT access tokens usually given a short lifetime, such as 5 to 15 minutes?
+        options:
+          - Signatures become insecure after a few minutes
+          - A JWT cannot be revoked before expiry without adding a lookup, so a short lifetime bounds the damage of a stolen token
+          - Browsers delete cookies after 15 minutes
+          - Short tokens are smaller on the wire
+        answer: [1]
+        explanation: "Stateless verification is the point of a JWT, so revocation needs a denylist lookup that removes that benefit. A short lifetime plus a revocable refresh token is the usual compromise. The signature's strength does not decay with time."
+      - id: q4
+        kind: single
+        prompt: A pooled multi-tenant SaaS caches report responses under the key `report:{report_id}:{date}`. What is the risk?
+        options:
+          - Cache stampede on popular reports
+          - None, because report ids are unique
+          - "If report ids or names can collide across tenants, or a lookup skips the auth check, one tenant can be served another tenant's cached data"
+          - The cache will need more memory
+        answer: [2]
+        explanation: "Caching can bypass the authorization path. Put the tenant in every cache key and run the access check before serving from cache. Unique ids help only if they are globally unique and the check still runs; stampedes and memory are real but not the security risk asked about."
+      - id: q5
+        kind: single
+        prompt: Where should a service get the database password it uses in production?
+        options:
+          - An environment file committed to the repository
+          - Baked into the container image at build time
+          - Fetched at runtime from a secrets manager using the service's own identity, ideally as a short-lived credential
+          - Sent by the frontend with each request
+        answer: [2]
+        explanation: "Repositories and images are copied widely and kept forever, so secrets in them leak and are hard to rotate. A secrets manager gives access control, audit and rotation. The frontend must never see backend secrets."
+      - id: q6
+        kind: short
+        prompt: Compare pooled tables with a tenant_id column against a database per tenant for a B2B product with 3,000 small customers and 5 large regulated ones.
+        model_answer: "Pooled for the 3,000 small tenants: cheap and simple, protected by mandatory tenant filtering in the data-access layer plus row-level security and per-tenant rate limits. Separate databases (or a separate stack) for the 5 regulated customers: stronger isolation, per-tenant keys, backup, restore and data residency, at higher operational cost that those contracts justify. Migration tooling must support moving a tenant between tiers."
+        explanation: Mixed tenancy is common; the answer should tie the choice to isolation needs and operating cost, not pick one model for everyone.
+
+- key: sdx.security.case
+  type: architecture_case
+  title: "Design case: secure a multi-tenant document-sharing API"
+  skills: [sd.security_design, security.web_basics, network.sessions_auth, sd.api_design]
+  minutes: 30
+  difficulty: HARD
+  observation: {kind: SD_DESIGN, time_limit_seconds: 1500}
+  body:
+    prompt: |-
+      A B2B product lets each customer organisation (tenant) upload documents, share them with colleagues or with external guests through links, and search them. Design the security architecture: identity, authorization, data protection, secrets and tenant isolation. You do not need to design search ranking or the upload pipeline in detail.
+    requirements:
+      functional:
+        - Users belong to one tenant and sign in through the product or their organisation's identity provider.
+        - Documents are owned by a tenant; access is per document (owner, editors, viewers) and per folder.
+        - "Users can create share links for external guests, with expiry and optional password."
+        - Tenant admins can see an audit trail of who accessed which document.
+        - A tenant can be deleted on request, including its data.
+      non_functional:
+        - No tenant can read another tenant's documents, metadata or search results.
+        - Documents encrypted at rest; all traffic encrypted in transit.
+        - Revoking a user or a share link takes effect within about a minute.
+        - One tenant's heavy usage must not degrade others.
+        - Authorization adds at most a few milliseconds to a request on average.
+    approach:
+      - "Requirements: confirm actors (members, admins, guests, support staff), sensitive assets and the revocation target."
+      - "API: list the endpoints that take object ids (documents, folders, share links) and mark where each access check happens."
+      - "Data: tenant_id on every row; permission entries per document or folder; share links stored as hashed tokens with expiry."
+      - "Architecture: gateway authn, per-service authz, object storage with pre-signed URLs, KMS, secrets manager, audit log sink."
+      - "Bottleneck: authorization checks on every list and search request; folder inheritance makes them expensive."
+      - "Trade-off: JWT versus opaque tokens for the revocation target; pooled versus per-tenant storage."
+      - "Failure: KMS or identity provider unavailable; a missed tenant filter."
+      - "Observability: audit events, denied-access metrics, alerts on cross-tenant access attempts."
+      - "Defense: walk one request (guest opens a share link) across every boundary."
+    hints:
+      - Search results must be filtered by permission before they are returned, not after a page is cut.
+      - A share link is a bearer credential; store only its hash.
+    reference: |-
+      - **Identity**: the gateway validates sessions or short-lived access tokens (about 5 minutes) issued by the product's auth service, which federates to tenant identity providers (OIDC or SAML). Refresh tokens are revocable; disabling a user revokes refresh tokens and adds the user to a short-lived denylist checked at the gateway, meeting the one-minute target.
+      - **Authorization**: the document service checks `(tenant, user, document, action)` against permission entries, with folder inheritance resolved by a permission service and cached for a short time (tens of seconds) per user and folder. The tenant id always comes from the verified identity. Search queries carry the tenant id and the user's group ids as mandatory filters in the index, so results are filtered before ranking and paging.
+      - **Guests**: a share link is a random 128-bit token; only its hash is stored, with expiry, optional password (slow hash) and scope (one document, view only). Opening it creates a guest session limited to that scope.
+      - **Files**: object storage under `tenant/<id>/...`; downloads use pre-signed URLs valid for a few minutes, issued only after the authz check.
+      - **Encryption**: TLS everywhere, mutual TLS between services. Per-tenant data keys wrapped by a KMS key; deleting a tenant deletes its keys (crypto-shredding covers backups). Volume encryption on databases.
+      - **Isolation**: pooled tables with row-level security as defence in depth for most tenants; dedicated databases for tenants that require it. Per-tenant rate limits and quotas at the gateway; tenant id in every cache key.
+      - **Secrets**: secrets manager, fetched at runtime with the service identity, rotated.
+      - **Audit**: every access and permission change emits an event to an append-only store the application cannot modify; tenant admins query it.
+      - **Failure**: KMS outage blocks decrypting new data keys; cache unwrapped data keys in memory for a short time to ride out blips, and fail closed after that. Identity provider outage blocks new sign-ins but existing sessions continue until expiry.
+    rubric:
+      - {key: authn_edge, label: "Authenticates at the gateway with short-lived tokens and a revocation path that meets the one-minute target", points: 2}
+      - {key: object_authz, label: "Performs object-level authorization in the owning service using tenant and user from the verified identity", points: 3}
+      - {key: search_filtering, label: "Filters search and list results by tenant and permission inside the query, before paging", points: 2}
+      - {key: share_links, label: "Treats share links as bearer secrets (hashed, expiring, scoped)", points: 1}
+      - {key: encryption_keys, label: "TLS on every hop and envelope encryption with per-tenant keys in a KMS, including deletion", points: 2}
+      - {key: tenant_isolation, label: "States the tenancy model with defence in depth and per-tenant rate limits", points: 2}
+      - {key: secrets_audit, label: "Secrets manager with rotation, and an append-only audit trail", points: 1}
+      - {key: failure_modes, label: "Describes KMS and identity-provider outages and whether the system fails open or closed", points: 1}
+    follow_ups:
+      - prompt: A developer forgets the tenant filter in a new reporting query. What stops a leak?
+        look_for: "Row-level security policy or a mandatory data-access layer, plus a test that runs queries as two tenants and checks for cross-tenant rows."
+      - prompt: How do support engineers help a customer without broad access?
+        look_for: "Time-limited, ticket-scoped, customer-approved access, audited under the engineer's own identity."
+      - prompt: Why not check permissions after fetching a page of search results?
+        look_for: "Pages come back short or empty, counts leak the existence of hidden documents, and it is slower; filter inside the index query."
+
+- key: sdx.security.cards
+  type: revision_card
+  title: "Recall: security in design"
+  skills: [sd.security_design]
+  minutes: 5
+  body:
+    cards:
+      - front: Where do authn and authz belong?
+        back: Authn at the edge; object-level authz in the service that owns the data.
+      - front: Envelope encryption?
+        back: A data key encrypts the data; a KMS key encrypts the data key.
+      - front: What does volume encryption not protect against?
+        back: Anyone who can query the database through the application or a login.
+      - front: Where does the tenant id come from?
+        back: The verified identity, never the request body.
+      - front: Crypto-shredding?
+        back: Delete a tenant's key so its data, including backups, is unreadable.
+      - front: Why short-lived JWTs?
+        back: They cannot be revoked early without a lookup.
+
+# ---------------------------------------------------------------------------------------------- observability
+- key: sdx.observability.lesson
+  type: lesson
+  title: Observability you can operate, logs, metrics, traces, SLOs and alerts
+  skills: [sd.observability]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Measure what users experience as SLIs, set SLOs with an error budget, alert on symptoms, and keep logs, metrics and traces joined by one request id.
+    what: |-
+      Observability is the ability to explain what a system is doing from the outside, including failures you did not predict. Three signal types:
+
+      - **Metrics**: numeric time series aggregated over time (counters, gauges, histograms). Cheap per event and good for dashboards and alerts; they answer "how much, how often, how slow".
+      - **Logs**: discrete records of events. Structured (JSON with fields) so they can be queried; they answer "what exactly happened to this request".
+      - **Traces**: the path of one request across services as a tree of timed spans, linked by a trace id propagated in headers (the W3C Trace Context `traceparent` header is the common standard). They answer "where did the time go".
+
+      On top of the signals: **SLIs** (service level indicators: a measured ratio of good events to valid events), **SLOs** (the target for an SLI over a window), **error budgets** (the allowed failure, `1 - SLO`) and **alerts**.
+    why: |-
+      Distributed systems fail partially: one shard, one region, one dependency, one tenant. Without per-hop latency and error data you cannot tell a slow database from a slow network from a retry storm. Without SLOs, every blip pages someone and teams cannot decide whether to ship features or fix reliability.
+    when: |-
+      In every design, after failure handling: name the SLIs for the main user journeys, the dashboards per service, what pages a human, and how one request can be traced end to end. In more depth when the prompt is about operating a platform (notifications, payments, job queues), where missing or delayed work is invisible without metrics.
+    how: |-
+      **Two checklists for dashboards**:
+
+      - **RED** for every request-driven service: **R**ate (requests per second), **E**rrors (failed requests per second or share), **D**uration (latency distribution, as percentiles).
+      - **USE** for every resource (CPU, memory, disk, connection pool, queue): **U**tilization (busy share), **S**aturation (work waiting: queue length, run-queue), **E**rrors.
+
+      **Latency is a distribution.** Report p50, p95, p99, never only the mean: a mean of 80 ms can hide one request in a hundred taking 3 s. Record latency as a histogram, which can be aggregated across instances; percentiles computed per instance cannot be averaged into a fleet percentile.
+
+      **Cardinality**: every distinct label combination is a separate time series. Labels such as status code, route and region are fine; user id or order id as a metric label creates millions of series. Put high-cardinality detail in logs and traces.
+
+      **SLIs and SLOs**: define an SLI per user journey, for example "share of checkout requests that succeed in under 500 ms, measured at the load balancer". An SLO of 99.9% over 30 days leaves an error budget of 0.1%: about 43 minutes of total outage, or 1 bad request in 1,000. An **error budget policy** says what happens when it is spent (freeze risky releases, prioritise reliability work). An SLA is a contract with penalties and is usually looser than the internal SLO.
+
+      **Alert on symptoms, not causes.** Page when users are hurt (SLO burn), not when a CPU is at 80%. Use **burn-rate** alerts: a burn rate of 1 spends the budget exactly over the window. Spending at 36 times that rate for an hour uses 5% of a 30-day budget (36 hours of budget in 1 of 720): page. A burn rate of 6 for six hours also uses 5%: page or ticket. Pair a long window with a short one so the alert stops soon after the problem does. Cause-level metrics go on dashboards for diagnosis.
+
+      **Correlate**: every log line carries the trace id; traces link to logs; metrics can carry exemplars (a sample trace id per histogram bucket). **Sample traces**: head-based sampling (keep 1% decided at the start) is cheap but misses rare errors; tail-based sampling (decide after the trace completes, keep all errors and slow traces) costs a buffering tier.
+
+      **For asynchronous systems**, also measure queue depth, age of the oldest message (consumer lag in time), and end-to-end latency from enqueue to completion. A queue that is not growing can still be stuck if nothing is consumed.
+    mental_model: |-
+      Metrics tell you **that** something is wrong and how big it is, traces tell you **where**, logs tell you **why**. SLOs tell you **whether it matters** enough to wake someone up.
+    tradeoffs: |-
+      More data costs money: log volume and trace storage grow with traffic, so sample and set retention per signal. High-resolution metrics catch short spikes but cost storage. Tight SLOs constrain release speed; loose ones let users suffer. Symptom alerts page less often and more meaningfully, but you still need cause dashboards to diagnose quickly. Tail-based sampling keeps the interesting traces but needs infrastructure to hold traces until they finish.
+    mistakes:
+      - Alerting on causes (CPU, memory, a single failed health check) so on-call is paged for things users never notice.
+      - Averaging latency, or averaging percentiles across instances.
+      - Putting user id or request id in metric labels.
+      - Unstructured logs without a trace or request id, impossible to join across services.
+      - Measuring success only at the server, missing failures before the request reaches it; measure at the load balancer or client too.
+      - No metric for the age of the oldest queued item, so a stuck consumer goes unnoticed.
+      - Setting a 100% SLO, which leaves no budget for deploys or maintenance.
+    interview: |-
+      Close a design with two or three sentences of observability: the SLIs for the main journey with a number ("99.9% of redirects under 100 ms"), RED per service and USE for the hot resources, traces across hops, and what pages a human. For platform prompts, add the async metrics (queue age, delivery lag). Interviewers notice candidates who name a concrete SLO and an alert on its burn rate.
+    explain_it:
+      - Name the main user journey and its SLI, with how it is measured.
+      - Give the SLO and translate it into an error budget.
+      - List the RED and USE panels for the critical path.
+      - Say what pages a human and why that alert is a symptom.
+      - Show how one failed request is followed from metric to trace to log.
+    example:
+      language: python
+      code: |-
+        import logging
+        import time
+
+        from prometheus_client import Counter, Histogram
+
+        REQUESTS = Counter("http_requests_total", "Requests", ["route", "status"])
+        LATENCY = Histogram("http_request_duration_seconds", "Latency", ["route"])  # default buckets
+        log = logging.getLogger("checkout")
+
+        def handle(route, request, trace_id):
+            start = time.monotonic()
+            status = 500
+            try:
+                status = process(request)
+                return status
+            finally:
+                LATENCY.labels(route=route).observe(time.monotonic() - start)
+                REQUESTS.labels(route=route, status=str(status)).inc()   # low-cardinality labels only
+                log.info("request done", extra={"trace_id": trace_id, "route": route, "status": status})
+      explanation: "Rate and errors come from the counter, duration from the histogram (aggregatable across instances), and the log line joins to the trace by trace_id. The order id would go in the log, never in a metric label."
+    edge_cases:
+      - Low traffic makes ratio SLIs noisy; at 10 requests an hour one failure is 10%. Use longer windows or synthetic probes.
+      - A service that returns fast errors looks great on latency; always read latency together with errors.
+      - Retries hide failures from users but not from budgets; measure both first-attempt and final success.
+
+- key: sdx.observability.check
+  type: concept_check
+  title: "Concept check: RED, USE, SLOs and alerting"
+  skills: [sd.observability]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Do the error-budget arithmetic on paper.
+    questions:
+      - id: q1
+        kind: single
+        prompt: A service has an availability SLO of 99.9% over 30 days. About how much complete downtime does the error budget allow?
+        options: ["About 4 minutes", "About 43 minutes", "About 7 hours", "About 3 days"]
+        answer: [1]
+        explanation: "30 days is 43,200 minutes; 0.1% of that is about 43 minutes. About 4 minutes is the budget for 99.99%, and about 7 hours is roughly 99%."
+      - id: q2
+        kind: multi
+        prompt: Which belong to the RED method for a request-driven service?
+        options: ["Request rate", "Error rate", "Duration (latency distribution)", "Disk utilization"]
+        answer: [0, 1, 2]
+        explanation: "RED is Rate, Errors, Duration, for services. Disk utilization is part of USE (Utilization, Saturation, Errors), which is for resources."
+      - id: q3
+        kind: single
+        prompt: Which is the best paging alert for an API with a latency and availability SLO?
+        options:
+          - CPU above 80% for 5 minutes on any instance
+          - The error budget is being spent fast enough to exhaust it within days, measured over both a long and a short window
+          - Any single 500 response
+          - A health check failing on one instance
+        answer: [1]
+        explanation: "A burn-rate alert is a symptom alert tied to user impact, and the short window makes it reset quickly. High CPU, a single error or one unhealthy instance may not hurt users at all and belong on dashboards."
+      - id: q4
+        kind: single
+        prompt: A team adds `user_id` as a label on their request-latency histogram. What is the main problem?
+        options:
+          - Histograms do not support labels
+          - Every user creates new time series, so series count explodes and the metrics system slows or drops data
+          - It leaks the user id to the browser
+          - It makes p99 less accurate
+        answer: [1]
+        explanation: "With millions of users and a dozen buckets, the series count grows into the tens of millions. Per-user detail belongs in logs and traces."
+      - id: q5
+        kind: single
+        prompt: Ten instances each report their own p99 latency. How do you get the fleet-wide p99?
+        options:
+          - Average the ten p99 values
+          - Take the maximum of the ten values
+          - Merge the instances' histogram buckets and compute p99 from the merged distribution
+          - Take the median of the ten values
+        answer: [2]
+        explanation: "Percentiles do not compose: an average of p99s is not a p99 and can be far off when traffic is uneven. Histograms with shared bucket boundaries can be summed and then queried. The maximum is an upper bound, not the answer."
+      - id: q6
+        kind: short
+        prompt: An email-sending worker pool reads from a queue. What would you measure and alert on so that a stuck consumer is caught?
+        model_answer: "Age of the oldest message in the queue (or consumer lag in time), queue depth, consume rate versus produce rate, send success and error rates per provider, and end-to-end latency from enqueue to sent. Alert when the oldest message is older than the delivery target (for example 5 minutes for transactional email), which catches a stuck consumer even when the depth looks stable."
+        explanation: Queue depth alone misses a slow trickle of work that never gets processed; age measures user impact directly.
+
+- key: sdx.observability.case
+  type: architecture_case
+  title: "Design case: SLIs, SLOs and alerts for a checkout flow"
+  skills: [sd.observability, sd.fault_tolerance]
+  minutes: 25
+  difficulty: MEDIUM
+  observation: {kind: SD_DESIGN, time_limit_seconds: 1200}
+  body:
+    prompt: |-
+      An e-commerce checkout goes through: web client, API gateway, checkout service, which calls inventory, pricing, payments (an external provider) and an order database, then publishes an "order placed" event consumed by email and fulfilment workers. Design the observability: what you measure, the SLIs and SLOs, the dashboards and what pages on-call. Assume about 200 checkouts per second at peak.
+    requirements:
+      functional:
+        - On-call can tell within minutes whether customers are failing to check out.
+        - An engineer can follow one failed checkout across every service.
+        - The team can see whether order confirmation emails and fulfilment are delayed.
+      non_functional:
+        - Paging alerts must be actionable and rare (a few per week at most).
+        - Observability cost should scale sub-linearly with traffic (sampling, retention).
+        - No personal or card data in logs, metrics or traces.
+    approach:
+      - "Requirements: identify the user journeys (place order, receive confirmation) and who consumes the signals."
+      - "API: note which endpoints define the journey and where success is measured (gateway, not only the service)."
+      - "Data: choose metric names and labels (route, status, dependency, region) and the trace and log fields."
+      - "Architecture: instrumentation library, metrics store, log pipeline, trace collector with tail sampling, alert manager."
+      - "Bottleneck: cardinality and log volume at peak; sampling choices."
+      - "Trade-off: tight versus loose SLO; head versus tail sampling."
+      - "Failure: payment provider slow; consumer stuck; observability pipeline itself down."
+      - "Observability: the SLIs, SLOs, burn-rate alerts and dashboards (RED per hop, USE for pools and queues)."
+      - "Defense: walk a page from alert to dashboard to trace to log line."
+    reference: |-
+      - **SLIs**: checkout availability = share of `POST /checkout` at the gateway that return a success or an expected business rejection (card declined counts as good for availability); checkout latency = share completed under 1 s; confirmation freshness = share of orders whose email is sent within 5 minutes of the order event.
+      - **SLOs**: availability 99.9% over 30 days (about 43 minutes of budget, or 1 bad checkout in 1,000; at 200 per second that budget is roughly 520,000 failed checkouts in a month at full peak load, which shows why it must be tracked continuously); latency 99% under 1 s; freshness 99% within 5 minutes.
+      - **Paging**: multi-window burn-rate alerts on the availability and latency SLOs (fast burn pages, slow burn opens a ticket); oldest-message age on the order-event consumers above 5 minutes.
+      - **Dashboards**: RED per hop (gateway, checkout, each dependency call from the caller's side, so the external payment provider is covered); USE for database connection pools, worker pools and queues; payment provider error and latency split by error class.
+      - **Tracing**: trace id generated at the gateway, propagated via `traceparent` through HTTP and copied into event headers so consumers continue the trace; tail sampling keeps every error and every trace over 1 s plus a small share of the rest.
+      - **Logs**: structured JSON with trace id, order id, route, outcome; card data and emails never logged (allow-list of fields).
+      - **Meta-monitoring**: an external probe that runs a synthetic checkout every minute and an alert if the metrics pipeline stops receiving data.
+    rubric:
+      - {key: sli_definition, label: "Defines SLIs as good/valid ratios measured at the gateway, including how business rejections are counted", points: 3}
+      - {key: slo_budget, label: "Sets SLO numbers and converts them into an error budget", points: 2}
+      - {key: symptom_alerts, label: "Pages on burn rate and consumer age, not on CPU or single errors", points: 2}
+      - {key: red_use, label: "Dashboards apply RED per hop and USE for pools and queues", points: 1}
+      - {key: tracing, label: "Propagates trace context through HTTP and events and chooses a sampling strategy", points: 1}
+      - {key: data_hygiene, label: "Keeps high-cardinality and personal data out of metrics and logs", points: 1}
+    follow_ups:
+      - prompt: Payments are declined at twice the usual rate because a bank is having problems. Should that page you?
+        look_for: "Not the availability SLO if declines are a valid business outcome; a separate decline-rate anomaly alert routed to the payments team; distinguishes system errors from business rejections."
+      - prompt: Your metrics pipeline is down. How would you know?
+        look_for: "Absence-of-data alerts and an external synthetic probe that does not depend on the same pipeline."
+      - prompt: How do you keep traces for the 1 in 10,000 requests that fail strangely?
+        look_for: "Tail-based sampling that keeps all error traces, or force-sampling flags on errors."
+
+- key: sdx.observability.cards
+  type: revision_card
+  title: "Recall: observability"
+  skills: [sd.observability]
+  minutes: 5
+  body:
+    cards:
+      - front: RED stands for?
+        back: Rate, Errors, Duration — per service.
+      - front: USE stands for?
+        back: Utilization, Saturation, Errors — per resource.
+      - front: Error budget for 99.9% over 30 days?
+        back: About 43 minutes of full outage, or 1 bad request in 1,000.
+      - front: Why alert on symptoms?
+        back: Pages then track user pain; causes go on dashboards.
+      - front: Can you average p99s across instances?
+        back: No; merge histograms and compute the percentile from the merge.
+      - front: Key metric for a queue consumer?
+        back: Age of the oldest unprocessed message.

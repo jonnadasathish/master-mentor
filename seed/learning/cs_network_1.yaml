@@ -1,0 +1,508 @@
+# Learning content: transport and naming (IP, TCP, UDP, connection lifecycle, proxies and load balancers, DNS).
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- TCP / IP / UDP
+- key: net.tcp.lesson
+  type: lesson
+  title: TCP, UDP and the life of a connection
+  skills: [network.tcp_ip_udp]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: IP moves packets on a best-effort basis; TCP turns them into a reliable, ordered byte stream at the cost of handshakes, state and head-of-line blocking; UDP hands you raw datagrams and leaves the rest to you.
+    what: |-
+      The layers you meet in backend work:
+
+      - **IP** (network layer) addresses and routes individual packets between hosts. Delivery is best effort: packets can be lost, duplicated, reordered or delayed. An IPv4 header is at least 20 bytes, an IPv6 header exactly 40.
+      - **TCP** (transport layer) adds ports, a connection with a handshake, sequence numbers, acknowledgements, retransmission, flow control and congestion control. It delivers a **byte stream**: there are no message boundaries, so the application must frame its own messages (HTTP uses headers and `Content-Length` or chunked encoding). The header is at least 20 bytes.
+      - **UDP** adds only ports, a length and a checksum to IP (an 8-byte header). Each `send` is one datagram that arrives whole or not at all, possibly out of order, with no retransmission and no congestion control.
+
+      A TCP connection is identified by its **4-tuple**: source IP, source port, destination IP, destination port. HTTP/1.1 and HTTP/2 run on TCP; DNS mostly uses UDP; HTTP/3 runs on QUIC, which is built on UDP.
+    why: |-
+      Applications want reliable, ordered delivery without writing retransmission logic, and the network needs senders that back off when it is congested. TCP provides both in the kernel. Not every application wants them, though: a voice call would rather drop a late packet than wait for it, which is why UDP exists and why newer protocols (QUIC) build their own reliability on top of it.
+
+      In practice, a large share of production incidents labelled "network" are really TCP lifecycle problems: connection setup latency, exhausted ephemeral ports, idle timeouts on proxies, and sockets the application forgot to close.
+    when: |-
+      - Choose **TCP** (or a protocol on it) when every byte must arrive in order: APIs, database connections, file transfer.
+      - Choose **UDP** when timeliness beats completeness or when you need your own transport: DNS queries, live voice and video, game state updates, QUIC.
+      - Think about the **connection lifecycle** whenever a service makes many short-lived outbound connections, sits behind a proxy or load balancer, or holds long-lived connections (WebSockets, database pools).
+    how: |-
+      **Three-way handshake.** The client sends `SYN` with its initial sequence number `x`. The server answers `SYN-ACK` with its own number `y` and `ack = x + 1`. The client sends `ACK` with `ack = y + 1`. That costs one round trip (RTT) before the client can send data; with TLS on top, add at least one more.
+
+      **Data transfer.** Every byte has a sequence number. The receiver acknowledges the next byte it expects. Missing data is retransmitted after a timeout or after three duplicate ACKs (fast retransmit). Bytes are handed to the application only in order.
+
+      **Flow control vs congestion control.** Flow control protects the **receiver**: it advertises a receive window (`rwnd`), how much unacknowledged data it can buffer. Congestion control protects the **network**: the sender keeps a congestion window (`cwnd`), starting small, growing roughly doubling per RTT in slow start, then growing linearly and cutting back on loss (CUBIC is the Linux default; BBR models bandwidth and RTT instead). The sender may have `min(rwnd, cwnd)` bytes in flight.
+
+      **Teardown.** Each direction is closed separately: one side sends `FIN`, the other ACKs it, later sends its own `FIN`, which is ACKed. The side that closes first (the **active closer**) ends in `TIME_WAIT`; the other side sits in `CLOSE_WAIT` until its application calls `close()`.
+
+      **TIME_WAIT** lasts twice the maximum segment lifetime so that a lost final ACK can be re-sent and stray old segments expire before the same 4-tuple is reused. Linux uses a fixed 60 seconds. It is a feature, not a leak, but it pins the 4-tuple.
+
+      **Keep-alive and pooling.** Reusing a connection skips the handshake, the TLS handshake and slow start. HTTP/1.1 connections are persistent by default; client libraries keep them in a pool. Note the two different "keep-alives": HTTP keep-alive means reusing a connection for several requests; TCP keepalive (`SO_KEEPALIVE`) sends probes on an idle connection to detect a dead peer (Linux default: first probe after 7200 seconds idle).
+    mental_model: |-
+      TCP is a numbered conveyor belt between two programs. Boxes (bytes) go on in order and come off in order; if one box falls off, everything behind it waits until a replacement arrives. UDP is a pile of postcards: each one arrives on its own or never, and nobody waits for a missing one.
+    tradeoffs: |-
+      - TCP: reliability, ordering and congestion control for free, but one RTT of setup, per-connection kernel state, and head-of-line blocking (one lost segment stalls all later bytes, even if they belong to unrelated requests multiplexed on the connection).
+      - UDP: no setup and no stalls, message boundaries preserved, but you must handle loss, ordering, duplication, congestion and often NAT and firewall traversal yourself. Many corporate networks restrict UDP.
+      - Long-lived pooled connections: low latency, but every proxy on the path has an idle timeout, load balances per connection rather than per request, and stale connections must be detected and retried.
+    mistakes:
+      - Opening a new connection for every outbound request (for example calling `requests.get` in a hot loop), paying handshake, TLS and slow start each time and filling the ephemeral port range with `TIME_WAIT` sockets.
+      - Treating `TIME_WAIT` as a leak and "fixing" it with `tcp_tw_recycle`, which broke clients behind NAT and was removed in Linux 4.12. Reuse connections instead.
+      - Confusing `tcp_fin_timeout` (the `FIN_WAIT_2` timeout) with the length of `TIME_WAIT`, which it does not change on Linux.
+      - "Ignoring a growing number of `CLOSE_WAIT` sockets. That is your application not closing sockets after the peer closed: a code bug, not a kernel setting."
+      - Assuming one `recv()` returns one message. TCP is a stream; frame messages with a length prefix or delimiter.
+      - Mixing up HTTP keep-alive and TCP keepalive.
+    interview: |-
+      Expect: "TCP vs UDP, and when would you use each?", "walk me through the handshake and teardown", "what is TIME_WAIT and why does it exist?", "why is HTTP/3 on UDP?". Strong answers use the 4-tuple, give the RTT cost, separate flow from congestion control, and connect head-of-line blocking to HTTP/2 vs HTTP/3. Debugging follow-ups often involve port exhaustion or idle timeouts behind load balancers.
+    explain_it:
+      - Name what each layer guarantees (IP best effort, TCP ordered reliable stream, UDP datagrams).
+      - Draw the handshake with sequence numbers and state its cost in RTTs.
+      - Explain teardown, which side gets TIME_WAIT and why it exists.
+      - Separate flow control (receiver window) from congestion control (sender's cwnd).
+      - Tie head-of-line blocking to the protocol choice.
+    example:
+      language: python
+      code: |-
+        import requests
+
+        # New connection (DNS + TCP handshake + TLS handshake + slow start) for every call:
+        for order_id in order_ids:
+            requests.get(f"https://api.example.com/orders/{order_id}", timeout=5)
+
+        # One pooled connection reused for all calls: handshakes paid once.
+        with requests.Session() as session:
+            for order_id in order_ids:
+                session.get(f"https://api.example.com/orders/{order_id}", timeout=5)
+      explanation: "`requests.get` creates and closes a Session per call. At 20 ms RTT, TCP plus TLS 1.3 setup costs at least 40 ms per request that the pooled version pays once; the pooled version also leaves no TIME_WAIT socket per request."
+    internals: |-
+      **Ephemeral port arithmetic.** Linux picks client source ports from `net.ipv4.ip_local_port_range`, by default 32768–60999, about 28,000 ports. Each closed connection whose client closed first keeps its 4-tuple in `TIME_WAIT` for 60 seconds. One client IP opening fresh connections to one destination IP and port can therefore sustain roughly 28,000 / 60 ≈ 470 new connections per second before `connect()` fails with `EADDRNOTAVAIL` ("Cannot assign requested address"). Pooling removes the problem; more source IPs or destination ports only move the ceiling.
+
+      **Slow start.** A new connection starts with an initial congestion window of 10 segments (RFC 6928), about 14 KB. A 1 MB response on a fresh connection therefore needs several RTTs to ramp up, another reason warm pooled connections are faster.
+
+      **Nagle and delayed ACKs.** Nagle's algorithm holds small writes until earlier data is ACKed; combined with the receiver's delayed ACK it can add tens of milliseconds to request/response protocols that write in small pieces. Latency-sensitive protocols set `TCP_NODELAY`.
+    edge_cases:
+      - A peer that disappears without sending FIN (power loss, NAT entry expiry) leaves the other side believing the connection is open until it writes and times out, or until keepalive probes fail.
+      - An RST instead of FIN aborts immediately; data still in buffers is lost and the peer sees "connection reset by peer".
+      - Middleboxes (NAT, firewalls, load balancers) silently drop idle connections after their own timeout, often far shorter than 7200 seconds.
+    misconceptions:
+      - "UDP is always faster. It has less overhead, but once you add the reliability you need, the difference is the policy (what you retransmit and when), not raw speed."
+      - TCP guarantees that the peer application processed the data. An ACK means the peer kernel received it, nothing more.
+- key: net.tcp.visual
+  type: visual_explanation
+  title: "Visual: handshake, transfer and teardown"
+  skills: [network.tcp_ip_udp]
+  minutes: 6
+  body:
+    summary: One TCP connection from SYN to TIME_WAIT, with the socket states each side passes through.
+    frames:
+      - caption: Three-way handshake. One round trip before the first request byte can be sent.
+        diagram: |-
+          client                                 server (LISTEN)
+            |  SYN seq=x                     -->   |
+            |                                      |  SYN_RECEIVED
+            |  <--  SYN-ACK seq=y ack=x+1          |
+          ESTABLISHED                              |
+            |  ACK ack=y+1 (+ request bytes) -->   |
+            |                                      |  ESTABLISHED
+      - caption: Data flows in both directions. A lost segment is retransmitted; later bytes wait in the receiver's buffer until the gap is filled.
+        diagram: |-
+          sender sends bytes 1-1000, 1001-2000, 2001-3000
+          segment 1001-2000 is lost
+          receiver ACKs 1001, 1001, 1001   (duplicate ACKs)
+          sender fast-retransmits 1001-2000
+          receiver ACKs 3001 and hands 1001-3000 to the application at once
+          -> bytes 2001-3000 arrived early but were blocked: head-of-line blocking
+      - caption: "Teardown. Each direction closes on its own. The active closer waits in TIME_WAIT (60 seconds on Linux)."
+        diagram: |-
+          active closer                          passive closer
+            |  FIN                          -->    |
+          FIN_WAIT_1                               |  CLOSE_WAIT (until app calls close)
+            |  <--  ACK                            |
+          FIN_WAIT_2                               |
+            |  <--  FIN                            |  LAST_ACK
+            |  ACK                          -->    |
+          TIME_WAIT (2 x MSL)                      |  CLOSED
+          CLOSED
+- key: net.proxies_lb.concept
+  type: concept
+  title: Proxies, reverse proxies and L4 vs L7 load balancing
+  skills: [network.tcp_ip_udp, network.http, sd.load_balancing_cdn]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    summary: A forward proxy acts for clients, a reverse proxy acts for servers; an L4 balancer moves TCP connections, an L7 balancer understands HTTP requests.
+    explanation: |-
+      A **forward proxy** sits in front of clients (a corporate egress proxy): servers see the proxy, not the client. A **reverse proxy** sits in front of servers (nginx, Envoy, a cloud load balancer): clients see one address while the proxy terminates connections, routes, caches, compresses and terminates TLS.
+
+      An **L4 load balancer** works on TCP or UDP flows. It picks a backend per connection from the IP and port and forwards bytes without parsing them, so it is fast, protocol-agnostic and can pass TLS through untouched, but it cannot route by URL, retry a failed request or add headers.
+
+      An **L7 load balancer** terminates the client's TCP (and usually TLS) connection, parses HTTP and opens or reuses its own connections to backends. It can route by host, path or header, retry idempotent requests, set `X-Forwarded-For` and `X-Forwarded-Proto`, apply rate limits and use cookie-based stickiness. The price is more CPU, the TLS private key living on the balancer, and two independent connections with two independent idle timeouts.
+
+      Because an L4 balancer balances **connections**, long-lived multiplexed connections (HTTP/2, gRPC, WebSockets) pin all their requests to one backend; a few busy clients can overload one server while others idle. An L7 balancer can spread individual requests.
+    points:
+      - The backend behind a reverse proxy sees the proxy's IP; the client's IP arrives in `X-Forwarded-For` (or the PROXY protocol for L4). Trust that header only when it was set by your own proxy.
+      - Each hop has its own idle timeout. The hop closer to the backend should keep idle connections open longer than the hop in front of it, so the side that reuses connections is the side that closes them.
+      - "L7 retries are safe only for idempotent requests; many proxies do not retry POST by default for exactly this reason."
+      - Health checks plus connection draining (deregistration delay) let a deploy remove a backend without cutting in-flight requests.
+      - TLS can terminate at the balancer (inspect and route), pass through (L4, end-to-end encryption) or be re-encrypted to the backend.
+    misconceptions:
+      - An L4 balancer distributes requests evenly. It distributes connections; request balance depends on how requests map to connections.
+      - A reverse proxy is only for load balancing. TLS termination, caching, buffering slow clients and request routing are just as common reasons.
+- key: net.tcp.check
+  type: concept_check
+  title: "Concept check: TCP, UDP and connection lifecycle"
+  skills: [network.tcp_ip_udp]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Answer closed-book. Several questions are small production scenarios; reason from the connection states.
+    questions:
+      - id: q1
+        kind: single
+        prompt: Which side of a TCP connection ends up in TIME_WAIT?
+        options: ["The client, always", "The server, always", "Whichever side sends the first FIN", "Both sides, for 2 x MSL each"]
+        answer: [2]
+        explanation: "TIME_WAIT belongs to the active closer, whoever that is. Servers that close connections first (for example after each HTTP/1.0 response) accumulate TIME_WAIT sockets. The passive closer goes through CLOSE_WAIT and LAST_ACK instead, so 'the client, always' is wrong."
+      - id: q2
+        kind: single
+        prompt: A Linux worker with one IP opens a fresh TCP connection for each of 1,000 requests per second to a single upstream IP and port, closing each one itself. After about a minute, connect() starts failing with EADDRNOTAVAIL. What is the most likely cause?
+        options:
+          - The upstream's listen backlog is full
+          - The worker hit its open file descriptor limit
+          - The ephemeral port range is used up by sockets in TIME_WAIT
+          - DNS resolution is failing intermittently
+        answer: [2]
+        explanation: "About 28,000 default ephemeral ports, each held for 60 seconds in TIME_WAIT, support roughly 470 new connections per second to one destination. A file descriptor limit gives EMFILE ('Too many open files'), and a full backlog shows up as connect timeouts or resets, not EADDRNOTAVAIL. The fix is connection pooling."
+      - id: q3
+        kind: multi
+        prompt: Which statements about flow control and congestion control are true?
+        options:
+          - Flow control protects the receiver through the window it advertises
+          - Congestion control protects the network through a window the sender keeps
+          - The sender may have at most the smaller of the two windows unacknowledged
+          - Both endpoints must agree on the congestion control algorithm during the handshake
+        answer: [0, 1, 2]
+        explanation: "rwnd is advertised by the receiver; cwnd is the sender's own estimate; in-flight data is bounded by min(rwnd, cwnd). Congestion control is a sender-side choice and is not negotiated: a CUBIC sender and a BBR sender can talk to each other."
+      - id: q4
+        kind: single
+        prompt: On a lossy mobile network, a page loaded over one HTTP/2 connection stalls for a moment whenever a single packet is lost, even for requests unrelated to that packet. Why?
+        options:
+          - HTTP/2 header compression must be reset after loss
+          - TCP delivers bytes in order, so every stream on the connection waits for the retransmission
+          - The browser cancels all streams on loss and reissues them
+          - Congestion control closes the connection after a loss
+        answer: [1]
+        explanation: "HTTP/2 removes HTTP-level head-of-line blocking, but all its streams share one TCP byte stream, and TCP cannot hand later bytes to the application until the gap is filled. HTTP/3 over QUIC fixes this with per-stream ordering. Congestion control shrinks the window after loss; it does not close the connection."
+      - id: q5
+        kind: single
+        prompt: "`ss -tan` on an API server shows 9,000 sockets in CLOSE_WAIT and the number keeps growing. What does it tell you?"
+        options:
+          - The kernel is waiting 60 seconds before releasing the sockets
+          - The peers closed their side and your application has not called close() on its sockets
+          - The server is under a SYN flood
+          - The TCP keepalive interval is too long
+        answer: [1]
+        explanation: "CLOSE_WAIT means a FIN was received and the kernel is waiting for the local application to close. It never times out on its own, so a growing count is a resource leak in the code (for example a response or connection object never closed). The 60-second wait describes TIME_WAIT, the other side's state."
+      - id: q6
+        kind: short
+        prompt: You are building live position updates for a multiplayer game, sent 20 times per second. Why might you choose UDP over TCP, and what do you then have to build yourself?
+        model_answer: "Each update supersedes the previous one, so a lost update should be skipped, not waited for; with TCP one lost segment stalls every later update for at least one RTT (head-of-line blocking). Over UDP I would add sequence numbers to drop stale or duplicate packets, keep each message under the path MTU (about 1,200 bytes is a safe payload) to avoid fragmentation, send rate-limited updates so I do not flood a congested link, and use a separate reliable channel (TCP or reliable messages over UDP) for things that must arrive, such as purchases or chat. I would also plan for networks that block UDP."
+        explanation: The answer should name head-of-line blocking as the reason and list ordering, loss handling, congestion and a reliable side channel as the work UDP leaves to you.
+- key: net.tcp.interview
+  type: interview_question
+  title: "Interview question: choosing the transport"
+  skills: [network.tcp_ip_udp]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: |-
+      A video-calling product has three flows: the live audio and video media, the text chat in the call, and the upload of the call recording to storage afterwards. For each, pick a transport (TCP, UDP, or a protocol on top of one of them), justify the choice with the properties of the protocol, and say what the application has to add.
+    key_points:
+      - "Media over UDP (in practice RTP over UDP, as WebRTC does): late audio is useless, so loss is concealed rather than retransmitted and head-of-line blocking is avoided."
+      - "States what UDP leaves to the application: sequence numbers or timestamps, jitter buffering, congestion and bitrate adaptation, and NAT traversal."
+      - "Chat over a reliable, ordered channel (TCP-based such as WebSocket, or a reliable data channel): every message must arrive and order matters."
+      - "Recording upload over TCP (HTTPS): throughput and completeness matter, latency does not; resumable chunked upload for large files."
+      - "Mentions the cost of TCP: one RTT handshake plus TLS, and head-of-line blocking on loss."
+      - Mentions that some networks block UDP, so a TCP fallback (for example relaying over TLS on port 443) is needed.
+    model_answer: |-
+      Media goes over UDP because a packet that arrives 300 ms late is worse than a lost one: the receiver conceals the loss and keeps playing. TCP would retransmit and stall every later packet behind the lost one. The application adds sequence numbers and timestamps, a jitter buffer, bitrate adaptation as its congestion control, and NAT traversal; this is what RTP and WebRTC provide. Chat needs every message in order, so a reliable channel fits: a WebSocket over TCP or a reliable ordered data channel. The recording upload is bulk data where completeness matters and latency does not, so HTTPS over TCP with chunked, resumable uploads. Because some networks block UDP, the media path needs a fallback relayed over TCP or TLS on port 443, accepting worse quality.
+    pitfalls:
+      - Saying "UDP because it is faster" without naming head-of-line blocking or the staleness of late media.
+      - Choosing UDP for chat and then reinventing retransmission and ordering.
+      - Forgetting that UDP gives no congestion control, so the app must adapt its bitrate.
+    follow_ups:
+      - prompt: Why not use TCP for media and simply set TCP_NODELAY?
+        look_for: TCP_NODELAY only disables Nagle batching; a lost segment still blocks all later bytes until retransmitted, and the retransmitted audio is already too late.
+      - prompt: What does QUIC change in this picture?
+        look_for: QUIC runs on UDP with per-stream ordering, built-in TLS 1.3 and congestion control, so independent streams do not block each other and setup takes one RTT; it can carry reliable streams and, with datagram extensions, unreliable data.
+      - prompt: How does a client behind NAT receive UDP packets from the other participant?
+        look_for: NAT mappings are created by outbound packets; peers use STUN to learn their public address and hole punching, with a TURN relay when direct paths fail. Mappings expire when idle, so keepalive packets are needed.
+- key: net.tcp.debugging_lb
+  type: debugging_exercise
+  title: "Debugging: intermittent 502s after a deploy behind a load balancer"
+  skills: [network.tcp_ip_udp, sd.load_balancing_cdn, network.http]
+  minutes: 20
+  difficulty: HARD
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 1200}
+  body:
+    scenario: |-
+      A Python API ran on gunicorn with sync workers behind an L7 load balancer. Last week the team switched to uvicorn workers and redeployed. The load balancer keeps idle connections to backends open for up to 60 seconds and reuses them. Since the change, roughly one request in a thousand fails with a 502 from the load balancer. The application logs show no error for those requests; they never reached the handler. Separately, every deploy causes a burst of 502 and 503 errors lasting about 20 seconds.
+    symptoms:
+      - The steady 502 rate is higher at night, when traffic is low, than at peak.
+      - Failed requests are mostly the first request sent on a backend connection that had been idle for a few seconds.
+      - The load balancer logs a backend connection reset or "upstream closed connection" for the failing requests.
+      - POST requests fail more visibly than GET; the balancer's retry policy covers idempotent methods only.
+      - During deploys, failures start the moment old containers receive SIGTERM.
+    artifacts: |-
+      $ uvicorn app.main:app --workers 4          # --timeout-keep-alive not set (uvicorn default: 5 seconds)
+
+      tcpdump on a backend, filtered to one connection:
+      12:00:00.000  LB -> app   GET /orders/7   (response sent, connection idle)
+      12:00:05.001  app -> LB   FIN             (app closes the idle connection after 5 s)
+      12:00:05.001  LB -> app   POST /orders    (balancer reused the connection at the same moment)
+      12:00:05.002  app -> LB   RST
+    tasks:
+      - Explain the mechanism behind the steady 502s, including why low traffic makes them more frequent.
+      - Propose the configuration change and the rule behind it.
+      - Explain the separate deploy-time burst and how to remove it.
+      - Say how you would verify each fix.
+    hints:
+      - Compare the idle timeout on each side of the balancer-to-backend connection.
+      - Who closes an idle connection, and what if the other side sends a request at that instant?
+      - What happens to connections and in-flight requests when a container gets SIGTERM?
+    reference: |-
+      **Steady 502s: idle-timeout race.** The backend closes idle keep-alive connections after 5 seconds, but the balancer believes they are usable for 60. When the backend's FIN and the balancer's next request cross on the wire, the request arrives at a socket the backend has closed, the kernel answers with RST, and the balancer returns 502 without the application ever seeing the request. At low traffic more pooled connections sit idle past 5 seconds, so the race happens more often. gunicorn's sync workers do not support persistent connections and closed the connection after every response, so the balancer never reused one; switching to a keep-alive server exposed the mismatch.
+
+      **Fix and rule.** The side that reuses idle connections must also be the side that closes them: the backend's keep-alive timeout must be longer than the balancer's idle timeout, for example `uvicorn --timeout-keep-alive 65` against a 60-second balancer (or lower the balancer's backend idle timeout below the server's). Apply the same rule to every hop (CDN to balancer, balancer to sidecar, sidecar to app).
+
+      **Deploy burst.** Containers are killed while the balancer still routes to them and while requests are in flight. Fix it with graceful shutdown: on SIGTERM, fail the readiness check first, let the balancer deregister the target (deregistration delay or connection draining long enough for the slowest request), stop accepting new connections, finish in-flight requests, then exit. In Kubernetes a short `preStop` sleep covers the delay before endpoints are removed.
+
+      **Verification.** Graph 502s by backend connection idle age (or by balancer error reason) before and after; a tcpdump should no longer show backend-initiated FINs on pooled connections. For deploys, run a constant load test through a rolling deploy and require zero 5xx.
+    rubric:
+      - {key: mechanism, label: "Explains the race: backend closes an idle connection while the balancer sends a request on it, giving RST and 502", points: 4}
+      - {key: timeout_rule, label: Sets the backend keep-alive timeout above the balancer idle timeout and states the rule for every hop, points: 2}
+      - {key: low_traffic, label: Explains why low traffic increases the failure rate, points: 1}
+      - {key: draining, label: "Fixes deploys with readiness failure, connection draining and graceful shutdown on SIGTERM", points: 2}
+      - {key: verification, label: Names a concrete measurement to confirm each fix, points: 1}
+    follow_ups:
+      - prompt: Why do retries in the balancer hide the problem for GET but not for POST?
+        look_for: The balancer may retry idempotent requests on a reset connection; retrying a POST risks a duplicate side effect, so it returns the 502. Idempotency keys would make POST retries safe.
+      - prompt: The same service uses HTTP/2 to the backend through an L4 balancer and one backend runs at 90 percent CPU while others idle. Why?
+        look_for: L4 balances connections; HTTP/2 multiplexes many requests over a few long-lived connections, so load follows connections. Use L7 (request-level) balancing or periodically recycle connections.
+- key: net.tcp.cards
+  type: revision_card
+  title: "Recall: TCP, UDP and connection states"
+  skills: [network.tcp_ip_udp]
+  minutes: 5
+  body:
+    cards:
+      - front: Cost of a new TCP connection before the first request byte?
+        back: One RTT for the handshake (plus at least one more for TLS 1.3).
+      - front: Who gets TIME_WAIT, and for how long on Linux?
+        back: The side that sends the first FIN; 60 seconds, fixed.
+      - front: Many sockets stuck in CLOSE_WAIT means?
+        back: "The peer closed and your application never called close(): a code leak."
+      - front: Flow control vs congestion control?
+        back: Flow control protects the receiver (rwnd); congestion control protects the network (cwnd).
+      - front: TCP head-of-line blocking?
+        back: One lost segment holds back all later bytes on the connection until it is retransmitted.
+      - front: HTTP keep-alive vs TCP keepalive?
+        back: Reusing a connection for many requests vs idle probes that detect a dead peer.
+
+# ---------------------------------------------------------------------------------------------- DNS
+- key: net.dns.lesson
+  type: lesson
+  title: DNS resolution, caching and the records you will touch
+  skills: [network.dns]
+  minutes: 20
+  difficulty: MEDIUM
+  body:
+    summary: DNS is a distributed, cached database that maps names to records; most DNS "outages" in practice are caching behaving exactly as configured.
+    what: |-
+      The Domain Name System maps names such as `api.example.com` to records. The namespace is a tree: the root, top-level domains (`.com`), and zones delegated to their owners. Two kinds of servers matter:
+
+      - **Authoritative servers** hold the records for a zone and answer for it (your DNS provider for `example.com`).
+      - **Recursive resolvers** (your ISP's, a VPC resolver, `8.8.8.8`, `1.1.1.1`) do the lookup on behalf of clients and cache the answers.
+
+      The records you will touch:
+
+      - **A** maps a name to an IPv4 address; **AAAA** to an IPv6 address.
+      - **CNAME** makes a name an alias of another name; the resolver then looks up the target. A CNAME cannot coexist with other records at the same name, so it cannot sit at the zone apex (`example.com` itself, which must have SOA and NS records). Providers offer ALIAS or "CNAME flattening" features for that case.
+      - **MX** names the mail servers for a domain, each with a preference; the lowest number is tried first. It points to a hostname, never to an IP.
+      - **NS** delegates a zone to its authoritative nameservers; **TXT** carries text (SPF, domain verification); **SOA** holds zone metadata including the negative-caching TTL; **PTR** is used for reverse lookups.
+    why: |-
+      Names decouple clients from addresses: you can move servers, add load balancers, fail over regions or put a CDN in front without changing clients. The hierarchy spreads the load and the authority; caching makes the whole thing fast enough to sit in front of nearly every connection.
+    when: |-
+      Every new connection to a hostname starts with a lookup unless the answer is cached. You think about DNS explicitly when you migrate or fail over a service, set up a CDN or a custom domain, debug "works for me but not for them", design client-side load balancing or service discovery, or investigate a slow first request.
+    how: |-
+      Resolving `api.example.com` with an empty cache:
+
+      1. The application asks the OS **stub resolver**, which checks the hosts file and its cache, then sends a **recursive** query to the configured resolver.
+      2. The recursive resolver asks a **root** server, which refers it to the `.com` servers (NS records, plus glue addresses).
+      3. It asks a `.com` server, which refers it to the authoritative nameservers for `example.com`.
+      4. It asks an authoritative server, which returns the answer, for example a CNAME to `lb-123.provider.net`, which the resolver then resolves the same way to A or AAAA records.
+      5. The resolver returns the answer to the client and caches every step for the record's **TTL**. The next client asking the same resolver gets a cached answer in about a millisecond.
+
+      The client-to-resolver query is recursive ("give me the final answer"); the resolver-to-server queries are iterative (each server answers or refers). Queries normally use UDP port 53; when an answer is too large for the UDP payload the server sets the truncation bit and the client retries over TCP. Negative answers (NXDOMAIN) are cached too, for a time derived from the zone's SOA record. Encrypted variants (DNS over TLS, DNS over HTTPS) protect the client-to-resolver leg.
+    mental_model: |-
+      A chain of librarians with notebooks. You ask your librarian (the resolver); if it is not in their notebook they ask the head office, which points them to a branch, which points them to the shelf that actually has the book. Everyone writes the answer in their notebook with an expiry date (TTL), and nobody looks again before it expires, even if the book moved.
+    tradeoffs: |-
+      - **Low TTL (30–60 s)**: changes and failovers take effect quickly, but more queries reach the authoritative servers and more client lookups are cache misses.
+      - **High TTL (hours)**: fast, resilient to provider outages (cached answers keep working), but a change can take that long to reach everyone.
+      - **DNS-based load balancing and failover**: simple and global, but coarse: clients cache answers, some ignore TTLs, and long-lived connections never re-resolve. Health-aware load balancers behind a stable name react in seconds instead.
+    mistakes:
+      - Lowering the TTL at the same moment as the change. Resolvers that cached the old record keep it for the old TTL; lower it at least one old TTL before the migration.
+      - Expecting a DNS change to move existing traffic. Pooled and long-lived connections keep talking to the old IP until they reconnect.
+      - Querying a name before creating its record, then wondering why it stays NXDOMAIN for minutes (negative caching).
+      - Putting a CNAME at the zone apex, or next to other records at the same name.
+      - Resolving a hostname once at process start and caching the address forever in application code.
+    interview: |-
+      Usually appears inside "what happens when you type a URL", or as "how does DNS resolution work?". Name the stub resolver, the recursive resolver and the authoritative servers, distinguish recursive from iterative queries, and talk about TTL and caching at every layer. Follow-ups: how to migrate with minimal downtime, why some users still hit the old server, CNAME vs A, how a CDN uses DNS.
+    explain_it:
+      - Separate the recursive resolver from authoritative servers.
+      - Walk the referral chain root, TLD, authoritative.
+      - "Explain caching and TTL at every layer: browser, OS, resolver."
+      - Explain the TTL plan for a migration and why existing connections ignore DNS.
+    example:
+      language: text
+      code: |-
+        $ dig +noall +answer api.example.com
+        api.example.com.        300   IN  CNAME  lb-123.provider.net.
+        lb-123.provider.net.     60   IN  A      203.0.113.10
+        lb-123.provider.net.     60   IN  A      203.0.113.11
+
+        $ dig +trace api.example.com      # shows root -> .com -> example.com referrals step by step
+      explanation: The TTL column counts down in a resolver's cache. Two A records let clients spread across two addresses; most clients try them in order and fall back on failure.
+    internals: |-
+      There are 13 named root server identities, each served by many machines through anycast, so the root is not a bottleneck; most lookups never reach it because resolvers cache the TLD referrals for days. Glue records (A or AAAA records for nameservers inside the zone they serve) break the chicken-and-egg problem of `ns1.example.com` serving `example.com`. EDNS(0) lets clients advertise larger UDP payloads than the original 512 bytes, which DNSSEC signatures need.
+    edge_cases:
+      - Some client runtimes and HTTP libraries cache resolved addresses for their own duration, independent of the TTL.
+      - Split-horizon DNS returns different answers inside and outside a network, so the same name resolves differently on a laptop and in a container.
+      - Negative caching means a typo or premature query can delay a new record for the SOA's negative TTL.
+    misconceptions:
+      - "DNS propagation is a push. Nothing is pushed: resolvers simply hold cached answers until the TTL expires."
+      - The authoritative server is asked on every lookup. Most lookups are answered from a resolver's cache.
+- key: net.dns.check
+  type: concept_check
+  title: "Concept check: DNS resolution and caching"
+  skills: [network.dns]
+  minutes: 8
+  difficulty: MEDIUM
+  body:
+    intro: Think about who caches what, and for how long.
+    questions:
+      - id: q1
+        kind: single
+        prompt: A recursive resolver with an empty cache receives a query for api.example.com. What does it do first?
+        options:
+          - Asks the authoritative server for example.com directly
+          - Asks a root server, which refers it to the .com servers
+          - Broadcasts the query to the local network
+          - Asks the client's OS for the answer
+        answer: [1]
+        explanation: "With nothing cached the resolver does not know where example.com's servers are, so it starts at the root (whose addresses it ships with), follows the referral to .com, then to example.com's authoritative servers. It goes straight to the authoritative server only once the NS referral is cached."
+      - id: q2
+        kind: multi
+        prompt: Which statements about record types are true?
+        options:
+          - An AAAA record maps a name to an IPv6 address
+          - A CNAME cannot be placed at the zone apex such as example.com
+          - An MX record with preference 10 is tried before one with preference 20
+          - A CNAME record returns an IP address to the client
+        answer: [0, 1, 2]
+        explanation: "AAAA is IPv6. The apex must hold SOA and NS records, and a CNAME cannot coexist with other records. Lower MX preference wins. A CNAME returns another name, which must then be resolved to A or AAAA records; it never contains an address itself."
+      - id: q3
+        kind: single
+        prompt: Your A record has a TTL of 86400 seconds. At 10:00 you change the IP and set the TTL to 60 in the same edit. When can you be sure every well-behaved resolver uses the new IP?
+        options: ["About 10:01", "About 11:00", "About 10:00 the next day", "Immediately; the change is pushed"]
+        answer: [2]
+        explanation: "A resolver that cached the old record just before 10:00 keeps it for the old TTL, 24 hours. The new 60-second TTL only applies to answers fetched after the change. Lowering the TTL a day ahead would have made the switch take about a minute."
+      - id: q4
+        kind: single
+        prompt: Which transport does a typical DNS query use?
+        options:
+          - TCP port 53 only
+          - UDP port 53, retrying over TCP when the answer is truncated
+          - HTTPS port 443 only
+          - UDP port 443
+        answer: [1]
+        explanation: "Plain DNS uses UDP 53 for small answers and falls back to TCP 53 when the truncation bit is set (large answers, zone transfers). DNS over HTTPS exists but is an encrypted alternative, not the default for most servers."
+      - id: q5
+        kind: single
+        prompt: After a database failover, DNS for db.internal returns the new primary, but an application server keeps writing to the old primary for an hour. What is the most likely explanation?
+        options:
+          - The authoritative DNS server has not updated yet
+          - The application holds pooled connections opened to the old address and does not re-resolve
+          - The TTL on the record is one hour
+          - The OS ignores CNAME records
+        answer: [1]
+        explanation: "DNS only matters when a new connection is opened. A pool of long-lived connections keeps using the old IP until connections are recycled. A long TTL could explain stale lookups, but the scenario says DNS already returns the new primary; the fix is maximum connection lifetime or reconnect on failover."
+      - id: q6
+        kind: short
+        prompt: You create a record for new.example.com, but for several minutes some clients still get NXDOMAIN while others resolve it. Explain.
+        model_answer: "Negative caching. A resolver that looked up new.example.com before the record existed cached the NXDOMAIN answer for the negative TTL taken from the zone's SOA record, and keeps answering NXDOMAIN until it expires. Resolvers that never asked, or asked after the record was created, resolve it immediately. Avoid querying a name before it exists, or keep the SOA negative TTL short."
+        explanation: Negative answers are cached like positive ones; the duration comes from the SOA record, not from the new record's TTL.
+- key: net.dns.debugging
+  type: debugging_exercise
+  title: "Debugging: a DNS cutover that only half happened"
+  skills: [network.dns, network.tcp_ip_udp]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    scenario: |-
+      You moved `api.example.com` from an old load balancer (IP 198.51.100.7) to a new one (203.0.113.10) by editing its A record at 09:00. Six hours later about 15 percent of requests still arrive at the old load balancer. Your public resolver test shows the new IP. The old load balancer must be shut down tomorrow.
+    symptoms:
+      - The A record had a TTL of 86400 seconds until 09:00; the edit also set it to 300.
+      - Most stale traffic comes from a handful of partner integrations and from your own batch workers.
+      - The batch workers are long-running processes with an HTTP connection pool and have not restarted since last week.
+      - A few partner IPs keep hitting the old IP even after the 24-hour mark in earlier migrations.
+    artifacts: |-
+      $ dig +noall +answer api.example.com @1.1.1.1
+      api.example.com.   300   IN   A   203.0.113.10
+
+      $ dig +noall +answer api.example.com @old-office-resolver
+      api.example.com. 64812   IN   A   198.51.100.7
+    tasks:
+      - Explain each source of stale traffic separately.
+      - Say what you can and cannot fix from your side, and how.
+      - Write the procedure you would follow for the next migration.
+    hints:
+      - Read the TTL column in the second dig output.
+      - Does a DNS change affect a connection that is already open?
+      - Some clients pin addresses regardless of TTL.
+    reference: |-
+      **Three causes.** First, resolvers that cached the record before 09:00 hold it for the old 24-hour TTL (the office resolver still has about 18 hours left); the new 300-second TTL only applies to fresh lookups. Second, the batch workers keep pooled keep-alive connections to the old IP and never re-resolve while those connections live. Third, some clients pin addresses: hard-coded IPs, firewall allowlists by IP, or runtimes that cache lookups beyond the TTL.
+
+      **What to do now.** Keep the old load balancer running and forwarding to the new backend until stale traffic drains; it cannot be forced from DNS. Restart or recycle the batch workers' pools (and add a maximum connection lifetime). Contact the partners whose traffic still arrives after the TTL window, with their source IPs as evidence. Measure the old balancer's request rate per client to know when it is safe to turn off.
+
+      **Next migration.** At least one old TTL before the change, lower the TTL (for example to 60 seconds). Bring up the new target and verify it. Switch the record. Keep the old target serving (or proxying) for well beyond the old TTL. Set a maximum connection lifetime in your own clients so pools re-resolve. Turn the old target off only when its traffic is near zero, then raise the TTL again.
+    rubric:
+      - {key: resolver_cache, label: Explains that resolvers keep the old answer for the old 86400-second TTL, points: 3}
+      - {key: pooled_connections, label: Identifies pooled long-lived connections that never re-resolve, points: 3}
+      - {key: pinned_clients, label: Names clients that pin IPs or ignore TTLs, points: 1}
+      - {key: procedure, label: "Gives a migration procedure: lower TTL early, keep old target serving, cap connection lifetime, measure before shutdown", points: 3}
+    follow_ups:
+      - prompt: Could you use a CNAME to make future migrations easier? What is the catch at example.com itself?
+        look_for: Point names at a provider hostname so the provider can change addresses; a CNAME cannot be at the apex, so use the provider's ALIAS or flattening feature.
+      - prompt: Why is DNS-based failover slower than failover inside a load balancer?
+        look_for: DNS failover waits for caches to expire and for clients to reconnect; a load balancer behind a stable address removes an unhealthy target within health-check intervals.
+- key: net.dns.cards
+  type: revision_card
+  title: "Recall: DNS"
+  skills: [network.dns]
+  minutes: 5
+  body:
+    cards:
+      - front: Recursive resolver vs authoritative server?
+        back: The resolver looks things up and caches; the authoritative server owns and answers for the zone.
+      - front: Why can a CNAME not sit at example.com?
+        back: The apex needs SOA and NS records, and a CNAME cannot coexist with other records.
+      - front: When should you lower a TTL before a migration?
+        back: At least one old TTL before the change.
+      - front: Why do some clients ignore a DNS change for hours?
+        back: Cached answers until TTL expiry, plus open connections that never re-resolve.
+      - front: How long is an NXDOMAIN answer cached?
+        back: For the negative TTL derived from the zone's SOA record.
+      - front: Default DNS transport?
+        back: UDP port 53, retried over TCP when the answer is truncated.

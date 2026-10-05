@@ -1,0 +1,481 @@
+# Learning content: operating systems — processes vs threads, fork/exec, IPC, scheduling, context switches, system calls (Linux-oriented).
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- processes and threads
+- key: os.processes_threads.lesson
+  type: lesson
+  title: Processes and threads, and what they really share
+  skills: [os.processes_threads]
+  minutes: 25
+  difficulty: EASY
+  body:
+    summary: A process is an isolated address space plus resources; a thread is one flow of execution inside it that shares everything except its stack and registers.
+    what: |-
+      A **process** is a running program together with the resources the kernel tracks for it: a private virtual address space (code, globals, heap, memory mappings), a file descriptor table, a current directory, credentials, signal handlers and at least one thread.
+
+      A **thread** is a schedulable flow of execution inside a process. Threads of the same process share the address space and most resources; each thread has its own:
+
+      - stack (its local variables and call frames),
+      - register set, including the program counter and stack pointer,
+      - thread id, signal mask and thread-local storage (`errno` is per thread).
+
+      On Linux both are **tasks** to the kernel. `fork()` creates a task with a copy of the parent's address space; `pthread_create()` calls `clone()` with flags such as `CLONE_VM`, `CLONE_FILES` and `CLONE_THREAD`, so the new task shares the memory and file table. `getpid()` returns the shared thread-group id; `gettid()` returns the per-thread id.
+    why: |-
+      Isolation and sharing pull in opposite directions. Separate processes cannot corrupt each other's memory, and one crashing does not take the others down, which is why browsers, PostgreSQL backends and pre-fork web servers (gunicorn workers) use processes. Threads communicate by reading the same memory, with no copying and no kernel round trip, which makes them cheap to create and fast to coordinate, at the price of data races and a shared fate: a segfault in one thread kills the whole process.
+    when: |-
+      - Use **threads** when tasks need to share a lot of in-memory state cheaply, mostly wait on I/O, and you can control access to shared data.
+      - Use **processes** when you need fault isolation, separate privileges, crash containment, or (in CPython) parallel CPU work across cores.
+      - Use **fork + exec** to run another program; that is how a shell, `subprocess` and cron start commands.
+    how: |-
+      **Process lifecycle.** The textbook states are new, ready, running, blocked (waiting) and terminated. Linux `ps` shows them as letters:
+
+      - `R` running or runnable (on a CPU or in the run queue),
+      - `S` interruptible sleep (waiting for an event such as a socket read; a signal can wake it),
+      - `D` uninterruptible sleep (usually waiting on disk or NFS I/O; signals are deferred),
+      - `T` stopped (for example by `SIGSTOP` or a debugger),
+      - `Z` zombie (exited, but the parent has not called `wait()` yet).
+
+      **fork and exec.** `fork()` returns twice: `0` in the child, the child's pid in the parent. The child gets a copy of the parent's memory, but Linux does this with **copy-on-write**: both processes map the same physical pages read-only and a page is copied only when one side writes to it. The child also gets a copy of the file descriptor table whose entries point to the **same open file descriptions**, so parent and child share file offsets. `execve()` then replaces the code, data, heap and stack with a new program; the pid stays the same and descriptors without the close-on-exec flag stay open. When the child exits, it stays a zombie until the parent reaps it with `wait()`/`waitpid()`; if the parent dies first, the child is re-parented to init (or a subreaper) which reaps it.
+
+      **Creation cost.** Creating a thread allocates a stack (on Linux with glibc the default is the `ulimit -s` value, commonly 8 MiB of virtual memory, of which only touched pages use RAM) and a kernel task. Forking also copies the page tables and other per-process structures, so its cost grows with the parent's mapped memory even though data pages are shared until written. Both are far more expensive than handing work to an existing thread, which is why servers use pools.
+    mental_model: |-
+      A process is a house: walls (the address space), a front door key set (file descriptors) and an owner (credentials). Threads are people living in the house. They share every room and the fridge, so they can cooperate instantly but can also eat each other's food; each one has their own notebook (stack) and their own place in the to-do list (program counter). A new process is a new house; fork builds a copy that shares furniture until someone repaints a room.
+    tradeoffs: |-
+      - Threads: cheap creation, cheap communication, one address space, but shared-memory bugs (races, deadlocks), and one bad pointer or unhandled fatal signal ends every thread.
+      - Processes: strong isolation, independent crash and restart, separate limits, but communication needs IPC (pipes, sockets, shared memory) and each process has its own memory footprint.
+      - Many processes with copy-on-write can share read-only pages (a pre-forked server that loads code before forking), but writing to objects touches their pages and un-shares them. In CPython even reading an object updates its reference count, so pages slowly get copied.
+    mistakes:
+      - Saying threads share nothing but the code, or that they share the stack. They share the heap, globals and file descriptors; each has its own stack and registers.
+      - Saying fork copies all memory immediately. Linux uses copy-on-write; only page tables and kernel structures are copied up front.
+      - Forgetting to `wait()` for children, which leaves zombies that hold a pid and an exit status until reaped.
+      - Calling `fork()` in a multithreaded program and continuing to run normal code in the child. Only the calling thread is copied; locks held by other threads stay locked forever in the child. Between fork and exec the child should only call async-signal-safe functions.
+      - Believing a thread crash is contained. A segfault in any thread terminates the whole process.
+    interview: |-
+      Expect "what is the difference between a process and a thread?" as an opener and a follow-up that tests depth: what exactly is shared, what fork copies, why a crash in one thread is fatal, why pre-fork servers use processes, what a zombie is, or why `fork()` in a threaded program is dangerous. Strong answers name concrete resources (address space, fd table, stack, registers) and mention copy-on-write without being prompted.
+    explain_it:
+      - Define both in one sentence each, with the address space as the dividing line.
+      - "List what threads share (heap, globals, code, fds, cwd) and what is per thread (stack, registers, TID, TLS)."
+      - Explain fork with copy-on-write and exec replacing the image.
+      - Give one reason to pick each, with a real example (pre-fork workers, a thread pool).
+    example:
+      language: python
+      code: |-
+        import os, threading
+
+        counter = 0                      # a global in this process's address space
+
+        def bump():
+            global counter
+            counter += 1
+
+        t = threading.Thread(target=bump)
+        t.start(); t.join()
+        print("after thread:", counter, flush=True)  # 1: the thread changed the shared global
+
+        pid = os.fork()
+        if pid == 0:                     # child: works on a copy-on-write copy
+            bump()
+            print("child sees:", counter, flush=True)  # 2
+            os._exit(0)
+        os.waitpid(pid, 0)               # reap the child, no zombie
+        print("parent sees:", counter)  # still 1: the child's write copied the page
+      explanation: The thread's write is visible to the main thread because they share memory; the child's write lands on its private copy of the page, so the parent never sees it.
+    internals: |-
+      In the Linux kernel every thread and process is a `task_struct`. Threads of one process point at the same `mm_struct` (the address space and page tables), the same `files_struct` (fd table) and the same signal handler table. A context switch between two threads of one process therefore does not need to switch page tables, which is one reason it is cheaper than a switch between processes.
+    edge_cases:
+      - A zombie cannot be killed; it is already dead. Kill or fix the parent that does not reap it.
+      - "A process stuck in state `D` usually ignores even `SIGKILL` until the I/O wait ends."
+      - "The child of fork inherits the parent's buffered but unflushed stdio output; it may be printed twice unless you flush before forking or exit the child with `os._exit`."
+    misconceptions:
+      - "Threads are always faster than processes. They are cheaper to create and to switch, but for CPU-bound Python code processes are the only way to use several cores."
+      - "A thread has its own memory. It has its own stack, but the stack lives in the shared address space, so another thread can still corrupt it through a stray pointer in C."
+- key: os.processes_threads.worked_pipeline
+  type: worked_example
+  title: "Worked example: what a shell does to run ls | wc -l"
+  skills: [os.processes_threads]
+  minutes: 15
+  difficulty: MEDIUM
+  body:
+    problem: Trace the system calls a Unix shell makes to run a two-command pipeline, and explain why each one is needed. The Python below mirrors the C calls one to one (Linux or macOS).
+    steps:
+      - title: Create the pipe before forking
+        text: "`pipe()` returns two descriptors: a read end and a write end backed by a kernel buffer (64 KiB by default on Linux). It must exist before `fork()` so both children inherit it."
+        code:
+          language: python
+          code: |-
+            import os
+            r, w = os.pipe()
+      - title: Fork the producer and wire its stdout
+        text: "In the first child, `dup2(w, 1)` makes descriptor 1 (stdout) point at the pipe's write end. Then it closes the originals and calls `exec`, which replaces the program but keeps descriptor 1. `ls` never knows it writes to a pipe."
+        code:
+          language: python
+          code: |-
+            pid1 = os.fork()
+            if pid1 == 0:
+                os.dup2(w, 1)
+                os.close(r); os.close(w)
+                os.execvp("ls", ["ls"])      # does not return on success
+      - title: Fork the consumer and wire its stdin
+        text: "The second child points descriptor 0 (stdin) at the read end and execs `wc -l`. `wc` reads until end of file."
+        code:
+          language: python
+          code: |-
+            pid2 = os.fork()
+            if pid2 == 0:
+                os.dup2(r, 0)
+                os.close(r); os.close(w)
+                os.execvp("wc", ["wc", "-l"])
+      - title: Close the parent's copies, then reap
+        text: "A reader sees end of file only when **every** write end is closed. If the parent keeps `w` open, `wc` blocks forever. Then `waitpid` collects each exit status so no zombie remains."
+        code:
+          language: python
+          code: |-
+            os.close(r); os.close(w)
+            os.waitpid(pid1, 0)
+            os.waitpid(pid2, 0)
+      - title: What the pipe does under load
+        text: "If `ls` writes faster than `wc` reads, the pipe buffer fills and `write()` blocks: built-in back-pressure. If `wc` exits early, the next write by `ls` gets `SIGPIPE` (or `EPIPE` if the signal is ignored)."
+    takeaways:
+      - fork duplicates the process, exec replaces its program; the pid survives exec.
+      - Redirection is just rearranging the fd table with dup2 between fork and exec.
+      - Unclosed write ends are the classic reason a pipeline never terminates.
+      - The parent must wait for every child or it accumulates zombies.
+    complexity: "Two forks, two execs, one pipe and two waits. In Python 3.4 and later `os.pipe()` descriptors are non-inheritable (close-on-exec) by default, while `os.dup2` makes the target descriptor inheritable, which is exactly what the pipeline needs."
+- key: os.processes_threads.check
+  type: concept_check
+  title: "Concept check: processes, threads and fork"
+  skills: [os.processes_threads]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Answer closed-book. Linux semantics unless stated otherwise.
+    questions:
+      - id: q1
+        kind: single
+        prompt: Which of these is NOT shared by two threads of the same process?
+        options: ["The heap", "Open file descriptors", "The call stack", "Global variables"]
+        answer: [2]
+        explanation: "Each thread has its own stack and registers so it can call functions independently. The heap, globals and fd table belong to the process and are shared, which is exactly why threads need locks. The tempting answer is file descriptors, but closing an fd in one thread closes it for all."
+      - id: q2
+        kind: single
+        prompt: How many times does this program print "hi"?
+        code:
+          language: python
+          code: |-
+            import os
+            for _ in range(3):
+                os.fork()
+            print("hi")
+        options: ["3", "4", "6", "8"]
+        answer: [3]
+        explanation: "Every existing process forks at each iteration, so the count doubles three times: 2 × 2 × 2 = 8 processes, each printing once. Counting 3 or 4 forgets that children also continue the loop."
+      - id: q3
+        kind: multi
+        prompt: Which statements about fork() on Linux are true?
+        options:
+          - The child's memory is copied page by page only when either process writes to a page
+          - The child gets its own fd table whose entries share file offsets with the parent's
+          - All threads of the parent are duplicated in the child
+          - The child has the same pid as the parent until it calls exec
+        answer: [0, 1]
+        explanation: "Copy-on-write defers copying, and the duplicated fd table points at the same open file descriptions, so offsets are shared. Only the thread that called fork exists in the child (other threads' locks may be left held). The child gets a new pid at fork; exec keeps whatever pid the process already has."
+      - id: q4
+        kind: single
+        prompt: "`ps` shows a process in state `Z` that has been there for hours. What is going on?"
+        options:
+          - It is waiting on disk I/O and cannot be interrupted
+          - It has exited, but its parent has not called wait() to collect the exit status
+          - It is stopped by a debugger
+          - It is using too much memory and is about to be killed
+        answer: [1]
+        explanation: "Z is a zombie: the process is dead and its memory is freed, but the kernel keeps its pid and exit status for the parent. The fix is in the parent (reap children or handle SIGCHLD). Waiting on disk I/O is state D, not Z."
+      - id: q5
+        kind: single
+        prompt: One thread in a multithreaded C service dereferences a null pointer. What happens by default?
+        options:
+          - Only that thread dies; the others keep serving
+          - The whole process is terminated by SIGSEGV
+          - The kernel restarts the thread
+          - The faulting thread is suspended until a debugger attaches
+        answer: [1]
+        explanation: "SIGSEGV is delivered to the faulting thread, but its default action terminates the process, killing every thread. That shared fate is a key argument for process isolation. Python raises exceptions for most errors, but a crash in a C extension has the same effect."
+      - id: q6
+        kind: short
+        prompt: You run CPU-heavy image resizing in a Python web service. Would you use a thread pool or a process pool, and what does the choice cost you?
+        model_answer: "A process pool. In CPython the GIL lets only one thread execute Python bytecode at a time, so threads give no parallel speed-up for pure-Python CPU work, while separate processes run on separate cores. The cost is higher memory (each worker has its own interpreter and copies), slower start-up, and arguments and results must be serialised (pickled) and copied between processes. Threads would be the right choice for I/O-bound work or for C code that releases the GIL."
+        explanation: The answer must connect the choice to CPU-bound vs I/O-bound work and name the IPC cost of processes.
+- key: os.processes_threads.interview
+  type: interview_question
+  title: "Interview question: processes or threads for a backend service"
+  skills: [os.processes_threads, os.concurrency_practical]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: |-
+      Explain the difference between a process and a thread, then say when a backend service should run several worker processes rather than several threads in one process. Use concrete resources, not analogies alone.
+    key_points:
+      - "Defines the boundary: a process owns an address space and kernel resources; threads share them and each has its own stack, registers and thread id."
+      - Names what is shared between threads (heap, globals, code, file descriptors) and the consequence (data races need synchronisation).
+      - Explains fork with copy-on-write and that exec replaces the program image.
+      - Gives fault isolation as a reason for processes (a crash or memory leak in one worker does not take down the others; workers can be recycled).
+      - Gives a parallelism reason specific to the runtime (CPython GIL for CPU work) or a security reason (separate privileges).
+      - Names the cost of processes (more memory, IPC and serialisation) and the cost of threads (shared-fate crashes, locking bugs).
+    model_answer: |-
+      A process is an isolated virtual address space plus kernel resources such as the fd table and credentials; a thread is a schedulable execution context inside a process with its own stack and registers but sharing the heap, globals and descriptors. Threads communicate through memory, which is fast but needs locks; processes communicate through IPC. On Linux, fork creates a process with copy-on-write memory, and exec replaces its program.
+
+      I would run several worker processes when I need isolation (a segfault in a native extension or a leak kills one worker, and the supervisor restarts it), when CPU-bound work must use several cores in CPython, or when workers need different privileges. Gunicorn's pre-fork model is a common example. I would add threads inside each worker for I/O-bound concurrency. The trade-off is memory per worker and serialisation cost for anything shared, versus the shared-fate and race risks of threads.
+    pitfalls:
+      - Only reciting "threads are lightweight processes" without naming what is shared.
+      - Claiming threads have separate heaps.
+      - Ignoring that a crash in one thread kills the process.
+    follow_ups:
+      - prompt: What happens to the other threads when a multithreaded process calls fork()?
+        look_for: Only the calling thread exists in the child; locks held by other threads stay locked, so the child should exec quickly and only call async-signal-safe functions until then.
+      - prompt: Why can a pre-fork server's memory grow after forking even though nothing new was loaded?
+        look_for: Copy-on-write pages are copied on the first write; in CPython reference-count updates write to object headers, so shared pages are gradually un-shared.
+      - prompt: How does Linux implement threads?
+        look_for: As tasks created with clone() sharing the address space (CLONE_VM), fd table and signal handlers; getpid returns the thread group id, gettid the per-thread id.
+- key: os.processes_threads.ipc
+  type: concept
+  title: Inter-process communication on Linux
+  skills: [os.processes_threads]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    summary: Processes do not share memory by default, so they talk through kernel-provided channels that differ in speed, structure and reach.
+    explanation: |-
+      Every IPC mechanism answers three questions: does the data get copied through the kernel, is it a byte stream or discrete messages, and can it cross machines?
+
+      - **Pipes** (`pipe()`, the shell's `|`): one-way byte stream between related processes, kernel buffer (64 KiB by default on Linux). A full pipe blocks the writer; a pipe with no writers gives the reader end of file. **Named pipes (FIFOs)** have a path so unrelated processes can open them.
+      - **Unix domain sockets**: bidirectional, stream or datagram, addressed by a filesystem path, same machine only. Faster than TCP over loopback and can pass open file descriptors to another process (`SCM_RIGHTS`). Docker's API socket and many database clients on localhost use them.
+      - **TCP/UDP sockets**: same API across machines; the default for services.
+      - **Shared memory** (`shm_open` + `mmap`, or an `mmap` of a shared file): both processes map the same physical pages, so there is no copy at all after setup. It is the fastest option and the only one that needs your own synchronisation (a process-shared mutex, a semaphore, or atomics).
+      - **Message queues** (POSIX `mq_open`): kernel-held queues of discrete, prioritised messages with a size limit.
+      - **Signals**: tiny asynchronous notifications (`SIGTERM`, `SIGCHLD`), not a data channel.
+    points:
+      - Pipes and sockets copy data user to kernel to user; shared memory avoids the copy but moves the locking problem to you.
+      - Byte streams (pipes, TCP) have no message boundaries; you need framing such as length prefixes.
+      - Back-pressure is built in for pipes and sockets because a full kernel buffer blocks the writer.
+      - Only sockets work across machines, which is why services use them even when a faster local option exists.
+    example:
+      language: python
+      code: |-
+        from multiprocessing import Process, shared_memory
+
+        def worker(name: str) -> None:
+            shm = shared_memory.SharedMemory(name=name)   # attach to the same pages
+            shm.buf[0] = 42                                # visible to the parent with no copy
+            shm.close()
+
+        shm = shared_memory.SharedMemory(create=True, size=1024)
+        p = Process(target=worker, args=(shm.name,))
+        p.start(); p.join()
+        print(shm.buf[0])   # 42
+        shm.close(); shm.unlink()                          # unlink or the segment outlives the program
+    misconceptions:
+      - Shared memory is safe because each process has its own copy. Both map the same pages; concurrent writers race exactly like threads.
+      - A single read() on a stream socket returns one whole message. It returns whatever bytes are available; framing is your job.
+- key: os.processes_threads.cards
+  type: revision_card
+  title: "Recall: processes, threads, fork and IPC"
+  skills: [os.processes_threads]
+  minutes: 5
+  body:
+    cards:
+      - front: What does each thread have of its own?
+        back: Stack, registers (PC, SP), thread id, signal mask and thread-local storage.
+      - front: What does fork() copy eagerly on Linux?
+        back: Page tables and kernel structures; data pages are shared copy-on-write.
+      - front: What does exec() keep?
+        back: The pid and every descriptor not marked close-on-exec; code, heap and stack are replaced.
+      - front: What is a zombie?
+        back: A dead process whose exit status the parent has not collected with wait().
+      - front: Fastest local IPC, and its catch?
+        back: Shared memory; no copy, but you must synchronise access yourself.
+      - front: Why does a pipeline hang when the parent forgets close(w)?
+        back: The reader sees end of file only when every write end is closed.
+
+# ---------------------------------------------------------------------------------------------- scheduling and context switches
+- key: os.scheduling_context_switch.lesson
+  type: lesson
+  title: Scheduling, system calls and the real cost of a context switch
+  skills: [os.scheduling_context_switch]
+  minutes: 20
+  difficulty: MEDIUM
+  body:
+    summary: The scheduler decides which runnable thread gets a CPU next; each switch saves and restores state and quietly costs cache and TLB warmth.
+    what: |-
+      The **scheduler** picks which runnable thread runs on each CPU and for how long. A **context switch** is the act of stopping one thread and resuming another on the same CPU. A **mode switch** (user to kernel and back, for example during a system call) is different: the same thread keeps running, only at a higher privilege level.
+
+      - **User mode** runs application code with no direct access to hardware or other processes' memory.
+      - **Kernel mode** runs the kernel with full privileges. A **system call** (`read`, `write`, `epoll_wait`, `futex`) is the controlled entry point: on x86-64 the `syscall` instruction jumps to a kernel handler, which validates arguments, does the work and returns.
+    why: |-
+      There are far more runnable threads than CPUs, and they want different things: an interactive request handler wants low latency, a batch job wants throughput, nobody wants to starve. Switching costs time, so a scheduler balances responsiveness (switch often) against efficiency (switch rarely). Understanding this explains why 2,000 busy threads on 8 cores feel slow, why a lock convoy kills throughput and why event loops exist.
+    when: |-
+      - Sizing thread pools and worker counts: more runnable threads than cores adds switching without adding throughput.
+      - Diagnosing latency: a request that is ready to run but waits in the run queue is invisible in application logs.
+      - Choosing between blocking threads, an event loop, or batching syscalls.
+    how: |-
+      **Classic policies**
+
+      - **First come, first served**: simple, but one long job delays everyone (convoy effect).
+      - **Round robin**: each runnable thread gets a time slice (quantum), then goes to the back of the queue. Too small a quantum wastes time switching; too large and it degrades to FCFS with poor interactivity.
+      - **Priority**: always run the highest-priority runnable thread. Risk: low-priority work **starves**; the fix is **aging** (raise priority the longer a thread waits). Multi-level feedback queues demote threads that use their whole slice (CPU-bound) and keep threads that block early (interactive) at high priority.
+
+      **Linux intuition.** From kernel 2.6.23 to 6.5 the default policy was **CFS** (Completely Fair Scheduler). It tracks each thread's **virtual runtime**: CPU time consumed, scaled by its weight (nice value). Runnable threads sit in a red-black tree ordered by vruntime, and CFS runs the one with the smallest vruntime, i.e. the one that has had the least fair share so far. A thread that slept wakes with a small vruntime, so it runs soon, which is why I/O-bound threads feel responsive without explicit priorities. Each nice step changes the weight by roughly 25%, about 10% of CPU between two competing threads. Since 6.6 the default is **EEVDF**, which keeps weighted fairness and adds per-thread virtual deadlines to improve latency. Real-time policies `SCHED_FIFO` and `SCHED_RR` sit above both and always preempt normal threads.
+
+      **What a context switch saves**: general-purpose registers, program counter, stack pointer, flags, floating-point and SIMD state, and kernel bookkeeping. Switching to a thread of another **process** also switches the page-table root (`CR3` on x86-64), so TLB entries for the old address space become useless unless the CPU tags them (PCID). The direct cost is on the order of microseconds; the indirect cost, a cold cache and TLB for the incoming thread, is often larger.
+
+      **Voluntary vs involuntary.** A thread that blocks (I/O, lock, sleep) gives up the CPU voluntarily. A thread preempted because its slice ended or a higher-priority thread woke is switched involuntarily. Linux reports both in `/proc/<pid>/status` (`voluntary_ctxt_switches`, `nonvoluntary_ctxt_switches`) and per second in `pidstat -w` (`cswch/s`, `nvcswch/s`); `vmstat 1` shows system-wide switches (`cs`) and the run queue length (`r`).
+    mental_model: |-
+      A single chef (CPU) with many orders (threads). Round robin is cooking each order for two minutes then rotating. Every rotation costs time to put ingredients away and take others out (saving and restoring state) and the chef forgets where the knives were (cold cache). A system call is the chef stepping into the walk-in fridge: same order, different room, quick return.
+    tradeoffs: |-
+      - Short time slices give better interactive latency and more switch overhead; long slices give better throughput and worse tail latency.
+      - Strict priority protects important work but can starve the rest; fairness avoids starvation but cannot express urgency without nice or real-time classes.
+      - Threads blocking on I/O are simple to write but each waiting request holds a thread (stack memory, scheduler work); an event loop switches between tasks in user space without kernel context switches, at the price of never being allowed to block.
+    mistakes:
+      - Calling a system call a context switch. It is a mode switch; a context switch happens only if the thread blocks or is preempted.
+      - Sizing a CPU-bound pool far beyond the core count and expecting more throughput; you only add run-queue wait and cache thrash.
+      - Reading high CPU utilisation as the only sign of CPU contention. A long run queue with nonvoluntary switches shows threads waiting for a CPU.
+      - "Assuming `nice` makes a process real-time. Nice only changes CFS/EEVDF weights; `SCHED_FIFO` is a separate policy and can starve normal threads."
+    interview: |-
+      Usually comes up as "what happens during a context switch?", "what does a system call cost?", or a performance question: "the service has 500 threads on 4 cores and p99 latency is bad, why?". Strong answers separate mode switch from context switch, name what is saved, mention the TLB and cache effect, and know one way to measure switches on Linux.
+    explain_it:
+      - Define context switch vs mode switch in one line each.
+      - Name the state saved and why a cross-process switch also costs TLB entries.
+      - Explain one policy (round robin quantum trade-off) and the Linux fair-share intuition (vruntime).
+      - "Say how you would measure it (`pidstat -w`, `vmstat 1`, `/proc/<pid>/status`)."
+    example:
+      language: text
+      code: |-
+        $ vmstat 1
+        procs ---cpu---
+         r  b   ...   in     cs  us sy id wa
+        18  0   ...  9k   210k  62 35  3  0     <- 18 runnable on 4 cores, 210k switches/s, 35% system time
+
+        $ pidstat -w -p 4242 1
+        PID   cswch/s  nvcswch/s  Command
+        4242   1200    48000      api-server    <- mostly involuntary: threads are preempted, not blocking
+      explanation: "A run queue (r) far above the core count, a high cs rate and mostly nonvoluntary switches together say the process has too many runnable threads for the CPUs: reduce worker count or move to fewer threads with an event loop."
+    internals: |-
+      The vDSO maps a few kernel-provided functions (such as `clock_gettime`) into every process so they run in user mode without a real system call. Mitigations for CPU side-channel attacks (page-table isolation, Linux 4.15 and later on affected CPUs) made real system calls noticeably more expensive, which is why batching syscalls (`writev`, `sendmmsg`, `io_uring`) matters for high-rate I/O.
+    edge_cases:
+      - A thread spinning on a lock burns its whole slice and causes involuntary switches; a thread sleeping on a futex causes voluntary ones.
+      - Containers with CPU quotas (cgroup `cpu.max`) can be throttled for the rest of a period even when the host is idle, which looks like random latency spikes.
+- key: os.scheduling_context_switch.check
+  type: concept_check
+  title: "Concept check: scheduling and context switches"
+  skills: [os.scheduling_context_switch]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Linux semantics where it matters. Think about cost, not just definitions.
+    questions:
+      - id: q1
+        kind: single
+        prompt: In round robin, what happens if the time quantum is made very large?
+        options:
+          - Context-switch overhead grows without bound
+          - It behaves like first-come-first-served and interactive latency suffers
+          - Starvation becomes impossible
+          - The CPU is idle more often
+        answer: [1]
+        explanation: "With a huge quantum each thread runs until it blocks or finishes, which is FCFS, so short interactive jobs wait behind long ones. Overhead grows with a very small quantum, not a large one."
+      - id: q2
+        kind: single
+        prompt: Under CFS, which runnable thread is picked next on a CPU?
+        options:
+          - The one that has waited longest in wall-clock time
+          - The one with the highest nice value
+          - The one with the smallest virtual runtime
+          - The one with the shortest remaining job
+        answer: [2]
+        explanation: "CFS orders runnable threads by weighted virtual runtime and runs the smallest, i.e. the most under-served. A higher nice value means lower priority, not higher. Shortest-job-first needs to know job length, which a general scheduler does not."
+      - id: q3
+        kind: multi
+        prompt: Which of these are saved or changed during a context switch from a thread of process A to a thread of process B?
+        options:
+          - General-purpose registers and the program counter
+          - The page-table root pointer
+          - The contents of the heap of process A, copied to disk
+          - Floating-point and SIMD register state
+        answer: [0, 1, 3]
+        explanation: "Registers, PC and FPU/SIMD state are saved, and because B has a different address space the page-table root changes. Memory is not copied anywhere on a switch; it stays mapped (swapping is a separate memory-pressure mechanism)."
+      - id: q4
+        kind: single
+        prompt: A thread calls read() on a socket that already has data buffered. What kind of switch is guaranteed?
+        options:
+          - A context switch to the kernel thread
+          - A mode switch from user to kernel and back, without necessarily a context switch
+          - No switch at all
+          - A context switch to another process
+        answer: [1]
+        explanation: "The system call enters kernel mode in the same thread, copies the buffered bytes and returns. A context switch happens only if the call has to block (no data) or the thread is preempted. Calling this a context switch is the common mistake."
+      - id: q5
+        kind: single
+        prompt: "`pidstat -w` shows a CPU-bound worker with 40,000 nonvoluntary and 300 voluntary switches per second. What is the most likely cause?"
+        options:
+          - It is blocking on disk I/O
+          - It is waiting on a contended lock
+          - More runnable threads than CPUs, so it keeps being preempted
+          - It makes too many system calls
+        answer: [2]
+        explanation: "Nonvoluntary switches mean the thread was runnable and got preempted. Blocking on I/O or sleeping on a lock produces voluntary switches. System calls by themselves are mode switches and do not show up here."
+      - id: q6
+        kind: short
+        prompt: Why is switching between two threads of the same process usually cheaper than switching between threads of two different processes?
+        model_answer: "Threads of one process share the address space, so the kernel does not switch the page-table root and the TLB entries and much of the cache stay useful. A cross-process switch loads a new page-table root, which invalidates or sidelines TLB entries (unless tagged with PCID), and the new process's working set is usually cold in the caches. Register saving is the same in both cases."
+        explanation: The key is the address-space switch and its TLB and cache consequences, not the register save.
+- key: os.scheduling_context_switch.interview
+  type: interview_question
+  title: "Interview question: 800 threads on 8 cores"
+  skills: [os.scheduling_context_switch, os.concurrency_practical]
+  minutes: 15
+  difficulty: HARD
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    prompt: |-
+      A Java or Python service runs with 800 worker threads on an 8-core machine. Under load, p99 latency triples while CPU is around 90%, mostly in user plus a large share of system time. Explain what a context switch is and costs, how you would confirm that scheduling is the problem on Linux, and what you would change.
+    key_points:
+      - Defines a context switch (save one thread's registers and state, restore another's) and distinguishes it from a system call's mode switch.
+      - Names direct cost (microseconds of kernel work) and indirect cost (cold caches and TLB, especially across processes).
+      - "Measures it: `vmstat 1` run queue `r` far above 8 and high `cs`; `pidstat -w` showing mostly nonvoluntary switches; system CPU time elevated."
+      - Explains that more runnable threads than cores adds queueing delay without throughput, inflating tail latency.
+      - Proposes a fix sized to the workload (pool near core count for CPU-bound work, bounded pools plus async I/O for I/O-bound work, back-pressure instead of unbounded threads).
+    model_answer: |-
+      A context switch stops one thread on a CPU, saves its registers, program counter, stack pointer and FPU state, and restores another's; switching to another process also changes page tables. The direct cost is microseconds of kernel time, the indirect cost is that the incoming thread finds caches and TLB filled with someone else's data.
+
+      With 800 runnable threads on 8 cores most threads are waiting in the run queue, and each request is sliced among many others, so latency grows with queue length. I would check `vmstat 1` for `r` well above 8 and a high `cs` rate, `pidstat -w -t` for nonvoluntary switches dominating, and high system time. If threads are mostly blocked on I/O instead, the voluntary column dominates and the problem is elsewhere.
+
+      Fix: size CPU-bound work to roughly the core count, keep I/O-bound pools bounded and sized by measured wait ratio, put a bounded queue in front so excess load is rejected or delayed rather than adding threads, and consider async I/O for large numbers of idle connections.
+    pitfalls:
+      - Blaming garbage collection or the database without measuring run queue and switch rates.
+      - Recommending even more threads to absorb load.
+      - Treating every system call as a context switch.
+    follow_ups:
+      - prompt: How would the picture differ if the threads were mostly waiting on a slow downstream service?
+        look_for: Voluntary switches dominate, run queue is short, CPU is low; the limit is the downstream or the pool size, and Little's law sizes concurrency.
+      - prompt: What is a lock convoy and how does it relate to context switches?
+        look_for: Many threads queue on one hot lock; each release wakes a waiter, causing a switch per acquisition so throughput collapses to the switch rate; fix by shortening or sharding the critical section.
+      - prompt: Why might a container show latency spikes even though the host has idle CPUs?
+        look_for: The cgroup CPU quota (cpu.max / CFS bandwidth control) throttles the container for the rest of the period once it uses its quota.
+- key: os.scheduling_context_switch.cards
+  type: revision_card
+  title: "Recall: scheduling and context switches"
+  skills: [os.scheduling_context_switch]
+  minutes: 5
+  body:
+    cards:
+      - front: Mode switch vs context switch?
+        back: Mode switch changes privilege within one thread; context switch changes which thread runs.
+      - front: What extra work does a cross-process switch do?
+        back: It loads a new page-table root, so TLB entries for the old address space stop helping.
+      - front: How does CFS pick the next thread?
+        back: Smallest weighted virtual runtime, kept in a red-black tree.
+      - front: Round robin quantum too small?
+        back: Most CPU time goes to switching instead of work.
+      - front: Voluntary vs nonvoluntary switch?
+        back: Voluntary means the thread blocked; nonvoluntary means it was preempted while runnable.
+      - front: Fix for priority starvation?
+        back: Aging, raising a waiting thread's priority over time.

@@ -45,7 +45,14 @@ USER_TABLES: Final = (
     "assessment_prompts",
 )
 SYSTEM_TABLES: Final = ("audit_log", "catalog_loads", "mentor_runs")
-DECISION_TABLES: Final = ("daily_plans", "plan_items", "weekly_reviews")  # history: exported, never rebuilt
+# History: exported, never rebuilt. Learning sessions are user state that refers to plan items (D-083).
+DECISION_TABLES: Final = (
+    "daily_plans",
+    "plan_items",
+    "weekly_reviews",
+    "learning_sessions",
+    "learning_session_steps",
+)
 CATALOG_TABLES: Final = (
     "skill_groups",
     "skills",
@@ -58,6 +65,11 @@ CATALOG_TABLES: Final = (
     "roadmap_milestones",
     "roadmap_milestone_skills",
     "baseline_items",
+    "learning_tracks",
+    "learning_topics",
+    "learning_topic_skills",
+    "learning_content",
+    "learning_content_skills",
 )
 DERIVED_TABLES: Final = (
     "evidence",

@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
 
-from app.domain.activity.vocabulary import PERSONAL_PROBLEM_ID_START
+from app.domain.activity.vocabulary import ASSESSMENT_COMPONENTS, PERSONAL_PROBLEM_ID_START
 from app.domain.catalog import vocabulary as v
 from app.domain.catalog.fingerprint import catalog_fingerprint, check_lock, file_fingerprints
 from app.domain.catalog.graph import validate_graph
@@ -33,6 +33,7 @@ from app.domain.catalog.model import (
     TierSpec,
 )
 from app.domain.catalog.templates import resolve_template
+from app.domain.learning.validate import validate_learning
 
 FILE_NAMES = {
     "skill_graph": v.SEED_FILES["skill_graph"],
@@ -142,6 +143,14 @@ def validate_seed(raw: Mapping[str, Any], lock: Mapping[str, Any] | None) -> Val
     problems = _problems(c, raw["problem_catalog"], skill_by_key)
     milestones, baseline, exit_rule = _roadmap(c, raw["roadmap"], skill_by_key, groups, profiles)
     templates = _templates(c, raw["mission_templates"], skill_by_key)
+    learning, learning_issues = validate_learning(
+        {role: raw[role] for role in raw if role.startswith("learning:")},
+        skills={k: s.component for k, s in skill_by_key.items()},
+        problem_ids=frozenset(p.id for p in problems),
+        stages=v.STAGES,
+        kind_components=ASSESSMENT_COMPONENTS,
+    )
+    c.issues.extend(learning_issues)
 
     fingerprints = file_fingerprints(raw)
     combined = catalog_fingerprint(fingerprints)
@@ -162,6 +171,7 @@ def validate_seed(raw: Mapping[str, Any], lock: Mapping[str, Any] | None) -> Val
         milestone_exit_rule=exit_rule,
         topological_order=tuple(graph_meta["order"]),
         max_depth=int(graph_meta["max_depth"]),
+        learning=learning,
     )
     return ValidationResult(tuple(c.issues), catalog, fingerprints, combined)
 
@@ -169,6 +179,8 @@ def validate_seed(raw: Mapping[str, Any], lock: Mapping[str, Any] | None) -> Val
 def _file_of(role: str) -> str:
     if role.startswith("role_profile:"):
         return f"{v.ROLE_PROFILE_DIR}/{role.split(':', 1)[1]}.yaml"
+    if role.startswith("learning:"):
+        return f"{v.LEARNING_DIR}/{role.split(':', 1)[1]}.yaml"
     return FILE_NAMES.get(role, role)
 
 
@@ -572,8 +584,11 @@ def _problems(c: _Collector, data: Mapping[str, Any], skills: Mapping[str, Skill
         for skill, count in Counter(m.skill for m in mappings).items():
             if count > 1:
                 c.error("problems.duplicate_mapping", where, f"skill {skill!r} mapped {count} times")
+        guide = _problem_guide(c, p.get("guide"), where, skills)
         if None not in (pid, platform, pkey, title, difficulty, canonical):
-            out.append(Problem(pid, platform, pkey, title, difficulty, expected, canonical, tuple(mappings)))
+            out.append(
+                Problem(pid, platform, pkey, title, difficulty, expected, canonical, tuple(mappings), guide)
+            )
     for pid, count in Counter(p.id for p in out).items():
         if count > 1:
             c.error("problems.duplicate_id", f"{f}: problems", f"problem id {pid} appears {count} times")
@@ -585,6 +600,37 @@ def _problems(c: _Collector, data: Mapping[str, Any], skills: Mapping[str, Skill
                 f"{ident[0]}/{ident[1]} appears {count} times",
             )
     return out
+
+
+GUIDE_FIELDS = ("summary", "pattern", "time", "space", "hints", "mistakes", "prerequisites", "relevance")
+
+
+def _problem_guide(
+    c: _Collector, guide: Any, where: str, skills: Mapping[str, Skill]
+) -> Mapping[str, Any] | None:
+    """Optional coaching metadata of a seed problem. Paraphrase only: never the platform's problem
+    statement."""
+    if guide is None:
+        return None
+    gwhere = f"{where}.guide"
+    if not isinstance(guide, Mapping):
+        c.error("seed.wrong_type", gwhere, "guide must be a mapping")
+        return None
+    for extra in sorted(set(guide) - set(GUIDE_FIELDS)):
+        c.error("problems.guide_unknown_field", gwhere, f"unknown guide field {extra!r}")
+    for name in ("summary", "pattern", "time", "space"):
+        c.require(guide, name, str, gwhere)
+    for name in ("hints", "mistakes"):
+        value = c.require(guide, name, list, gwhere) or []
+        if not value or not all(isinstance(t, str) and t.strip() for t in value):
+            c.error("problems.guide_invalid_list", gwhere, f"{name} must be a non-empty list of text")
+    for s in guide.get("prerequisites") or []:
+        if s not in skills:
+            c.error("problems.guide_unknown_skill", gwhere, f"unknown prerequisite skill {s!r}")
+    relevance = c.require(guide, "relevance", str, gwhere)
+    if relevance is not None and relevance not in v.PROBLEM_RELEVANCE:
+        c.error("problems.guide_invalid_relevance", gwhere, f"relevance must be one of {v.PROBLEM_RELEVANCE}")
+    return guide
 
 
 # --------------------------------------------------------------------------------------------- roadmap

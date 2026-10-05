@@ -27,7 +27,7 @@ describe('navigation', () => {
   it('has the focused primary navigation and no developer tools in it', () => {
     expect(NAV_ITEMS.map((i) => i.label)).toEqual(['Today', 'Prepare', 'Revise', 'Mocks', 'Progress', 'Roadmap', 'Settings'])
     expect(NAV_ITEMS.find((i) => i.key === 'prepare')?.children?.map((c) => c.label)).toEqual([
-      'DSA', 'CS Fundamentals', 'System Design', 'LLD / OOD', 'Behavioral',
+      'DSA', 'Python', 'CS Fundamentals', 'System Design', 'LLD / OOD', 'Practical engineering', 'Projects', 'Behavioral',
     ])
     const everyLabel = JSON.stringify(NAV_ITEMS).toLowerCase()
     for (const internal of ['catalog', 'status', 'health', 'diagnostic', 'seed', 'audit']) expect(everyLabel).not.toContain(internal)

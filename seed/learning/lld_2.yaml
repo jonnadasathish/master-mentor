@@ -1,0 +1,1286 @@
+# Learning content: LLD requirements to entities, class design and relationships; case studies Parking Lot, Library, Chess, Splitwise.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- requirements to entities
+- key: lld.requirements_entities.lesson
+  type: lesson
+  title: From a one-line prompt to entities, use cases and invariants
+  skills: [lld.requirements_entities]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Spend the first minutes turning a vague prompt into actors, use cases, scope and invariants; the entities fall out of those, not out of the nouns.
+    what: |-
+      An LLD prompt such as "design a library system" is deliberately underspecified. Requirements analysis turns it into:
+
+      - **Actors**: who uses the system (member, librarian, a scheduler job).
+      - **Use cases**: what each actor does, as verb phrases (borrow a copy, return it, place a hold, pay a fine).
+      - **Scope**: what is in and what is explicitly out (no e-books, no payments gateway, in-memory only).
+      - **Constraints**: single process or concurrent callers, rough sizes, persistence, what must be fast.
+      - **Invariants**: rules that must always hold (a copy is on loan to at most one member; a member has at most five active loans).
+
+      **Entities** are the things with identity and a lifecycle that those use cases change (Loan, BookCopy, Member). **Value objects** are described only by their fields and are immutable (Money, DateRange, Position). Many nouns turn out to be attributes or enums rather than classes.
+    why: |-
+      Most weak LLD answers are not wrong in their classes; they are designing a different system than the one the interviewer had in mind, or modelling every noun and running out of time. Ten minutes of drawing classes for features that were out of scope cannot be recovered in a 45-minute round. Requirements also tell you where the variation points are (several pricing schemes, several split types), which is what the extensibility follow-ups will probe.
+    when: |-
+      At the start of every design or machine-coding round, and again whenever the interviewer adds a change request. Budget roughly 5 to 8 minutes of a 45-minute LLD round and about 10 minutes of a 90-minute machine-coding round. Stop when you can list the use cases you will support and the invariants you will enforce.
+    how: |-
+      1. **Restate the goal** in one sentence and ask who the actors are.
+      2. **List use cases** per actor as verbs. Mark three to five as core; park the rest as "later" out loud.
+      3. **Ask the constraint questions** that change the design: concurrent access (two gates, two clerks)? persistence or in-memory? what varies (pricing, rules, notification channels)? any limits or quotas? what happens on failure?
+      4. **Extract candidate entities** from the use cases: who or what does each verb change? Filter nouns: is it identified and does it change over time (entity), is it a measurement or description (value object or attribute), or is it a fixed set (enum)?
+      5. **Write the invariants** next to the entity that owns them.
+      6. **Draw lifecycles** for entities with states (Loan: ACTIVE, RETURNED, OVERDUE as derived). States hint at the state pattern or at least an enum plus guarded transitions.
+      7. **Read it back**: "I will support A, B and C, in-memory, with concurrent callers; D and E are out of scope." Get a nod before moving on.
+    mental_model: |-
+      Use cases are verbs; entities are the things those verbs change; invariants are the reasons those things need a class at all. If a noun is never changed by any use case and has no rule attached, it is probably an attribute.
+    tradeoffs: |-
+      Asking too little leads to a design for the wrong problem; asking too much burns the clock and signals indecision. When the interviewer says "your choice", pick the simpler option, state it as an assumption and design so the other option is a contained change. Including an entity "for later" costs time now; leaving it out costs a refactor if a follow-up needs it, so mention it and leave a seam.
+    mistakes:
+      - Jumping straight to a class diagram before naming a single use case.
+      - Turning every noun into a class (Library, Shelf, Aisle, Address) with no behaviour.
+      - Merging the catalogue item and the physical item (Book vs BookCopy, Product vs StockUnit), which makes holds and inventory impossible to model.
+      - Never asking about concurrency, then being surprised by the two-gates follow-up.
+      - Forgetting the second actor (librarian, admin, driver) and their use cases.
+      - Not stating out-of-scope items, so the interviewer assumes you forgot them.
+    interview: |-
+      Interviewers score this phase directly: did you clarify, did you scope, did you identify the core entities and their relationships correctly? A common probe is to leave out a crucial detail (several entry gates, partial refunds, duplicates of a book) and see whether you ask. Speak in use cases ("a member borrows a copy") and state invariants aloud; it makes every later class decision easy to justify.
+    explain_it:
+      - State the actors and three to five core use cases.
+      - Say what is out of scope and the main assumptions.
+      - Name the entities, value objects and enums, with one reason for each.
+      - State the invariants and which entity owns each one.
+    example:
+      language: text
+      code: |-
+        Prompt: design a library system.
+
+        Actors:      Member, Librarian, NightlyJob
+        Use cases:   search catalogue; borrow copy; return copy; place hold; pay fine;
+                     (librarian) add copies, mark lost;  (job) expire uncollected holds
+        Out of scope: e-books, payment gateway, multi-branch transfers (seam left)
+        Constraints: in-memory, two librarians may act concurrently, ~100k copies
+
+        Entities:     Member, BookCopy (barcode, status), Loan, Hold
+        Values:       Book (isbn, title, authors) as catalogue record, DateRange, Money
+        Enums:        CopyStatus {AVAILABLE, ON_LOAN, ON_HOLD_SHELF, LOST}
+        Invariants:   a copy has at most one active loan            (BookCopy / LoanService)
+                      a member has at most plan.max_loans active    (Member)
+                      a copy on the hold shelf goes only to the hold owner
+      explanation: The Book vs BookCopy split comes from the use cases (holds are per title, loans per copy), not from the nouns in the prompt.
+    edge_cases:
+      - Two actors trigger the same use case concurrently (two clerks lend the last copy).
+      - A state that is derived rather than stored (OVERDUE from due date and today).
+      - Identity choices such as barcode vs ISBN, plate number vs ticket id.
+    misconceptions:
+      - Noun extraction gives you the classes. It gives you candidates; use cases and invariants decide.
+      - Asking many questions is always good. Ask the ones whose answers change the design.
+- key: lld.requirements_entities.worked
+  type: worked_example
+  title: "Worked example: meeting-room booking, from prompt to entities in seven minutes"
+  skills: [lld.requirements_entities, lld.class_design]
+  minutes: 15
+  difficulty: MEDIUM
+  body:
+    problem: "The prompt is: design a meeting-room booking system for an office. Walk through the requirements phase the way you would speak it in a 45-minute round, ending with entities, invariants and a class sketch."
+    steps:
+      - title: Clarify actors and scope (minute 0 to 2)
+        text: "Ask: who books (employees), who manages rooms (facilities admin), single office or several, recurring meetings, in-memory or persistent, concurrent bookings? Assume the interviewer answers: one office with several floors, no recurrence for now, in-memory, concurrent requests possible. Say: recurrence and calendar sync are out of scope; I will leave a seam for recurrence."
+      - title: List use cases (minute 2 to 4)
+        text: "Employee: search free rooms for a time range and capacity; book a room; cancel own booking; list own bookings. Admin: add or retire a room. Core set: search, book, cancel."
+      - title: Filter nouns into entities, values and enums (minute 4 to 5)
+        text: "Room (entity: id, capacity, floor, equipment, active). Booking (entity: id, room, organiser, time range, status). Employee (entity, but only an id here). TimeRange (value: start, end, with overlaps()). Equipment (enum: PROJECTOR, VIDEO). Office and Floor are attributes for now, not classes, because no use case changes them."
+      - title: State invariants and their owners (minute 5 to 6)
+        text: "No two CONFIRMED bookings of one room overlap (owned by the room's schedule, enforced in BookingService under a per-room lock). A TimeRange has start before end (TimeRange constructor). Only the organiser or an admin cancels (BookingService). Overlap uses half-open ranges, so 10:00 to 11:00 and 11:00 to 12:00 do not clash."
+        code:
+          language: python
+          code: |-
+            @dataclass(frozen=True)
+            class TimeRange:
+                start: datetime
+                end: datetime
+
+                def __post_init__(self) -> None:
+                    if not self.start < self.end:
+                        raise ValueError("start must be before end")
+
+                def overlaps(self, other: "TimeRange") -> bool:
+                    return self.start < other.end and other.start < self.end
+      - title: Sketch classes and read back (minute 6 to 7)
+        text: "Read back: I will support search, book and cancel for one office, in-memory, safe under concurrent booking; recurrence and notifications are later. Then sketch the classes and only after the nod start on method signatures."
+        code:
+          language: python
+          code: |-
+            class BookingStatus(Enum):
+                CONFIRMED = "CONFIRMED"
+                CANCELLED = "CANCELLED"
+
+            @dataclass
+            class Booking:
+                booking_id: str
+                room_id: str
+                organiser_id: str
+                slot: TimeRange
+                status: BookingStatus = BookingStatus.CONFIRMED
+
+            class BookingService:
+                def search(self, slot: TimeRange, min_capacity: int,
+                           needs: frozenset[Equipment] = frozenset()) -> list[Room]: ...
+                def book(self, organiser_id: str, room_id: str, slot: TimeRange) -> Booking: ...
+                def cancel(self, actor_id: str, booking_id: str) -> None: ...
+    takeaways:
+      - Use cases first; entities are whatever those use cases change.
+      - Put each invariant next to its owner and say how it is enforced.
+      - Value objects such as TimeRange absorb rules (start before end, half-open overlap) that would otherwise be repeated.
+      - Read back scope and assumptions before designing classes.
+- key: lld.requirements_entities.check
+  type: concept_check
+  title: "Concept check: requirements, entities and invariants"
+  skills: [lld.requirements_entities]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Think about which answer changes the design, not which sounds thorough.
+    questions:
+      - id: q1
+        kind: single
+        prompt: In a library design, why separate Book from BookCopy?
+        options:
+          - It follows the convention of having more classes
+          - Holds and search are per title while loans, damage and location are per physical copy, so they have different identities and lifecycles
+          - ISBNs are too long to use as keys
+          - It makes the database normalised
+        answer: [1]
+        explanation: "The split is driven by use cases: you hold a title but borrow a specific copy, and a copy can be lost while the title stays in the catalogue. Normalisation is a side effect, not the reason, which is why the database answer is tempting but incomplete."
+      - id: q2
+        kind: multi
+        prompt: In a 45-minute parking-lot LLD, which questions are worth asking because the answer changes the design?
+        options:
+          - Are there several entry and exit gates operating at the same time?
+          - Which vehicle and spot types exist, and can a small vehicle use a large spot?
+          - How is the fee computed (hourly, flat, per vehicle type)?
+          - Which colour are the parking tickets?
+          - Should state live in memory or in a database for this exercise?
+        answer: [0, 1, 2, 4]
+        explanation: "Gates decide whether spot assignment needs synchronisation, types decide the allocation rules, pricing is a likely variation point, and persistence decides whether you add repositories. Ticket colour changes nothing in the model."
+      - id: q3
+        kind: single
+        prompt: "Which is best modelled as a value object rather than an entity?"
+        options:
+          - An order, which moves from PLACED to SHIPPED
+          - A driver, who accepts rides over time
+          - "A money amount: 500 rupees as integer paise plus currency"
+          - A parking ticket that is issued and later closed
+        answer: [2]
+        explanation: "A value object has no identity of its own and is defined by its fields; two equal amounts are interchangeable and can be immutable. The others have identity and a lifecycle, so they are entities."
+      - id: q4
+        kind: single
+        prompt: The interviewer says "persistence is your choice". What is the strongest move?
+        options:
+          - Design the SQL schema in detail first
+          - "Choose in-memory storage behind a small repository interface, say so, and move on"
+          - Refuse to proceed until the interviewer decides
+          - Ignore storage completely and keep state in global dictionaries
+        answer: [1]
+        explanation: "Pick the simpler option, state it as an assumption and keep a seam (a repository interface) so persistence is a contained change later. Global dictionaries also look simple, but they couple every class to shared state and make testing hard."
+      - id: q5
+        kind: single
+        prompt: "A requirement says: a member may borrow at most five books. Which class should own and enforce that invariant?"
+        options:
+          - The Book class
+          - "Whatever handles borrowing, checking the member's active loan count against the member's plan, inside the same operation that creates the loan"
+          - The UI, which disables the button
+          - A nightly job that finds violations
+        answer: [1]
+        explanation: "The rule is about a member's loans, so the check belongs with the member (or the service acting on the member) and must run atomically with creating the loan; otherwise two concurrent checkouts can both pass the check. UI checks and nightly jobs are useful but do not enforce anything."
+      - id: q6
+        kind: short
+        prompt: "Turn this requirement into entities, states and invariants: members can reserve a title that is currently on loan; when a copy is returned, the first waiting member gets two days to collect it."
+        model_answer: "Entities: Hold (member, isbn, created_at, status WAITING, READY, COLLECTED, EXPIRED, ready_until) and BookCopy (status AVAILABLE, ON_LOAN, ON_HOLD_SHELF). A per-title FIFO queue of WAITING holds. On return, if the queue is non-empty the copy goes ON_HOLD_SHELF and the first hold becomes READY with ready_until = return date + 2 days. Invariants: a copy on the hold shelf can be borrowed only by its hold's member; a member has at most one active hold per title; a nightly job expires READY holds past ready_until and passes the copy to the next hold."
+        explanation: Strong answers make the hold an entity with its own lifecycle and name the expiry use case that the requirement implies.
+- key: lld.requirements_entities.interview
+  type: interview_question
+  title: "Interview question: scope a hotel booking design out loud"
+  skills: [lld.requirements_entities, lld.class_design]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: "The prompt is: design the low-level classes of a hotel room booking system. You have about seven minutes before you must start on classes. Talk through what you ask, what you assume, the use cases you commit to, the entities and value objects, and the invariants."
+    key_points:
+      - "Asks constraint questions that change the design: room types, overbooking policy, concurrent bookings, cancellation and refund rules, in-memory vs persistent."
+      - "Commits to three to five core use cases (search availability, book, cancel, check in, check out) and names what is out of scope."
+      - "Separates RoomType (bookable category, priced) from Room (physical room assigned at check-in) or justifies booking specific rooms."
+      - "Uses a DateRange value object with half-open nights and states the no-overlap invariant per room or per type capacity."
+      - States how concurrent bookings for the last room are prevented.
+    model_answer: "I would ask whether guests book a room type or a specific room, whether overbooking is allowed, whether many front-desk clients book concurrently, and how cancellation works. Assuming type-level booking, no overbooking, in-memory and concurrent clients: use cases are search availability for a date range and type, book, cancel, check in (assign a physical room) and check out. Entities: Guest, Reservation (id, guest, room type, nights, status), Room (number, type, status), RoomType (code, capacity, nightly rate). Values: DateRange with check-in inclusive and check-out exclusive, Money. Invariant: for each night and type, confirmed reservations never exceed the number of rooms of that type; enforced by an availability component under a per-type lock. Loyalty, payments and multi-property are out of scope with a seam for pricing."
+    pitfalls:
+      - Starting with a Hotel class holding everything.
+      - Treating dates as closed ranges so a checkout and check-in on the same day clash.
+    follow_ups:
+      - prompt: Now the business allows ten percent overbooking for some room types. What changes?
+        look_for: "The capacity invariant reads a per-type allowance (policy object or field); the reservation flow and entities stay the same."
+      - prompt: How would you test the no-overbooking invariant?
+        look_for: "Unit tests on availability for edge dates, plus a concurrency test where many threads book the last room and exactly one succeeds."
+      - prompt: Where does cancellation-fee logic live?
+        look_for: "In a CancellationPolicy strategy selected by rate plan, called from the cancel use case; not inside Reservation's data class."
+- key: lld.requirements_entities.cards
+  type: revision_card
+  title: "Recall: requirements to entities"
+  skills: [lld.requirements_entities]
+  minutes: 5
+  body:
+    cards:
+      - front: Time budget for requirements in a 45-minute LLD?
+        back: About 5 to 8 minutes, ending with a read-back of scope and assumptions.
+      - front: Entity vs value object?
+        back: Entity has identity and a lifecycle; value object is defined by its fields and immutable.
+      - front: Where do entities come from?
+        back: From what the use cases change, filtered by identity, lifecycle and invariants.
+      - front: Book vs BookCopy, in one line?
+        back: Holds and search are per title; loans and loss are per physical copy.
+      - front: Constraint question you must always ask?
+        back: Can two callers act on the same thing at the same time?
+      - front: Interviewer says your choice?
+        back: Pick the simpler option, state the assumption, leave a seam.
+
+# ---------------------------------------------------------------------------------------------- class design and relationships
+- key: lld.class_design.lesson
+  type: lesson
+  title: Assigning responsibilities and choosing relationships
+  skills: [lld.class_design]
+  minutes: 30
+  difficulty: MEDIUM
+  body:
+    summary: Put each behaviour on the class that has the information it needs, link classes with the weakest relationship that works, and add interfaces only at real variation points.
+    what: |-
+      Class design decides three things for every entity from the requirements phase:
+
+      - **Responsibilities**: which methods live on which class. A good assignment keeps each invariant inside one class and makes the main use cases read as a short conversation between objects.
+      - **Relationships**: how classes know each other (dependency, association, aggregation, composition, inheritance, realisation of an interface), with direction and multiplicity.
+      - **Interfaces**: which collaborators are reached through an abstraction because they vary or must be replaced in tests.
+
+      A typical in-memory LLD has three layers: **domain objects** (entities and value objects that keep their own invariants), **services** that orchestrate a use case across several objects, and **repositories** that store and find objects behind an interface.
+    why: |-
+      The same requirements can produce a design where every rule lives in one 600-line service (a god class over anemic data classes) or one where each rule lives with its data. The second is easier to test, easier to extend and is what interviewers are grading when they ask "why is this method here?". Relationship choices decide lifetimes and coupling: a composition means the part dies with the whole; an association means both live independently.
+    when: |-
+      Right after the requirements read-back. Sketch the class list with key fields and relationships first (2 to 3 minutes), then walk one core use case through it method by method, then write signatures. Revisit after each change request.
+    how: |-
+      Use the GRASP heuristics (Craig Larman's General Responsibility Assignment Software Patterns) as questions:
+
+      - **Information expert**: who has the data needed? `Order` computes its total from its lines; `Loan` knows whether it is overdue given a date.
+      - **Creator**: who aggregates or closely uses the object? `Order.add_line` creates `OrderLine`; the parking lot creates `Ticket`.
+      - **Controller**: a use case is handled by a service object (`CheckoutService.checkout`) that coordinates but does not hold the business rules.
+      - **Low coupling and high cohesion**: if a method needs data from three classes, it may belong to the one that owns the invariant, with the others passed in.
+      - **Tell, don't ask**: call `account.withdraw(amount)` instead of reading the balance and writing it back from outside.
+
+      Then choose relationships by lifetime and ownership:
+
+      - **Dependency**: a uses B temporarily (parameter or local). Weakest.
+      - **Association**: A holds a reference to B; both live independently (Ride and Driver).
+      - **Aggregation**: a whole groups parts that can exist without it (Team and Player).
+      - **Composition**: the whole owns the parts' lifetime (ParkingFloor and its Spots; Order and its OrderLines).
+      - **Inheritance** for true subtypes; **realisation** when a class implements an interface (Protocol or ABC).
+
+      Model fixed sets as **enums**, measurements as **frozen dataclasses**, and use subclasses only when behaviour differs, not data.
+    mental_model: |-
+      Imagine each use case as a phone call: the controller rings the object that owns the rule, and that object asks its parts for what it needs. If the controller has to ask five objects for their data and then decide, the rule is in the wrong place.
+    tradeoffs: |-
+      Rich domain objects keep rules close to data but can grow large; services keep objects simple but tend to become god classes. A practical middle: invariants of one entity live in the entity, rules spanning several entities live in a service or a dedicated policy object. Interfaces buy testability and extension at the cost of indirection; add them for I/O, strategies and anything a follow-up is likely to swap. Bidirectional associations are convenient to navigate but must be kept consistent; prefer one direction plus a lookup.
+    mistakes:
+      - A god service with every rule over data classes that only hold fields (anemic domain model).
+      - "Subclass per data variant (`SmallSpot`, `MediumSpot`, `LargeSpot`) when an enum field and a fit table are enough."
+      - Bidirectional references everywhere (Spot knows Vehicle, Vehicle knows Spot, Ticket knows both) that drift out of sync.
+      - Interfaces for entities that have one implementation and never vary.
+      - Exposing collections so callers mutate parts of a composition directly.
+      - Using string status fields instead of an enum with guarded transitions.
+    interview: |-
+      Expect "why is this method on this class?", "what is the relationship between X and Y?", "draw the classes for the main flow". Present the class list with one-line responsibilities, mark composition vs association, then walk one use case end to end. Interviewers reward a design where the core use case reads as three or four method calls and every invariant has one home.
+    explain_it:
+      - List each class with its one-line responsibility.
+      - Name each relationship and justify it by lifetime and ownership.
+      - Walk one use case through the classes call by call.
+      - Point at each invariant's single home and each interface's reason to exist.
+    example:
+      language: python
+      code: |-
+        from dataclasses import dataclass, field
+        from enum import Enum
+
+
+        class OrderStatus(Enum):
+            DRAFT = "DRAFT"
+            PLACED = "PLACED"
+            CANCELLED = "CANCELLED"
+
+
+        @dataclass(frozen=True)
+        class OrderLine:                      # value object, composed into Order
+            sku: str
+            qty: int
+            unit_paise: int
+
+            def subtotal(self) -> int:
+                return self.qty * self.unit_paise
+
+
+        @dataclass
+        class Order:                          # entity; information expert for its total and status
+            order_id: str
+            customer_id: str                  # association by id, not by object reference
+            _lines: list[OrderLine] = field(default_factory=list)
+            status: OrderStatus = OrderStatus.DRAFT
+
+            def add_line(self, sku: str, qty: int, unit_paise: int) -> None:   # creator
+                if self.status is not OrderStatus.DRAFT:
+                    raise ValueError("only draft orders can change")
+                if qty <= 0:
+                    raise ValueError("qty must be positive")
+                self._lines.append(OrderLine(sku, qty, unit_paise))
+
+            def total(self) -> int:
+                return sum(line.subtotal() for line in self._lines)
+
+            def place(self) -> None:
+                if not self._lines:
+                    raise ValueError("empty order")
+                if self.status is not OrderStatus.DRAFT:
+                    raise ValueError("already placed or cancelled")
+                self.status = OrderStatus.PLACED
+
+
+        class CheckoutService:                # controller: coordinates, holds no business rule
+            def __init__(self, orders, inventory, payments) -> None:
+                self._orders, self._inventory, self._payments = orders, inventory, payments
+
+            def checkout(self, order_id: str) -> None:
+                order = self._orders.get(order_id)
+                self._inventory.reserve(order_id, [(l.sku, l.qty) for l in order._lines])
+                self._payments.charge(order.customer_id, order.total())
+                order.place()
+                self._orders.save(order)
+      explanation: Order owns its lines (composition) and its rules; the service only sequences the use case. A stricter design would expose lines as a read-only tuple instead of reaching into _lines.
+    edge_cases:
+      - Rules spanning entities (a member's loan limit plus a copy's availability) belong to a service or policy, executed atomically.
+      - Referencing other aggregates by id rather than by object avoids accidental mutation through long object graphs.
+      - Equality for entities is by id; for value objects by all fields (frozen dataclasses give both eq and hash).
+    misconceptions:
+      - Aggregation vs composition is about UML notation. It is about who owns the part's lifetime, which decides deletion and copying.
+      - Every class needs an interface. Only variation points and I/O boundaries do.
+- key: lld.class_design.relationships
+  type: concept
+  title: Association, aggregation, composition and dependency in code
+  skills: [lld.class_design, lld.requirements_entities]
+  minutes: 12
+  difficulty: EASY
+  body:
+    summary: Relationships differ by lifetime and ownership; Python code looks similar for all of them, so state the relationship explicitly.
+    explanation: |-
+      In Python every relationship is "an attribute that refers to another object" or "a parameter", so the code does not show the difference. The design does, and you should say it:
+
+      - **Dependency** (uses): the object appears only as a parameter or local. `PricingPolicy.fee(ticket, now)` depends on Ticket.
+      - **Association** (knows): a long-lived reference; both objects exist independently. A Ride is associated with a Driver; deleting the ride does not delete the driver.
+      - **Aggregation** (has, shared): a whole groups parts that can outlive it or belong to several wholes. A Playlist aggregates Songs.
+      - **Composition** (owns): the whole creates and destroys its parts, and parts are not shared. A ParkingFloor composes its Spots; an Order composes its OrderLines.
+      - **Inheritance** (is-a) and **realisation** (implements an interface).
+
+      Multiplicity (1, 0..1, many) and direction (who holds the reference) complete the picture. In interviews a text diagram is fine: `ParkingLot 1 --* ParkingFloor 1 --* Spot`, `Ticket --> Spot (association by id)`.
+    points:
+      - Choose the weakest relationship that supports the use cases; dependency before association.
+      - "Composition implies the whole controls creation: parts are built inside the whole, not passed in from outside."
+      - Aggregation and association are usually held by reference or id; composition parts are not exposed for mutation.
+      - Prefer one-directional references; add the reverse only if a use case navigates it often.
+      - Referencing by id across aggregates keeps object graphs small and avoids accidental shared mutation.
+    example:
+      language: python
+      code: |-
+        class ParkingFloor:
+            def __init__(self, number: int, layout: dict[SpotSize, int]) -> None:
+                self.number = number
+                # composition: the floor creates its spots and owns their lifetime
+                self._spots = [Spot(f"{number}-{size.name}-{i}", size)
+                               for size, count in layout.items() for i in range(count)]
+
+        class Team:
+            def __init__(self, name: str) -> None:
+                self.name = name
+                self._players: set[str] = set()   # aggregation: players exist without the team
+
+            def add(self, player_id: str) -> None:
+                self._players.add(player_id)
+
+        class FeeCalculator:
+            def fee(self, ticket: "Ticket", exited_at: datetime) -> int:   # dependency only
+                ...
+    misconceptions:
+      - Composition requires inner classes. It requires ownership of the lifetime, which a plain attribute built in the constructor gives.
+      - Association means a two-way link. Most associations are one-way.
+- key: lld.class_design.visual
+  type: visual_explanation
+  title: "Visual: relationships drawn as text diagrams"
+  skills: [lld.class_design]
+  minutes: 6
+  body:
+    summary: The same parking-lot model, built up relationship by relationship, in the text notation you can type in an interview.
+    frames:
+      - caption: Composition. The lot owns floors and each floor owns its spots; deleting a floor deletes its spots.
+        diagram: |-
+          ParkingLot 1 ◆──── * ParkingFloor 1 ◆──── * Spot
+                                                     ├ spot_id
+                                                     ├ size: SpotSize (enum)
+                                                     └ occupant_plate: str | None
+      - caption: Association. A ticket refers to a spot and a vehicle by id; each lives independently.
+        diagram: |-
+          Ticket ───────► Spot          (by spot_id, 1)
+          Ticket ───────► Vehicle       (by plate,   1)
+          Ticket has a lifecycle: OPEN ──exit──► PAID
+      - caption: Dependency and realisation. The lot uses a pricing policy through an interface; concrete policies realise it.
+        diagram: |-
+          ParkingLot - - - -► «interface» PricingPolicy
+                                    ▲            ▲
+                                    ┆            ┆   (realises)
+                             HourlyPricing   FlatNightPricing
+      - caption: Inheritance only where behaviour differs. Vehicle types differ by data, so they are an enum, not subclasses.
+        diagram: |-
+          Vehicle(plate, type: VehicleType)       VehicleType = {MOTORCYCLE, CAR, TRUCK}
+          FITS = { MOTORCYCLE: [SMALL, MEDIUM, LARGE],
+                   CAR:        [MEDIUM, LARGE],
+                   TRUCK:      [LARGE] }
+          no SmallSpot / MediumSpot subclasses: same behaviour, different data
+- key: lld.class_design.check
+  type: concept_check
+  title: "Concept check: class design and relationships"
+  skills: [lld.class_design]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: For each choice, ask who owns the data and who owns the lifetime.
+    questions:
+      - id: q1
+        kind: single
+        prompt: A parking floor creates its spots from a layout and they never move to another floor. A team has players who can change teams. Which pair of relationships is right?
+        options:
+          - Floor-Spot aggregation, Team-Player composition
+          - Floor-Spot composition, Team-Player aggregation
+          - Both composition
+          - Both dependency
+        answer: [1]
+        explanation: "The floor owns its spots' lifetime (composition). Players exist independently of a team and can move (aggregation). The reversed answer is tempting because a team 'contains' players, but containment without lifetime ownership is aggregation."
+      - id: q2
+        kind: single
+        prompt: Which class should compute an order's total, including line quantities and unit prices?
+        options:
+          - CheckoutService, because it handles checkout
+          - Order, because it holds the lines (information expert)
+          - A static TotalCalculator utility
+          - The payment gateway adapter
+        answer: [1]
+        explanation: "Order has all the data and owns the invariant that the total matches its lines. Putting it in the service makes Order anemic and duplicates the rule wherever another service needs the total."
+      - id: q3
+        kind: multi
+        prompt: Which are signs that responsibilities are misplaced?
+        options:
+          - "A service reads `account.balance`, compares it and writes `account.balance -= x`"
+          - An entity method that validates its own state transition
+          - A class named Manager with 40 methods covering unrelated use cases
+          - A value object with an `overlaps(other)` method
+          - Several services each re-implementing the same eligibility rule
+        answer: [0, 2, 4]
+        explanation: "Ask-then-write from outside, a god Manager and a duplicated rule all show rules living away from their data. Entities guarding their transitions and value objects with behaviour are what you want."
+      - id: q4
+        kind: single
+        prompt: Why is this service method a problem even in a single-threaded program?
+        code:
+          language: python
+          code: |-
+            class TransferService:
+                def transfer(self, src, dst, amount):
+                    if src.balance >= amount:
+                        src.balance -= amount
+                        dst.balance += amount
+        options:
+          - It is slow
+          - "The no-negative-balance rule lives in the service, so any other caller that changes balance can skip it; the account cannot protect its invariant"
+          - It should use floats for money
+          - Accounts should not have balances
+        answer: [1]
+        explanation: "Tell, don't ask: `src.withdraw(amount)` puts the rule in one place. The race with concurrent transfers is a second problem on top; the tempting answer that it is only a concurrency issue misses that the invariant has no owner."
+      - id: q5
+        kind: single
+        prompt: Cars, motorcycles and trucks differ only in which spot sizes they fit. How should vehicle types be modelled?
+        options:
+          - One subclass per vehicle type with an overridden fits() method
+          - "An enum VehicleType plus a table of allowed spot sizes"
+          - A string field compared in each method
+          - A separate ParkingLot class per vehicle type
+        answer: [1]
+        explanation: "When variants differ by data, an enum and a lookup table are simpler and still type-safe. Subclasses earn their place when behaviour differs (an electric vehicle that needs a charging session). Raw strings lose type checking and spread comparisons."
+      - id: q6
+        kind: short
+        prompt: Explain the difference between dependency and association with one example from a ride-booking design.
+        model_answer: "A dependency is temporary use: FareCalculator.fare(trip, surge) receives a trip as a parameter and keeps no reference. An association is a lasting reference with independent lifetimes: a Trip holds driver_id for its whole life, and the Driver continues to exist after the trip ends."
+        explanation: The distinction is about how long the reference lives and whether it is stored, not about how important the class is.
+- key: lld.class_design.interview
+  type: interview_question
+  title: "Interview question: where does the fine calculation belong?"
+  skills: [lld.class_design, lld.extensibility]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: "In a library design, a late return incurs a fine that depends on days overdue and on the member's plan (students pay less, staff pay nothing). Where would you put the fine calculation: Loan, Member, LibraryService or a separate class? Defend your choice and show the method signatures."
+    key_points:
+      - "Identifies the data needed: due date and return date (Loan) and the plan (Member)."
+      - "Places the rule in a FinePolicy object chosen by plan, with a signature like `fine_paise(loan, returned_on) -> int`."
+      - Keeps LibraryService as the controller that calls the policy during the return use case.
+      - Explains why not Loan alone (it would need to know plans) and why not inline in the service (rule duplicated and hard to extend).
+      - Mentions integer money and a cap or rounding rule as an explicit decision.
+    model_answer: "Loan is the information expert for days overdue: `loan.days_overdue(returned_on)`. The pricing of those days varies by plan, which is a variation point, so a FinePolicy interface with `fine_paise(days_overdue) -> int` and implementations per plan (PerDayFine(rate, cap), NoFine). Member carries its plan, and the plan references its policy. LibraryService.return_copy(barcode, today) loads the loan, asks it for days overdue, asks the member's policy for the fine, closes the loan and records the fine. Each class has one reason to change: Loan when lending rules change, policies when fee rules change, the service when the flow changes."
+    pitfalls:
+      - "Putting `if member.type == 'STUDENT'` inside Loan."
+      - Using floats for money.
+    follow_ups:
+      - prompt: Fines are waived during a holiday period configured by the librarian. Where does that go?
+        look_for: "A decorator or wrapper policy that checks the calendar (injected) before delegating, or a calendar-aware days_overdue that skips closed days; no edit to existing policies."
+      - prompt: How do you unit test the fine rules?
+        look_for: "Policies are pure functions of days and plan, tested in isolation with boundary days (0, 1, at cap); the service test uses a fake clock and in-memory repos."
+      - prompt: What if fines must be recalculated for already-returned loans after a policy change?
+        look_for: "Store the computed fine and the policy version on the loan at return time; recalculation is an explicit migration, not a silent change."
+- key: lld.class_design.cards
+  type: revision_card
+  title: "Recall: class design and relationships"
+  skills: [lld.class_design]
+  minutes: 5
+  body:
+    cards:
+      - front: Information expert?
+        back: Give the behaviour to the class that holds the data it needs.
+      - front: Composition vs aggregation?
+        back: Composition owns the parts' lifetime; aggregation groups parts that live on their own.
+      - front: Dependency vs association?
+        back: Dependency is a temporary use (parameter); association is a stored, lasting reference.
+      - front: Enum or subclasses for variants?
+        back: Enum plus table when they differ by data; subclasses when behaviour differs.
+      - front: Tell, don't ask?
+        back: Call the method that enforces the rule instead of reading state and deciding outside.
+      - front: Controller's job in a use case?
+        back: Sequence calls across objects; hold no business rule itself.
+
+# ---------------------------------------------------------------------------------------------- case: parking lot
+- key: lld.class_design.parking_lot
+  type: design_exercise
+  title: "Design: parking lot (45 minutes)"
+  skills: [lld.class_design, lld.requirements_entities, lld.design_patterns, lld.concurrency_safety]
+  minutes: 60
+  difficulty: MEDIUM
+  observation: {kind: LLD_DESIGN, time_limit_seconds: 2700}
+  body:
+    prompt: |-
+      Design the classes for a multi-floor parking lot. Vehicles enter through any of several gates, get a ticket for a suitable spot, and pay on exit. Produce the class list with responsibilities, the main interfaces and the method signatures for park and unpark, then walk one vehicle through the system. Write Python signatures, not a full implementation.
+    requirements:
+      functional:
+        - Several floors, each with spots of size SMALL, MEDIUM and LARGE.
+        - Motorcycles fit any spot, cars fit MEDIUM or LARGE, trucks fit only LARGE.
+        - Entry issues a ticket bound to one spot; exit closes the ticket, computes the fee and frees the spot.
+        - Fee is per started hour with a rate per vehicle type.
+        - Show free spot counts per size for a display board.
+      non_functional:
+        - Several entry gates may request spots at the same moment; a spot must never be given to two vehicles.
+        - In-memory for the exercise; storage should be replaceable.
+        - Allocation and pricing rules are expected to change.
+    approach:
+      - Clarify gates, vehicle and spot types, the fit rules, pricing, lost tickets and in-memory storage; state what is out of scope (reservations, EV charging).
+      - "List use cases: park, unpark and pay, query free counts; admin adds a floor."
+      - "Pick entities and values: ParkingLot, ParkingFloor, Spot, Ticket (entities); Vehicle (value); VehicleType, SpotSize, TicketStatus (enums)."
+      - Assign responsibilities. Spot guards its own occupancy; ParkingLot coordinates park and unpark; an AllocationStrategy picks a spot; a PricingPolicy computes the fee; a Clock is injected.
+      - Make assignment atomic. One lock around find-and-assign in ParkingLot (simple and correct at gate speeds), with per-size free lists so the critical section is short.
+      - Walk a car through park and unpark aloud, then cover lost ticket and full lot.
+    hints:
+      - Spot sizes and vehicle types differ by data, so an enum plus a fit table beats subclasses.
+      - The lock belongs to the object that owns the invariant "one vehicle per spot".
+      - Integer minutes and ceiling division avoid floats in the fee.
+    reference: |-
+      Main classes and responsibilities:
+
+      - `ParkingLot`: the controller. Holds floors, a ticket index and the strategies; `park` and `unpark` are the only entry points, guarded by a lock.
+      - `ParkingFloor`: composes its spots and keeps free spots grouped by size.
+      - `Spot`: knows its size and occupant and refuses a second vehicle.
+      - `Ticket`: plate, spot id, entry time, status OPEN or CLOSED.
+      - `AllocationStrategy` (interface): `choose(candidates, vehicle)`; implementations NearestFirst, ByFloorPreference.
+      - `PricingPolicy` (interface): `fee_paise(vehicle_type, minutes)`; HourlyPricing, plus a wrapper for night caps later.
+      - `Clock` (interface): injected for testability.
+
+      Trade-offs to state: a single lot-wide lock is easy to prove correct and fast enough for tens of gates; per-floor locks would scale further but complicate "search all floors". Tickets reference spots by id so a ticket outlives a floor reconfiguration. Lost ticket is a separate flow (look up by plate, charge a flat maximum).
+    code:
+      language: python
+      code: |-
+        from __future__ import annotations
+
+        import threading
+        import uuid
+        from dataclasses import dataclass
+        from datetime import datetime
+        from enum import Enum
+        from typing import Protocol
+
+
+        class VehicleType(Enum):
+            MOTORCYCLE = "MOTORCYCLE"
+            CAR = "CAR"
+            TRUCK = "TRUCK"
+
+
+        class SpotSize(Enum):
+            SMALL = "SMALL"
+            MEDIUM = "MEDIUM"
+            LARGE = "LARGE"
+
+
+        FITS: dict[VehicleType, tuple[SpotSize, ...]] = {
+            VehicleType.MOTORCYCLE: (SpotSize.SMALL, SpotSize.MEDIUM, SpotSize.LARGE),
+            VehicleType.CAR: (SpotSize.MEDIUM, SpotSize.LARGE),
+            VehicleType.TRUCK: (SpotSize.LARGE,),
+        }
+
+
+        @dataclass(frozen=True)
+        class Vehicle:
+            plate: str
+            type: VehicleType
+
+
+        class Spot:
+            def __init__(self, spot_id: str, floor: int, size: SpotSize) -> None:
+                self.spot_id, self.floor, self.size = spot_id, floor, size
+                self._plate: str | None = None
+
+            def is_free(self) -> bool:
+                return self._plate is None
+
+            def occupy(self, plate: str) -> None:
+                if self._plate is not None:
+                    raise RuntimeError(f"spot {self.spot_id} already occupied")
+                self._plate = plate
+
+            def vacate(self) -> None:
+                self._plate = None
+
+
+        class TicketStatus(Enum):
+            OPEN = "OPEN"
+            CLOSED = "CLOSED"
+
+
+        @dataclass
+        class Ticket:
+            ticket_id: str
+            vehicle: Vehicle
+            spot_id: str
+            entered_at: datetime
+            status: TicketStatus = TicketStatus.OPEN
+            fee_paise: int | None = None
+
+
+        class Clock(Protocol):
+            def now(self) -> datetime: ...
+
+
+        class AllocationStrategy(Protocol):
+            def choose(self, candidates: list[Spot], vehicle: Vehicle) -> Spot | None: ...
+
+
+        class NearestFirst:
+            """Lowest floor first, then the smallest size that fits (keeps large spots for trucks)."""
+
+            def choose(self, candidates: list[Spot], vehicle: Vehicle) -> Spot | None:
+                order = {size: i for i, size in enumerate(FITS[vehicle.type])}
+                return min(candidates, key=lambda s: (s.floor, order[s.size]), default=None)
+
+
+        class PricingPolicy(Protocol):
+            def fee_paise(self, vehicle_type: VehicleType, minutes: int) -> int: ...
+
+
+        class HourlyPricing:
+            def __init__(self, rate_paise: dict[VehicleType, int]) -> None:
+                self._rate = rate_paise
+
+            def fee_paise(self, vehicle_type: VehicleType, minutes: int) -> int:
+                started_hours = max(1, (minutes + 59) // 60)       # integer ceiling, minimum one hour
+                return started_hours * self._rate[vehicle_type]
+
+
+        class LotFull(Exception):
+            pass
+
+
+        class ParkingLot:
+            def __init__(self, spots: list[Spot], allocation: AllocationStrategy,
+                         pricing: PricingPolicy, clock: Clock) -> None:
+                self._spots = {s.spot_id: s for s in spots}
+                self._allocation, self._pricing, self._clock = allocation, pricing, clock
+                self._tickets: dict[str, Ticket] = {}
+                self._lock = threading.Lock()
+
+            def park(self, vehicle: Vehicle) -> Ticket:
+                with self._lock:                                    # find-and-occupy is one atomic step
+                    fits = FITS[vehicle.type]
+                    candidates = [s for s in self._spots.values() if s.is_free() and s.size in fits]
+                    spot = self._allocation.choose(candidates, vehicle)
+                    if spot is None:
+                        raise LotFull(vehicle.type.value)
+                    spot.occupy(vehicle.plate)
+                    ticket = Ticket(uuid.uuid4().hex, vehicle, spot.spot_id, self._clock.now())
+                    self._tickets[ticket.ticket_id] = ticket
+                    return ticket
+
+            def unpark(self, ticket_id: str) -> int:
+                with self._lock:
+                    ticket = self._tickets[ticket_id]
+                    if ticket.status is TicketStatus.CLOSED:
+                        raise ValueError("ticket already closed")
+                    minutes = int((self._clock.now() - ticket.entered_at).total_seconds()) // 60
+                    ticket.fee_paise = self._pricing.fee_paise(ticket.vehicle.type, minutes)
+                    ticket.status = TicketStatus.CLOSED
+                    self._spots[ticket.spot_id].vacate()
+                    return ticket.fee_paise
+
+            def free_count(self, size: SpotSize) -> int:
+                with self._lock:
+                    return sum(1 for s in self._spots.values() if s.is_free() and s.size is size)
+      explanation: The linear scan of candidates is fine for a few thousand spots; per-size free sets make park O(1) if the interviewer pushes on scale. Floors are folded into Spot.floor here to keep the outline short.
+    rubric:
+      - {key: clarification, label: "Asks about gates, fit rules, pricing and storage before drawing classes and states out-of-scope items", points: 2}
+      - {key: responsibilities, label: "Each class has one stated responsibility and Spot or the lot owns the one-vehicle-per-spot invariant", points: 2}
+      - {key: abstractions, label: "Allocation and pricing are behind interfaces and vehicle types use an enum with a fit table", points: 2}
+      - {key: extensibility, label: "Shows a new pricing rule or vehicle type as a new class or table entry without edits to park", points: 1}
+      - {key: tradeoffs, label: "States one trade-off such as one lot lock vs per-floor locks or scan vs free lists", points: 1}
+      - {key: edge_cases, label: "Covers full lot and lost ticket and double unpark", points: 1}
+      - {key: testability, label: "Injects a clock and shows how a fee or concurrent-park test would be written", points: 1}
+    follow_ups:
+      - prompt: "Change request: add EV spots with chargers, billed per kWh in addition to parking time."
+        look_for: "A spot capability or new SpotSize-independent feature flag, an EV-aware allocation, and a composite pricing policy (parking plus charging session); park and unpark signatures unchanged."
+      - prompt: "Change request: a monthly pass holder pays nothing during weekdays."
+        look_for: "Pricing looks up the plate in a pass registry via a wrapper policy; no change to Spot or allocation."
+      - prompt: "Change request: the display board must update instantly when spots change."
+        look_for: "Observer: the lot publishes SpotOccupied and SpotFreed events to subscribers after the state change, outside the lock or via a queue."
+      - prompt: With a hundred gates, the single lock becomes contended. What do you change?
+        look_for: "Per-size or per-floor free pools with their own locks, or a lock-free pop from a thread-safe queue of free spot ids; keep the invariant per spot."
+
+# ---------------------------------------------------------------------------------------------- case: library
+- key: lld.requirements_entities.library
+  type: design_exercise
+  title: "Design: library management (45 minutes)"
+  skills: [lld.requirements_entities, lld.class_design, lld.extensibility]
+  minutes: 60
+  difficulty: MEDIUM
+  observation: {kind: LLD_DESIGN, time_limit_seconds: 2700}
+  body:
+    prompt: |-
+      Design the classes for a library where members search the catalogue, borrow and return physical copies, place holds on titles that are out, and pay fines for late returns. Librarians add copies and mark copies lost. Give the class list, the key interfaces and the signatures of the borrow, return and hold operations.
+    requirements:
+      functional:
+        - Search titles by title prefix or author.
+        - Borrow a specific copy; a member may hold at most the number of active loans their plan allows.
+        - Return a copy; compute a fine for late returns according to the member's plan.
+        - Place a hold on a title; on return, the copy goes to the first waiting member, who has two days to collect.
+        - Librarians add copies and mark copies lost.
+      non_functional:
+        - Two librarians may act on the same copy concurrently; a copy must never be lent twice.
+        - Fine rules and plans will change; adding a plan must not require editing borrow or return.
+        - In-memory storage behind repositories.
+    approach:
+      - "Clarify: physical copies only, one branch, plans and their limits, fine rules, hold collection window, concurrency between clerks."
+      - "Separate Book (catalogue record by ISBN) from BookCopy (barcode, status) because holds are per title and loans are per copy."
+      - Model Loan and Hold as entities with their own lifecycles; derive overdue from dates instead of storing it.
+      - Put the loan limit on Member and plan, the fine rule in a FinePolicy, and the borrow and return flows in LibraryService.
+      - Make borrow atomic over the copy status and the member's active loan count.
+      - "Walk through: borrow, late return with a waiting hold, hold expiry."
+    hints:
+      - The hold shelf is a copy status, plus a READY hold that names the only member allowed to borrow it.
+      - A per-title FIFO queue of waiting holds keeps assignment deterministic.
+      - Search can be a simple index in a catalogue repository; do not build a search engine.
+    reference: |-
+      Main classes and responsibilities:
+
+      - `Book` (value): isbn, title, authors. `BookCopy` (entity): barcode, isbn, status AVAILABLE, ON_LOAN, ON_HOLD_SHELF, LOST.
+      - `Member` (entity) with a `Plan` (max_loans, loan_days, fine policy).
+      - `Loan` (entity): copy, member, borrowed_on, due_on, returned_on, fine; `days_overdue(on)`.
+      - `Hold` (entity): member, isbn, status WAITING, READY, COLLECTED, EXPIRED, ready_until.
+      - `FinePolicy` (interface): PerDayFine(rate, cap), NoFine.
+      - `LibraryService` (controller): borrow, return_copy, place_hold, expire_holds; one lock for state changes.
+      - Repositories: CatalogRepository (search index by title prefix and author), CopyRepository, LoanRepository, HoldRepository.
+
+      Trade-offs to state: a single service lock is simplest and enough for a library; per-copy locks would allow more parallelism but borrow also touches the member's loan count, so lock ordering would be needed. Holds are per title, not per copy, so any returned copy can satisfy the first hold.
+    code:
+      language: python
+      code: |-
+        from __future__ import annotations
+
+        import threading
+        from collections import deque
+        from dataclasses import dataclass, field
+        from datetime import date, timedelta
+        from enum import Enum
+        from typing import Protocol
+
+
+        @dataclass(frozen=True)
+        class Book:
+            isbn: str
+            title: str
+            authors: tuple[str, ...]
+
+
+        class CopyStatus(Enum):
+            AVAILABLE = "AVAILABLE"
+            ON_LOAN = "ON_LOAN"
+            ON_HOLD_SHELF = "ON_HOLD_SHELF"
+            LOST = "LOST"
+
+
+        @dataclass
+        class BookCopy:
+            barcode: str
+            isbn: str
+            status: CopyStatus = CopyStatus.AVAILABLE
+
+
+        class FinePolicy(Protocol):
+            def fine_paise(self, days_overdue: int) -> int: ...
+
+
+        @dataclass(frozen=True)
+        class PerDayFine:
+            rate_paise: int
+            cap_paise: int
+
+            def fine_paise(self, days_overdue: int) -> int:
+                return min(self.cap_paise, max(0, days_overdue) * self.rate_paise)
+
+
+        @dataclass(frozen=True)
+        class Plan:
+            name: str
+            max_loans: int
+            loan_days: int
+            fines: FinePolicy
+
+
+        @dataclass
+        class Member:
+            member_id: str
+            plan: Plan
+
+
+        @dataclass
+        class Loan:
+            loan_id: str
+            barcode: str
+            member_id: str
+            borrowed_on: date
+            due_on: date
+            returned_on: date | None = None
+            fine_paise: int = 0
+
+            def days_overdue(self, on: date) -> int:
+                return max(0, (on - self.due_on).days)
+
+
+        class HoldStatus(Enum):
+            WAITING = "WAITING"
+            READY = "READY"
+            COLLECTED = "COLLECTED"
+            EXPIRED = "EXPIRED"
+
+
+        @dataclass
+        class Hold:
+            hold_id: str
+            member_id: str
+            isbn: str
+            status: HoldStatus = HoldStatus.WAITING
+            barcode: str | None = None
+            ready_until: date | None = None
+
+
+        class LibraryService:
+            HOLD_DAYS = 2
+
+            def __init__(self, catalog, copies, loans, holds, members) -> None: ...
+            # catalog: CatalogRepository; the others are in-memory repositories behind Protocols
+
+            def search(self, title_prefix: str = "", author: str = "") -> list[Book]: ...
+
+            def borrow(self, member_id: str, barcode: str, today: date) -> Loan:
+                """Atomic: copy AVAILABLE, or ON_HOLD_SHELF with a READY hold for this member;
+                member below plan.max_loans. Sets copy ON_LOAN and creates the loan."""
+                ...
+
+            def return_copy(self, barcode: str, today: date) -> int:
+                """Closes the loan, stores the fine from the member's plan, then either
+                hands the copy to the first WAITING hold (READY, ready_until = today + 2)
+                or makes it AVAILABLE. Returns the fine in paise."""
+                ...
+
+            def place_hold(self, member_id: str, isbn: str) -> Hold: ...
+
+            def expire_holds(self, today: date) -> int:
+                """Nightly: READY holds past ready_until become EXPIRED; the copy moves on."""
+                ...
+    rubric:
+      - {key: clarification, label: "Asks about plans and limits and holds and fine rules and concurrency and states out-of-scope items", points: 2}
+      - {key: responsibilities, label: "Separates Book from BookCopy and gives Loan and Hold their own lifecycles", points: 2}
+      - {key: abstractions, label: "FinePolicy or Plan is the variation point and repositories hide storage", points: 2}
+      - {key: extensibility, label: "Adding a new plan or fine rule requires no change to borrow or return", points: 1}
+      - {key: tradeoffs, label: "States one trade-off such as service lock vs per-copy locks or stored vs derived overdue", points: 1}
+      - {key: edge_cases, label: "Covers hold shelf collection by the wrong member and hold expiry and lost copy and limit reached", points: 1}
+      - {key: testability, label: "Passes today as a parameter or injects a clock and names the tests for return with a waiting hold", points: 1}
+    follow_ups:
+      - prompt: "Change request: the library opens a second branch and copies can be transferred."
+        look_for: "Copy gets a branch id and an IN_TRANSIT status; holds gain a pickup branch; borrow checks the copy is at the member's branch. Loans and fines unchanged."
+      - prompt: "Change request: members are notified when a hold becomes ready or a loan is due tomorrow."
+        look_for: "The service publishes HoldReady and LoanDueSoon events to a notifier interface; channels are added without touching the lending flow."
+      - prompt: "Change request: premium members may renew a loan up to twice unless someone is waiting."
+        look_for: "Loan.renew(today, plan) with a renewal counter and a check against waiting holds for the title; plan carries max_renewals."
+      - prompt: The catalogue grows to millions of titles. What happens to search?
+        look_for: "Prefix search needs an index (sorted list with bisect or a trie, or an external search engine); the CatalogRepository interface hides the change."
+
+# ---------------------------------------------------------------------------------------------- case: chess
+- key: lld.class_design.chess
+  type: design_exercise
+  title: "Design: chess game (45 minutes)"
+  skills: [lld.class_design, lld.design_patterns, lld.extensibility, python.oop]
+  minutes: 60
+  difficulty: HARD
+  observation: {kind: LLD_DESIGN, time_limit_seconds: 2700}
+  body:
+    prompt: |-
+      Design the classes for a two-player chess game that validates moves, detects check, checkmate and stalemate, and supports undo. Focus on how pieces generate moves, where legality is decided and how a move is represented. Give class outlines and the key method signatures in Python.
+    requirements:
+      functional:
+        - An 8 by 8 board with the standard starting position; players alternate turns.
+        - Each piece type moves by its own rules; sliding pieces are blocked by other pieces.
+        - A move is legal only if it does not leave the mover's own king in check.
+        - Detect check, checkmate and stalemate after each move.
+        - Undo the last move.
+        - Castling, en passant and promotion are discussed as follow-ups after the core works.
+      non_functional:
+        - Piece rules must be testable in isolation from the game flow.
+        - Adding a variant piece or rule should not require rewriting the board.
+        - No UI; a text rendering is enough.
+    approach:
+      - "Clarify: two local players, standard rules, which special moves are in scope first, draw rules (threefold repetition and fifty-move) out of scope."
+      - "Entities and values: Game (entity), Board (entity), Piece hierarchy, Position (value), Move (value), Color and GameStatus (enums)."
+      - Give each Piece a `candidate_moves(board, at)` that knows only its geometry; put the 'does not leave king in check' filter in a rules component, not in pieces.
+      - Represent a move as an immutable Move holding from, to, the moved piece and anything captured, so undo is popping a history stack (command idea).
+      - Game owns turn order, history and status; it asks the rules for legal moves and applies one.
+      - "Walk through: a pinned piece that cannot move, then checkmate detection as 'in check and no legal moves'."
+    hints:
+      - Rook, bishop and queen share sliding logic; a SlidingPiece base with direction vectors removes duplication.
+      - Legality check can apply the move on the board, test whether the own king is attacked, then undo.
+      - Stalemate is no legal moves while not in check.
+    reference: |-
+      Main classes and responsibilities:
+
+      - `Position` (frozen value): file and rank 0 to 7, `offset(df, dr)` returning None off the board.
+      - `Piece` (abstract): color, `candidate_moves(board, at)`. `SlidingPiece` with directions for Rook, Bishop, Queen; Knight, King and Pawn implement their own.
+      - `Board`: 64 squares; `piece_at`, `apply(move)`, `revert(move)`, `king_position(color)`.
+      - `Move` (frozen value): from, to, piece, captured, promotion; enough to revert.
+      - `RuleEngine`: `legal_moves(board, color)`, `is_attacked(board, pos, by)`, `status(board, to_move)`.
+      - `Game`: turn, history stack, status; `play(from, to)` and `undo()`.
+
+      Trade-offs to state: polymorphic pieces keep geometry readable and testable; a table-driven move generator (bitboards) is far faster but not what a 45-minute LLD needs. Generating pseudo-legal moves then filtering by king safety is simple and correct; incremental attack maps are an optimisation.
+    code:
+      language: python
+      code: |-
+        from __future__ import annotations
+
+        from abc import ABC, abstractmethod
+        from dataclasses import dataclass
+        from enum import Enum
+        from typing import Iterator
+
+
+        class Color(Enum):
+            WHITE = "WHITE"
+            BLACK = "BLACK"
+
+            def other(self) -> "Color":
+                return Color.BLACK if self is Color.WHITE else Color.WHITE
+
+
+        @dataclass(frozen=True)
+        class Position:
+            file: int   # 0..7 for a..h
+            rank: int   # 0..7 for 1..8
+
+            def offset(self, df: int, dr: int) -> Position | None:
+                f, r = self.file + df, self.rank + dr
+                return Position(f, r) if 0 <= f < 8 and 0 <= r < 8 else None
+
+
+        class Piece(ABC):
+            def __init__(self, color: Color) -> None:
+                self.color = color
+
+            @abstractmethod
+            def candidate_moves(self, board: "Board", at: Position) -> Iterator[Position]:
+                """Geometry only: squares reachable ignoring whether the own king ends in check."""
+
+
+        class SlidingPiece(Piece):
+            directions: tuple[tuple[int, int], ...] = ()
+
+            def candidate_moves(self, board: "Board", at: Position) -> Iterator[Position]:
+                for df, dr in self.directions:
+                    pos = at.offset(df, dr)
+                    while pos is not None:
+                        other = board.piece_at(pos)
+                        if other is None:
+                            yield pos
+                        else:
+                            if other.color is not self.color:
+                                yield pos          # capture, then blocked
+                            break
+                        pos = pos.offset(df, dr)
+
+
+        class Rook(SlidingPiece):
+            directions = ((1, 0), (-1, 0), (0, 1), (0, -1))
+
+
+        class Bishop(SlidingPiece):
+            directions = ((1, 1), (1, -1), (-1, 1), (-1, -1))
+
+
+        class Queen(SlidingPiece):
+            directions = Rook.directions + Bishop.directions
+
+
+        class Knight(Piece):
+            JUMPS = ((1, 2), (2, 1), (2, -1), (1, -2), (-1, -2), (-2, -1), (-2, 1), (-1, 2))
+
+            def candidate_moves(self, board: "Board", at: Position) -> Iterator[Position]:
+                for df, dr in self.JUMPS:
+                    pos = at.offset(df, dr)
+                    if pos is not None and (board.piece_at(pos) is None
+                                            or board.piece_at(pos).color is not self.color):
+                        yield pos
+
+        # King and Pawn follow the same shape; Pawn depends on color for direction and captures diagonally.
+
+
+        @dataclass(frozen=True)
+        class Move:
+            src: Position
+            dst: Position
+            piece: Piece
+            captured: Piece | None = None
+            promotion: type[Piece] | None = None
+
+
+        class Board:
+            def piece_at(self, pos: Position) -> Piece | None: ...
+            def apply(self, move: Move) -> None: ...
+            def revert(self, move: Move) -> None: ...
+            def king_position(self, color: Color) -> Position: ...
+            def pieces(self, color: Color) -> Iterator[tuple[Position, Piece]]: ...
+
+
+        class GameStatus(Enum):
+            ACTIVE = "ACTIVE"
+            CHECK = "CHECK"
+            CHECKMATE = "CHECKMATE"
+            STALEMATE = "STALEMATE"
+
+
+        class RuleEngine:
+            def is_attacked(self, board: Board, pos: Position, by: Color) -> bool: ...
+
+            def legal_moves(self, board: Board, color: Color) -> list[Move]:
+                legal = []
+                for at, piece in list(board.pieces(color)):
+                    for dst in piece.candidate_moves(board, at):
+                        move = Move(at, dst, piece, board.piece_at(dst))
+                        board.apply(move)
+                        if not self.is_attacked(board, board.king_position(color), color.other()):
+                            legal.append(move)
+                        board.revert(move)
+                return legal
+
+            def status(self, board: Board, to_move: Color) -> GameStatus:
+                in_check = self.is_attacked(board, board.king_position(to_move), to_move.other())
+                if self.legal_moves(board, to_move):
+                    return GameStatus.CHECK if in_check else GameStatus.ACTIVE
+                return GameStatus.CHECKMATE if in_check else GameStatus.STALEMATE
+
+
+        class Game:
+            def __init__(self, board: Board, rules: RuleEngine) -> None:
+                self._board, self._rules = board, rules
+                self.turn = Color.WHITE
+                self.history: list[Move] = []
+                self.status = GameStatus.ACTIVE
+
+            def play(self, src: Position, dst: Position) -> GameStatus: ...
+            def undo(self) -> None: ...
+      explanation: Pieces know geometry, the rule engine knows legality, the game knows turns and history. Undo works because Move carries what was captured.
+    rubric:
+      - {key: clarification, label: "Asks which special moves and draw rules are in scope and confirms local two-player play", points: 2}
+      - {key: responsibilities, label: "Separates piece geometry from legality (king safety) and from game flow", points: 2}
+      - {key: abstractions, label: "Uses a Piece hierarchy with shared sliding logic and an immutable Move", points: 2}
+      - {key: extensibility, label: "Shows how a new piece or a special move is added without rewriting Board", points: 1}
+      - {key: tradeoffs, label: "States the pseudo-legal-then-filter trade-off or polymorphic pieces vs table-driven generation", points: 1}
+      - {key: edge_cases, label: "Covers pinned pieces and stalemate vs checkmate and captures in undo", points: 1}
+      - {key: testability, label: "Shows a test that sets up a position and asserts the legal moves of one piece", points: 1}
+    follow_ups:
+      - prompt: "Change request: add castling."
+        look_for: "Track has-moved for king and rooks (or castling rights on the board), king not in check, path squares empty and not attacked; Move gains a kind so revert moves the rook back."
+      - prompt: "Change request: add en passant and promotion."
+        look_for: "Board stores the last double pawn push target; Move records the captured pawn's real square and the promotion piece type; revert restores both."
+      - prompt: "Change request: support a timed game with a clock per player."
+        look_for: "A GameClock component observing turn changes, with an injected time source; flag fall becomes another GameStatus; pieces untouched."
+      - prompt: "Change request: an online opponent sends moves over the network."
+        look_for: "A Player interface (LocalPlayer, RemotePlayer) that supplies moves to Game; validation stays in the rule engine so remote input is never trusted."
+
+# ---------------------------------------------------------------------------------------------- case: splitwise (design)
+- key: lld.requirements_entities.splitwise
+  type: design_exercise
+  title: "Design: expense sharing like Splitwise (45 minutes)"
+  skills: [lld.requirements_entities, lld.class_design, lld.extensibility]
+  minutes: 60
+  difficulty: MEDIUM
+  observation: {kind: LLD_DESIGN, time_limit_seconds: 2700}
+  body:
+    prompt: |-
+      Design the classes for a shared-expense app: users form groups, record expenses paid by one person and split among several, see who owes whom, and record settlements. Give the class list, the split abstraction and signatures for adding an expense, reading balances and settling up.
+    requirements:
+      functional:
+        - Users and groups; an expense has one payer, an amount, a description and a split among participants.
+        - Split types EQUAL, EXACT amounts and PERCENT; the shares must add up to the total exactly.
+        - Show each user's net balance in a group and the pairwise amounts owed.
+        - Record a settlement payment between two users.
+        - Suggest a short list of transfers that settles the group.
+      non_functional:
+        - Money in integer minor units (paise); no rounding drift.
+        - New split types are expected; adding one must not change the expense flow.
+        - Expenses are append-only; edits are recorded as a reversal plus a new expense.
+    approach:
+      - "Clarify: one currency, payer always a participant or not, who may edit, groups vs one-to-one expenses, whether simplification must be optimal."
+      - "Entities: User, Group, Expense, Settlement; values: Money as int paise, Share; strategies: SplitStrategy."
+      - Make SplitStrategy turn (total, participants, parameters) into exact integer shares and validate them; distribute remainder paise deterministically.
+      - "Keep a BalanceSheet that applies each expense: payer +total, each participant minus share; net balances sum to zero."
+      - "Simplify debts greedily: repeatedly match the largest creditor with the largest debtor; say it yields at most n minus 1 transfers but is not always the minimum (the minimum is NP-hard in general)."
+      - "Walk through: 1000 paise split equally among three gives 334, 333, 333."
+    hints:
+      - Validate a percent split in basis points that sum to 10000, not in decimal percentages.
+      - Storing net balances per user is enough for settle-up suggestions; pairwise ledgers are needed only if the product shows who owes whom per expense history.
+    reference: |-
+      Main classes and responsibilities:
+
+      - `User`, `Group` (members, expenses).
+      - `SplitStrategy` (interface): `shares(total_paise, participants) -> dict[user_id, int]`; EqualSplit, ExactSplit(amounts), PercentSplit(basis_points).
+      - `Expense` (immutable): id, group, payer, total, shares, description, created_at; created only through a factory that validates shares sum to total.
+      - `Settlement` (immutable): from, to, amount.
+      - `BalanceSheet`: net balance per user; `apply_expense`, `apply_settlement`, `suggest_transfers`.
+      - `ExpenseService` (controller): add_expense, settle, balances, reverse_expense.
+
+      Trade-offs to state: recomputing balances from the append-only log is simple and auditable; caching a BalanceSheet per group is faster and must be updated in the same operation that appends. Greedy simplification is fast and good enough; exact minimisation is exponential.
+    code:
+      language: python
+      code: |-
+        from __future__ import annotations
+
+        from dataclasses import dataclass
+        from datetime import datetime
+        from typing import Protocol
+
+
+        class SplitStrategy(Protocol):
+            def shares(self, total_paise: int, participants: list[str]) -> dict[str, int]: ...
+
+
+        class EqualSplit:
+            def shares(self, total_paise: int, participants: list[str]) -> dict[str, int]:
+                base, extra = divmod(total_paise, len(participants))
+                # the first `extra` participants (in the given order) pay one more paisa
+                return {u: base + (1 if i < extra else 0) for i, u in enumerate(participants)}
+
+
+        class ExactSplit:
+            def __init__(self, amounts: dict[str, int]) -> None:
+                self._amounts = amounts
+
+            def shares(self, total_paise: int, participants: list[str]) -> dict[str, int]:
+                if set(self._amounts) != set(participants) or sum(self._amounts.values()) != total_paise:
+                    raise ValueError("exact amounts must cover every participant and sum to the total")
+                return dict(self._amounts)
+
+
+        class PercentSplit:
+            def __init__(self, basis_points: dict[str, int]) -> None:
+                if sum(basis_points.values()) != 10_000:
+                    raise ValueError("percentages must sum to 100 (10000 basis points)")
+                self._bp = basis_points
+
+            def shares(self, total_paise: int, participants: list[str]) -> dict[str, int]:
+                raw = {u: total_paise * self._bp[u] // 10_000 for u in participants}
+                remainder = total_paise - sum(raw.values())
+                for u in participants[:remainder]:   # hand leftover paise out deterministically
+                    raw[u] += 1
+                return raw
+
+
+        @dataclass(frozen=True)
+        class Expense:
+            expense_id: str
+            group_id: str
+            payer: str
+            total_paise: int
+            shares: dict[str, int]
+            description: str
+            created_at: datetime
+
+
+        @dataclass(frozen=True)
+        class Transfer:
+            debtor: str
+            creditor: str
+            amount_paise: int
+
+
+        class BalanceSheet:
+            def __init__(self) -> None:
+                self._net: dict[str, int] = {}          # positive: is owed money
+
+            def apply_expense(self, e: Expense) -> None: ...
+            def apply_settlement(self, debtor: str, creditor: str, amount_paise: int) -> None: ...
+            def net(self) -> dict[str, int]: ...
+            def suggest_transfers(self) -> list[Transfer]: ...   # greedy, at most n - 1 transfers
+
+
+        class ExpenseService:
+            def add_expense(self, group_id: str, payer: str, total_paise: int,
+                            participants: list[str], split: SplitStrategy, description: str) -> Expense: ...
+            def settle(self, group_id: str, debtor: str, creditor: str, amount_paise: int) -> None: ...
+            def balances(self, group_id: str) -> dict[str, int]: ...
+            def reverse_expense(self, expense_id: str, reason: str) -> Expense: ...
+      explanation: The split strategies are the variation point; the service and balance sheet never look at the split type. The 90-minute machine-coding version of this case implements BalanceSheet and tests.
+    rubric:
+      - {key: clarification, label: "Asks about currency and editing rules and whether simplification must be optimal", points: 2}
+      - {key: responsibilities, label: "Expense is validated at creation and BalanceSheet alone maintains net balances", points: 2}
+      - {key: abstractions, label: "SplitStrategy encapsulates split types and money is integer minor units", points: 2}
+      - {key: extensibility, label: "Shows a new split type such as shares-by-weight as one new class", points: 1}
+      - {key: tradeoffs, label: "Explains greedy simplification vs optimal and cached vs recomputed balances", points: 1}
+      - {key: edge_cases, label: "Handles remainder paise and payer not in participants and zero-sum check", points: 1}
+      - {key: testability, label: "Names tests for 1000 split three ways and for balances summing to zero", points: 1}
+    follow_ups:
+      - prompt: "Change request: support expenses in several currencies."
+        look_for: "Money gains a currency; balances are kept per currency or converted with a rate recorded on the expense; never mix currencies in one integer."
+      - prompt: "Change request: an expense can be edited."
+        look_for: "Append a reversal expense and a new expense (keeping history), or version the expense; balances are rederived; no silent mutation."
+      - prompt: "Change request: split by weights (2 shares for adults, 1 for children)."
+        look_for: "A WeightedSplit strategy using integer division plus deterministic remainder; no change to the service."
+      - prompt: Why can the greedy simplification miss the minimum number of transfers?
+        look_for: "Minimising transfers is equivalent to partitioning balances into the most zero-sum subsets, which is NP-hard; greedy gives at most n minus 1."

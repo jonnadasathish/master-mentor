@@ -1,0 +1,640 @@
+# Practical engineering 1: systematic debugging in production and live debugging in a coding round.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- systematic debugging
+- key: eng.debugging.lesson
+  type: lesson
+  title: Systematic debugging, from symptom to root cause to prevention
+  skills: [engineering.debugging]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Debugging is an experiment loop — reproduce, observe, hypothesise, bisect, fix, verify, prevent — where every step must shrink the search space.
+    what: |-
+      Systematic debugging is a repeatable method for going from a symptom ("checkout returns 500 for some users") to a proven root cause and a fix that stays fixed. It has seven steps:
+
+      - **Reproduce** the failure, or if you cannot, **characterise** it precisely: which requests, which users, which instances, since when, how often.
+      - **Observe**: collect the exact error and stack trace, logs for one failing request (by request id), metrics and traces, and the list of what changed.
+      - **Hypothesise**: write down candidate causes that explain *all* the symptoms, not just the loudest one.
+      - **Bisect / test**: design the cheapest check that separates the hypotheses, and halve the search space — commits, config flags, input size, layers of the stack.
+      - **Fix** the cause, not the symptom.
+      - **Verify** with the same reproduction and the same metric that showed the problem.
+      - **Prevent**: a regression test, an alert, a guardrail in the pipeline, a short written postmortem.
+    why: |-
+      Guess-driven debugging costs hours and often "fixes" the wrong thing: a retry hides a data bug, a bigger timeout hides a slow dependency, a restart hides a leak until next Tuesday. In production the cost is direct — every minute of a 5% error rate on a service doing 2,000 requests per second is 6,000 failed requests. A method also makes you explainable: in an incident channel or an interview, people can follow and check your reasoning.
+    when: |-
+      - Production incidents: error spikes, latency regressions, memory growth, data that looks wrong.
+      - A failing or flaky test, a bug report you cannot reproduce, a performance regression in CI.
+      - Interview prompts like "an API intermittently returns 500 — how do you debug it?" or "tell me about a hard production bug".
+
+      In production, **mitigate first** (roll back, turn off the feature flag, shift traffic, scale out) when users are hurting, but capture evidence before it disappears: a heap snapshot, the logs of a failing pod, the exact deploy and config versions.
+    how: |-
+      **Slice the symptom along every dimension you have.** Most root causes reveal themselves when you group failures:
+
+      - Time: when did it start, does it match a deploy, a config change, a traffic peak, a cron job, a certificate expiry? Is it constant, periodic or growing?
+      - Scope: all endpoints or one; all users or a tenant, a region, a client version; all instances or one pod, one node, one availability zone.
+      - Shape: errors or latency; which status codes; does the latency cluster at a round number (exactly 30 s often means a timeout)?
+
+      **Build the "what changed" list**: application deploys, config and feature flags, dependency versions, infrastructure (network, database, load balancer), data (a new kind of customer, a big import), and traffic pattern.
+
+      **Make hypotheses falsifiable.** "The connection pool is exhausted" predicts that pool wait time rises, that errors are timeouts at the pool timeout, and that the database itself may be idle. If any prediction is false, drop or refine the hypothesis.
+
+      **Bisect** whenever there is an ordered search space: `git bisect` over commits, turning half the feature flags off, halving the input file, calling the service directly instead of through the load balancer, replaying one failing request against staging.
+
+      **Fix and verify** with the original reproduction, then watch the production metric for long enough to cover the pattern (a problem that appears at 02:00 is not verified at 11:00).
+    mental_model: |-
+      The scientific method under time pressure. You hold a set of possible causes; every observation or experiment should remove some of them. If an action cannot change your belief about any hypothesis, it is not a debugging step — it is activity. Ask before each step: "what result would make me drop this hypothesis?"
+    tradeoffs: |-
+      - **Speed vs evidence**: rolling back or restarting restores service fast but can erase the evidence (a leaking heap, a stuck thread). Take a snapshot first when it costs seconds, not minutes.
+      - **Reproduce locally vs debug in production**: local reproduction is safe and fast to iterate but often differs in data, config, concurrency and scale; production debugging is realistic but must be read-only and low-overhead.
+      - **More logging vs signal**: adding logs everywhere raises cost and noise; add targeted, structured fields (request id, tenant, version) that let you group failures.
+      - **Fixing now vs fixing right**: a mitigation (flag off, timeout raised) can be correct for tonight as long as the root-cause fix is tracked.
+    mistakes:
+      - Changing several things at once, so you cannot tell which change helped.
+      - Stopping at the first plausible cause (confirmation bias) without checking that it explains every symptom.
+      - Reading only the last line of a stack trace; the useful frame is often the first frame in your own code, or the chained "During handling of the above exception" cause.
+      - Treating the symptom — adding a retry, raising a timeout, catching and ignoring the exception.
+      - Assuming the most recent deploy is the cause because it is the most recent change; infra, config and data change too.
+      - Restarting a leaking or hung process before capturing a heap snapshot, thread dump or core.
+      - Declaring victory without verifying on the same metric, and shipping without a regression test.
+    interview: |-
+      Interviewers want structure and judgement, not a lucky guess. A strong answer: clarify scope and impact, mitigate if users are affected, gather evidence (one failing request end to end, error grouping by dimension, what changed), state two or three ranked hypotheses with the observation that would confirm each, test, fix, verify, and prevent. Expect probes: "what if there are no logs for the failing requests?", "how do you know the fix worked?", "what would you change in the process so it does not happen again?"
+    explain_it:
+      - State impact and whether you mitigate first, and what evidence you capture before mitigating.
+      - Slice the failures by time, scope and shape; name the "what changed" list.
+      - Give ranked, falsifiable hypotheses and the cheapest test for each.
+      - Fix the root cause, verify on the original signal, and add a regression test or alert.
+    example:
+      language: bash
+      code: |-
+        # A test reproduces the bug on HEAD but passed at tag v2.3.0 (about 200 commits ago).
+        git bisect start
+        git bisect bad HEAD
+        git bisect good v2.3.0
+        git bisect run ./scripts/repro.sh     # about 8 test runs for 200 commits (log2 200 ≈ 7.6)
+        git bisect reset                      # back to where you started
+
+        # scripts/repro.sh — the exit code tells bisect the verdict:
+        #   0 = good, 125 = cannot test this commit (skip), 1-127 except 125 = bad
+        #!/usr/bin/env bash
+        pip install -q -r requirements.txt || exit 125
+        pytest -q tests/test_checkout.py::test_total_with_coupon
+      explanation: Bisect is binary search over history. It needs a reliable reproduction; for a flaky one, run the test several times inside the script and fail if any run fails.
+    internals: |-
+      `git bisect` assumes the history has a single transition from good to bad, exactly like binary search assumes a monotonic predicate. If the bug was introduced, fixed and reintroduced, or the reproduction is flaky, bisect can point at an innocent commit. Merge commits make the history a graph; bisect handles that, but the "first bad commit" can be a merge whose two parents are each fine — the bug is the interaction of the two branches.
+    edge_cases:
+      - Heisenbugs that change when observed (adding a log line changes timing in a race).
+      - Two causes at once, where fixing one only halves the error rate.
+      - Bugs that cannot be reproduced at all — compare one failing and one succeeding request field by field.
+      - Failures that only occur at low traffic, such as idle connections that were silently dropped.
+    misconceptions:
+      - "No errors in the logs means no errors — errors may be swallowed, logged at DEBUG, sampled away or written by a different process."
+      - "Correlation with a deploy proves causation — a cron job, a traffic peak or a config change can coincide with it."
+- key: eng.debugging.worked_coupon
+  type: worked_example
+  title: "Worked example: a checkout error spike, step by step"
+  skills: [engineering.debugging, project.incident_debugging_story]
+  minutes: 15
+  difficulty: MEDIUM
+  body:
+    problem: At 14:05 UTC the 5xx rate of the checkout service rises from almost zero to 3%. Release 7.4.0 went out at 14:00 and contains 23 commits. Walk through the debugging method and say what you do at each step.
+    steps:
+      - title: Impact and mitigation
+        text: "3% of checkouts fail and the start matches the release, so the cheapest safe mitigation is to roll back 7.4.0. Before rolling back, save the logs of two failing requests and note the exact image tag. After the rollback the error rate returns to normal, which confirms the release is involved but not which commit."
+      - title: Slice the failures
+        text: "Grouping the 500s by endpoint shows they are all `POST /checkout`. Grouping by request fields shows every failing request has a coupon code; checkouts without a coupon succeed. Instances and regions are evenly affected, so this is a code path, not a bad host."
+      - title: Read the whole stack trace
+        text: "The first frame in our code is `apply_coupon` in `pricing.py`. The error is a type mix between `Decimal` and `float`, raised when the discount is subtracted from the subtotal."
+        code:
+          language: text
+          code: |-
+            File "app/pricing.py", line 48, in apply_coupon
+              return subtotal - subtotal * coupon.percent / 100
+            TypeError: unsupported operand type(s) for *: 'decimal.Decimal' and 'float'
+      - title: Hypothesis and test
+        text: "Hypothesis: something in 7.4.0 changed `coupon.percent` from `Decimal` to `float`. Prediction: on 7.3.x the attribute is a `Decimal`. A local test with a coupon fails on 7.4.0 and passes on 7.3.2, so `git bisect run` over the 23 commits finds the first bad commit in five steps: a new config loader that parses coupon settings with `float()`."
+      - title: Fix, verify, prevent
+        text: "Fix the loader to parse percentages as `Decimal` (or store them as integer basis points). Verify with the coupon test and by watching the checkout error rate for an hour after redeploying. Prevent: a unit test that applies a coupon loaded through the real config path, a mypy rule or type annotation on `percent`, and a canary stage that compares checkout error rate before full rollout."
+    takeaways:
+      - Mitigate first when users are hurting, but save evidence before you do.
+      - Grouping failures by request attributes found the trigger (coupons) faster than reading the diff.
+      - The rollback proved the release was involved; bisect proved which commit.
+      - Prevention targets the class of bug (type at a boundary), not only this instance.
+- key: eng.debugging.check
+  type: concept_check
+  title: "Concept check: systematic debugging"
+  skills: [engineering.debugging]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Each question is a situation you meet on call. Decide what the evidence supports before reading the explanation.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "Error rate jumps from 0.1% to 4% at 10:01. A release went out at 10:00 and a database pool setting was changed at 10:02. Users are affected. What is the best first action?"
+        options:
+          - Read the release diff line by line until you find the bug
+          - Save the logs of a few failing requests, then roll back the release and watch whether the error rate recovers
+          - Restart all pods to clear any bad state
+          - Add debug logging everywhere and wait for more data
+        answer: [1]
+        explanation: "Impact is ongoing, so mitigate with the most likely reversible change, and keep evidence first. The rise at 10:01 precedes the 10:02 pool change, which makes the release the better suspect. Reading the diff first leaves users failing; a restart erases evidence and changes nothing if the code is broken."
+      - id: q2
+        kind: multi
+        prompt: Your hypothesis is "the database connection pool is exhausted". Which observations does this hypothesis predict?
+        options:
+          - Time spent waiting to check out a connection rises sharply
+          - Failing requests take roughly the pool timeout (for example 30 s) before erroring
+          - Database CPU is at 100%
+          - All pool connections are checked out at the same time
+        answer: [0, 1, 3]
+        explanation: "Exhaustion is a client-side queue: requests wait for a free connection and time out at the pool timeout while every connection is in use. It does not require a busy database — connections can be held during a slow HTTP call while the database idles. High DB CPU is a different hypothesis (slow queries) that can cause exhaustion, but it is not predicted by it."
+      - id: q3
+        kind: single
+        prompt: A bug exists on HEAD and not on a release 1,000 commits earlier. Roughly how many test runs does `git bisect` need?
+        options: ["About 10", "About 30", "About 100", "About 500"]
+        answer: [0]
+        explanation: "Each run halves the range, and 2¹⁰ = 1,024, so about 10 runs. 500 would be a linear search from the middle; bisect is binary search over history."
+      - id: q4
+        kind: single
+        prompt: "Calls to a partner API time out at 2 s for 5% of requests. A teammate raises the timeout to 30 s and the errors stop. What is the main problem with this fix?"
+        options:
+          - Nothing; the errors are gone
+          - It treats the symptom, and each slow call now holds a worker and its resources up to 15 times longer, which can exhaust workers or pools and turn a partial slowdown into an outage
+          - Timeouts above 10 s are not allowed by HTTP
+          - It makes the partner API slower
+        answer: [1]
+        explanation: "The slow dependency is still slow. Longer timeouts increase concurrency (Little's law: in-flight = rate × duration), so under load you can run out of workers or connections. The fix is to find why the partner is slow, keep a timeout that fits the latency budget, and degrade gracefully. HTTP itself sets no timeout limit."
+      - id: q5
+        kind: single
+        prompt: A pod's memory has grown steadily for 20 hours and it will be OOM-killed within the hour. What do you do before restarting it?
+        options:
+          - Nothing — restart immediately, memory issues fix themselves
+          - Capture a heap snapshot or allocation profile and the current memory metrics, then restart or let a healthy replacement take traffic
+          - Double the memory limit and close the incident
+          - Scale the deployment down to one pod
+        answer: [1]
+        explanation: "A restart resets the heap and destroys the evidence of what is growing. A snapshot takes seconds and lets you diff allocations later. Raising the limit only delays the next OOM kill; scaling down concentrates traffic and speeds up the failure."
+      - id: q6
+        kind: short
+        prompt: A customer reports that saving their profile fails "sometimes". You cannot reproduce it locally. List what you do next, in order.
+        model_answer: "Get specifics: time, user id, client version, the exact error the user saw. Find the failing requests by user id or request id in logs and traces, and compare one failing request with one succeeding request field by field (payload, instance, version, tenant, feature flags). Group all failures for that endpoint by instance, version and input to find what they share. Check what changed around the first occurrence. If the evidence is missing, add targeted structured logging for that path and wait for the next occurrence. Then reproduce with the same data and config in staging, fix, verify, and add a regression test."
+        explanation: When you cannot reproduce, compare failing and succeeding cases and increase observability until the difference shows; random code changes are not a step.
+- key: eng.debugging.intermittent_500
+  type: debugging_exercise
+  title: "Debugging scenario: the API intermittently returns 500"
+  skills: [engineering.debugging, project.incident_debugging_story]
+  minutes: 25
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 1500}
+  body:
+    scenario: |-
+      You own an orders API: Python, SQLAlchemy connection pool, PostgreSQL, four instances behind a load balancer. For about two weeks on-call has seen bursts of HTTP 500. The daily error rate is only 0.3%, so nobody has prioritised it, but the errors arrive in bursts and customers in an early-morning time zone complain. A client-side retry almost always succeeds. No application deploy happened on the day it started.
+    symptoms:
+      - Errors arrive in bursts in the first minute or two after quiet periods, then stop.
+      - Error rate is highest when traffic is lowest.
+      - All four instances are affected, and all endpoints that touch the database.
+      - Retrying the same request a second later succeeds.
+      - The database shows no crash, no restart and no unusual load.
+    artifacts: |-
+      Logs (UTC):
+
+      ```text
+      2026-09-28T02:14:07Z ERROR request_id=7f2c path=GET /orders/{id} instance=api-2 duration_ms=3
+        sqlalchemy.exc.OperationalError: (psycopg2.OperationalError) server closed the connection unexpectedly
+            This probably means the server terminated abnormally
+            before or while processing the request.
+      2026-09-28T02:14:07Z ERROR request_id=9a11 path=GET /orders instance=api-4 duration_ms=2   (same error)
+      2026-09-28T02:14:08Z INFO  request_id=9a12 path=GET /orders instance=api-4 status=200 duration_ms=38
+      2026-09-28T10:30:00Z INFO  ... thousands of requests, no OperationalError
+      ```
+
+      Metrics:
+
+      ```text
+      hour (UTC)        02    03    06    10    14    20
+      requests/min      30    25    90  4000  3800   600
+      5xx rate          6%    7%    2%  0.0%  0.0%  0.4%
+      ```
+
+      Configuration and change history:
+
+      ```python
+      engine = create_engine(DATABASE_URL, pool_size=10, max_overflow=5)
+      # no pool_pre_ping, no pool_recycle, default TCP keepalive settings
+      ```
+
+      ```text
+      2026-09-14  infra: database traffic moved behind a new NAT gateway / firewall (network team change)
+      2026-09-15  first OperationalError bursts reported
+      ```
+    tasks:
+      - Explain what the inverse relation between traffic and error rate tells you.
+      - "List at least three hypotheses, rank them, and say which symptom each one does or does not explain (including why retries succeed)."
+      - Propose a cheap experiment that confirms or rejects your top hypothesis.
+      - Propose the fix in the application, and a mitigation you could ship within an hour.
+      - Say what you would add so this class of problem is caught earlier next time.
+    hints:
+      - The errors take 2–3 ms, so they fail on first use, not after waiting.
+      - At low traffic, how long does a pooled connection sit unused between requests?
+      - What changed on 14 September, and was it an application change?
+    reference: |-
+      **Root cause.** The new NAT gateway / firewall silently drops TCP connections that are idle longer than its idle timeout. At night a pool of 10 connections serving 30 requests per minute leaves most connections idle for many minutes, so they are dead when the next request checks them out; the first query on a dead connection fails immediately with "server closed the connection unexpectedly". SQLAlchemy then discards that connection, so a retry gets a fresh or different connection and succeeds. At 4,000 requests per minute every connection is reused within seconds and never reaches the idle timeout — which is why the errors are inversely related to traffic. The start date matches the infra change, not an application deploy.
+
+      **Ranked hypotheses.** (1) Idle connections dropped by a middlebox — explains every symptom including the timing and the fast failure. (2) Database restarting or killing sessions (`idle_session_timeout` in PostgreSQL 14+, or a proxy limit) — would show in database logs and config; check it, but the infra change makes (1) more likely. (3) Pool exhaustion — rejected: errors are fast, not 30 s timeouts, and happen at low load. (4) A code bug in one endpoint — rejected: all endpoints and instances are affected.
+
+      **Experiment.** From one instance, open a connection, sleep past the suspected idle timeout (ask the network team for the value, or try 5, 10 and 15 minutes), then run `SELECT 1`: it should fail after the threshold and succeed below it. Alternatively, log the age and idle time of the connection used by each failing request.
+
+      **Fix.** Enable `pool_pre_ping=True` so each checkout tests the connection cheaply and replaces it if dead; set `pool_recycle` to a value safely below the idle timeout so old connections are replaced on checkout; and/or set libpq TCP keepalives (`keepalives_idle` below the idle timeout) so the middlebox sees traffic. Mitigation within an hour: deploy `pool_pre_ping=True`. Do not "retry everything" — a blind retry of a non-idempotent write can apply it twice.
+
+      **Prevention.** Alert on error rate per hour rather than per day, so low-traffic bursts are visible; add a synthetic probe that runs at night; record middlebox idle timeouts in the infra runbook and make connection settings part of the network-change checklist.
+    rubric:
+      - {key: traffic_pattern, label: "Explains that errors at low traffic point to idle connections, not to load", points: 3}
+      - {key: what_changed, label: "Links the start date to the infrastructure change rather than to a deploy", points: 2}
+      - {key: hypotheses, label: "Gives ranked hypotheses and rejects pool exhaustion using the fast failure time", points: 2}
+      - {key: experiment, label: "Proposes a falsifiable experiment such as idle connection then query", points: 1}
+      - {key: fix, label: "Fixes with pre-ping, recycle below the idle timeout or TCP keepalives, and avoids blind retries of writes", points: 2}
+    follow_ups:
+      - prompt: Why not simply make the client retry every failed request three times?
+        look_for: "Retries hide the cause and can duplicate non-idempotent writes; retry only idempotent operations or requests that provably did not reach the server, with backoff."
+      - prompt: If the same error appeared mostly at peak traffic instead, how would your hypotheses change?
+        look_for: "Points to load-related causes: database max_connections reached, a proxy or server killing connections under pressure, failover, or memory pressure; check database logs and connection counts."
+      - prompt: What does pool_pre_ping cost, and when would you not use it?
+        look_for: "One lightweight round trip per checkout; usually negligible, but for very latency-sensitive hot paths prefer recycle plus keepalives."
+- key: eng.debugging.memory_growth
+  type: debugging_exercise
+  title: "Debugging scenario: memory grows continuously under normal traffic"
+  skills: [engineering.debugging, os.memory_virtual]
+  minutes: 25
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 1500}
+  body:
+    scenario: |-
+      A Python API service runs four worker processes per container with a 1 GiB memory limit. Since a release two weeks ago, containers are OOM-killed (exit code 137) roughly every 30 hours. Traffic is normal and steady, about 300 requests per second per container from roughly 50,000 distinct API clients per day. The release added an in-process rate limiter.
+    symptoms:
+      - Resident memory of each worker grows almost linearly, about 30 MiB per hour, and never comes back down.
+      - The growth rate is the same on weekdays and at weekends, when traffic is 40% lower.
+      - A restart resets memory to about 150 MiB per worker.
+      - Latency and error rate are normal until shortly before the kill.
+    artifacts: |-
+      tracemalloc comparison in one worker, snapshot at 10:00 vs 12:00 (top three lines):
+
+      ```text
+      middleware/ratelimit.py:21: size=118 MiB (+57 MiB), count=1302331 (+631004), average=95 B
+      app/serializers.py:88: size=2310 KiB (+12 KiB), count=20411 (+105), average=116 B
+      lib/python3.12/json/decoder.py:353: size=1104 KiB (+3 KiB), count=9022 (+21), average=125 B
+      ```
+
+      The rate limiter added in the release:
+
+      ```python
+      _counts: dict[tuple[str, int], int] = {}
+
+      def allow(client_id: str, now: float, limit: int = 100) -> bool:
+          window = int(now // 60)                     # one-minute fixed window
+          key = (client_id, window)
+          _counts[key] = _counts.get(key, 0) + 1      # line 21
+          return _counts[key] <= limit
+      ```
+    tasks:
+      - Explain how you tell a leak from a cache that has not yet reached its size, and from normal sawtooth GC behaviour, using the memory graph.
+      - Identify the root cause from the artifacts and explain why growth does not depend on traffic volume as much as you might expect.
+      - Propose a fix and explain how big memory becomes after it.
+      - Point out a second, functional bug in this rate limiter that has nothing to do with memory.
+      - Say how you would verify the fix and what would catch this before production next time.
+    hints:
+      - Which part of the key changes every minute even for the same client?
+      - Is anything ever removed from the dictionary?
+      - How many processes enforce the limit for one client?
+    reference: |-
+      **Leak vs plateau.** A cache that is filling grows quickly then flattens at its bound; normal allocation shows a sawtooth that returns to a baseline. A leak is a staircase or a straight line that never flattens and resets only on restart — that is what the graph shows.
+
+      **Root cause.** The key includes the minute number, so every active client creates a new key every minute and old windows are never deleted. Memory grows with (active clients per minute × minutes of uptime), which is why it grows steadily day and night: the number of distinct clients active per minute changes much less than total request volume. tracemalloc points straight at line 21, where the count of allocations grows by about 630,000 in two hours.
+
+      **Fix.** Keep only the current window per client: store `client_id -> (window, count)` and reset when the window changes. Memory is then bounded by the number of distinct clients (tens of thousands of small entries, a few MiB), and you can bound it further with periodic cleanup of idle clients or an LRU with a maximum size.
+
+      **Second bug.** The state is per process. With four workers per container and several containers, a client can make roughly `limit × workers × containers` requests per minute, and the limit resets on every deploy. A correct shared limiter keeps the counter in Redis, for example `INCR` on `rl:{client}:{window}` with `EXPIRE` set when the key is created, which also makes the window cleanup automatic.
+
+      **Verify and prevent.** Run a soak test that replays production-like client ids for several hours and assert that memory flattens; compare tracemalloc snapshots again. Add a code-review rule that every in-process dictionary used as a cache has a bound or TTL, and alert on the slope of memory growth rather than only on the limit.
+    rubric:
+      - {key: leak_shape, label: "Distinguishes a leak from a filling cache and from sawtooth GC using the graph shape", points: 2}
+      - {key: root_cause, label: "Identifies the per-minute key with no eviction at line 21 as the cause", points: 3}
+      - {key: growth_reason, label: "Explains growth in terms of active clients times uptime, not request volume", points: 1}
+      - {key: fix, label: "Proposes a bounded structure and estimates memory after the fix", points: 2}
+      - {key: per_process, label: "Spots that per-process counters multiply the effective limit and proposes a shared store", points: 2}
+    follow_ups:
+      - prompt: If tracemalloc had shown nothing growing but RSS still grew, what would you suspect?
+        look_for: "Memory allocated outside Python's allocator (C extensions, native buffers), or fragmentation where freed memory is not returned to the OS; use native profilers and compare RSS with Python heap size."
+      - prompt: "Why is functools.lru_cache on an instance method a common leak?"
+        look_for: The cache keys hold a reference to self, so instances are never freed while the cache holds them; with maxsize=None the cache is unbounded.
+- key: eng.debugging.cards
+  type: revision_card
+  title: "Recall: the debugging method"
+  skills: [engineering.debugging]
+  minutes: 5
+  body:
+    cards:
+      - front: The seven steps of systematic debugging?
+        back: Reproduce, observe, hypothesise, bisect, fix, verify, prevent.
+      - front: Three dimensions to slice failures by?
+        back: Time (since when, pattern), scope (endpoint, user, instance), shape (status, latency).
+      - front: What makes a hypothesis useful?
+        back: It predicts an observation that would be false if the hypothesis were wrong.
+      - front: Before restarting a leaking or hung process?
+        back: Capture a heap snapshot, thread dump or logs — a restart destroys the evidence.
+      - front: "git bisect run exit codes?"
+        back: 0 good, 125 skip, any other 1-127 bad.
+      - front: Errors worst at low traffic suggest?
+        back: Idle resources going stale — dropped pooled connections, expired tokens, cold caches.
+
+# ---------------------------------------------------------------------------------------------- debugging under pressure
+- key: eng.debugging_under_pressure.lesson
+  type: lesson
+  title: Debugging your own code live in a coding round
+  skills: [execution.debugging_under_pressure, execution.testing_dry_run]
+  minutes: 20
+  difficulty: MEDIUM
+  body:
+    summary: When your code fails in an interview, shrink the failing input, trace it against what each variable should hold, and fix the first place they diverge — out loud.
+    what: |-
+      Live debugging is locating and fixing a defect in code you just wrote (or were given) during a timed round, while the interviewer watches. The method is a compressed version of production debugging: read the failure, shrink it, trace, compare against your invariant, change one thing, re-test.
+    why: |-
+      Most first drafts have at least one bug, and interviewers expect that. What they assess is how you react: random edits and silence look like guessing; a calm trace that finds the bug in three minutes looks like someone who can be trusted with production code. Recovering well can also save the five to ten minutes you need for the follow-up question.
+    when: |-
+      - A provided example or your own test gives the wrong output.
+      - An exception or an infinite loop.
+      - The interviewer asks "what happens for this input?" — often a hint that it breaks.
+      - Your dry run before declaring "done" disagrees with the expected result.
+    how: |-
+      1. **Read the failure fully**: input, expected, actual, exception type and line. Say it aloud: "for `[1, 2], [2, 5]` I return two intervals, expected one".
+      2. **Shrink** to the smallest input that still fails (two or three elements). Small inputs make tracing fast.
+      3. **Restate the invariant**: what should `left`, `best` or `result[-1]` hold after each iteration?
+      4. **Trace in a table**, one row per iteration, writing the actual values. The **first row where actual differs from expected** is where the bug is — not where the symptom appears.
+      5. **Check the usual suspects** for that line: off-by-one bounds, `<` vs `<=`, a pointer that can move backwards, a variable not reset, a missing `max`, mutating something you also read, aliasing (`[[0] * n] * m`), a mutable default argument, returning inside the loop.
+      6. **Change one thing**, re-run the shrunk case, then the original example and two edge cases (empty, single element, duplicates).
+      7. If the platform allows, a labelled print (`print("i", i, "left", left, window)`) is a valid tool; remove it afterwards.
+    mental_model: |-
+      Your code is a machine that should keep a promise (the invariant) after every step. Debugging is finding the first step where it breaks the promise. Everything after that step is just the consequence.
+    tradeoffs: |-
+      - **Patch vs rewrite**: if the bug is local (a bound, a missing `max`), patch it. If the trace shows the approach itself is wrong (greedy where it cannot work), say so and switch approach while there is time — patching special cases (`if n == 2: return 1`) makes it worse.
+      - **Hand trace vs prints**: a hand trace demonstrates reasoning and works on a whiteboard; prints are faster on long inputs when you can run code.
+    mistakes:
+      - Editing several lines at once, then not knowing which edit mattered.
+      - Debugging silently for minutes; the interviewer cannot give credit or a hint for thoughts they cannot hear.
+      - Re-running only the example that failed instead of also checking edge cases after the fix.
+      - Adding special-case branches that make one test pass and hide the real defect.
+      - Tracing a large input instead of the smallest failing one.
+    interview: |-
+      The interviewer observes whether you test before being asked, whether you can locate a bug from a wrong output, and whether you communicate. A good pattern is: "This fails for X. Let me shrink it to `[a, b]` and trace. After iteration one, `left` should be 0 and it is 0; after iteration two it should be 1 but it is 2 — so the update on line 6 is wrong because ...". If they hint, take the hint and say what it changed in your thinking.
+    explain_it:
+      - State the failing input, expected and actual output.
+      - Shrink the input and say why the small case still exercises the bug.
+      - Trace against the invariant and name the first divergent step.
+      - Fix one thing, re-run the case and two edge cases.
+    example:
+      language: python
+      code: |-
+        def max_window_sum(nums, k):
+            best = window = sum(nums[:k])
+            for i in range(k, len(nums) - 1):     # bug: stops one element early
+                window += nums[i] - nums[i - k]
+                best = max(best, window)
+            return best
+
+        # max_window_sum([1, 2, 3], 2) returns 3, expected 5.
+        # Trace:  start window = 1 + 2 = 3, best = 3
+        #         range(2, 2) is empty -> the window [2, 3] is never considered.
+        # Fix:    range(k, len(nums))
+      explanation: Shrinking to three elements makes the off-by-one visible in one line of trace; the larger original example only showed a wrong total.
+    edge_cases:
+      - Empty input and k larger than the input.
+      - A single element, all duplicates, negative numbers.
+      - Inputs where the answer is at the very first or very last position — the usual place for off-by-one bugs.
+    misconceptions:
+      - "Finding a bug in your code means you failed the round — the recovery is part of what is being assessed."
+      - "Prints are cheating — in most live coding settings they are acceptable when you explain what you expect to see."
+- key: eng.debugging_under_pressure.check
+  type: concept_check
+  title: "Concept check: reading buggy code quickly"
+  skills: [execution.debugging_under_pressure, python.core_syntax]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Predict the output or the fix before you look. Each snippet contains a bug that commonly appears in interviews.
+    questions:
+      - id: q1
+        kind: single
+        prompt: What does the last line print?
+        code:
+          language: python
+          code: |-
+            def add_tag(tag, tags=[]):
+                tags.append(tag)
+                return tags
+
+            add_tag("a")
+            print(add_tag("b"))
+        options: ["['b']", "['a', 'b']", "['a']", "TypeError"]
+        answer: [1]
+        explanation: "The default list is created once, when the function is defined, and shared by every call that omits `tags`. Use `tags=None` and create a new list inside. The tempting answer ['b'] assumes a fresh default per call."
+      - id: q2
+        kind: single
+        prompt: What does this print?
+        code:
+          language: python
+          code: |-
+            grid = [[0] * 3] * 2
+            grid[0][0] = 1
+            print(grid)
+        options: ["[[1, 0, 0], [0, 0, 0]]", "[[1, 0, 0], [1, 0, 0]]", "[[1, 1, 1], [0, 0, 0]]", "IndexError"]
+        answer: [1]
+        explanation: "`* 2` copies the reference to the same inner list, so both rows are one object. Build rows independently with `[[0] * 3 for _ in range(2)]`."
+      - id: q3
+        kind: single
+        prompt: This function finds the first True in a list shaped like [False, ..., False, True, ..., True]. It hangs on some inputs. What is the minimal fix?
+        code:
+          language: python
+          code: |-
+            def first_true(xs):
+                lo, hi = 0, len(xs) - 1
+                while lo < hi:
+                    mid = (lo + hi) // 2
+                    if xs[mid]:
+                        hi = mid
+                    else:
+                        lo = mid
+                return lo
+        options: ["Change hi = mid to hi = mid - 1", "Change lo = mid to lo = mid + 1", "Change while lo < hi to while lo <= hi", "Use mid = (lo + hi + 1) // 2"]
+        answer: [1]
+        explanation: "On [False, True], lo = 0, hi = 1, mid = 0 and xs[0] is False, so lo stays 0 forever. xs[mid] is False, so mid cannot be the answer: lo = mid + 1. Rounding mid up fails the other branch (hi = mid with mid = 1 loops). Separately, if no element is True the function returns the last index; decide how to report not-found."
+      - id: q4
+        kind: single
+        prompt: What does this print?
+        code:
+          language: python
+          code: |-
+            nums = [2, 4, 4, 5]
+            for x in nums:
+                if x % 2 == 0:
+                    nums.remove(x)
+            print(nums)
+        options: ["[5]", "[4, 5]", "[4, 4, 5]", "RuntimeError"]
+        answer: [1]
+        explanation: "Removing while iterating shifts elements left under the iterator. Step 1 removes 2 and the list becomes [4, 4, 5]; the iterator moves to index 1 (the second 4) and removes the first 4, giving [4, 5]; index 2 is past the end. Lists do not raise (dicts and sets do). Build a new list instead: [x for x in nums if x % 2]."
+      - id: q5
+        kind: multi
+        prompt: Your solution fails a hidden test and you only see "wrong answer". Which are good first moves?
+        options:
+          - Re-read the constraints for cases you did not handle (empty input, duplicates, negatives, maximum size)
+          - Construct the smallest inputs for those cases and trace them by hand
+          - Rewrite the solution from scratch with a different approach
+          - Add special-case returns for inputs of length 1 and 2 until it passes
+        answer: [0, 1]
+        explanation: "Without the failing input, generate candidates from the constraints and trace small ones. A rewrite throws away mostly-correct code without knowing the bug; special-case returns hide the defect instead of fixing it."
+      - id: q6
+        kind: short
+        prompt: Your sliding-window solution returns 3 instead of 4 on the given example, and 12 minutes remain. Say what you do, as you would aloud.
+        model_answer: "I say the failure: expected 4, got 3. I shrink the example to the smallest input that still gives the wrong answer, restate the invariant (the window [left, right] always satisfies the condition and best is the largest valid window seen), and trace left, right and best per step in a small table. At the first step where the window or best differs from what it should be, I check that line for the usual suspects: an off-by-one in the length (right - left + 1), a pointer that moves too far or backwards, or best updated before the window is valid. I change that one line, re-run the shrunk case and the original, then test empty and single-element inputs."
+        explanation: The structure (state, shrink, invariant, trace, first divergence, one fix, re-test) is what earns credit, more than finding the bug instantly.
+- key: eng.debugging_under_pressure.merge_bugs
+  type: coding_exercise
+  title: "Exercise: fix three bugs in an interval merge under the clock"
+  skills: [execution.debugging_under_pressure, intervals.core, execution.testing_dry_run]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 900}
+  body:
+    prompt: |-
+      A teammate's function should merge overlapping intervals; intervals that touch (`[1, 2]` and `[2, 5]`) count as overlapping. It fails the tests below. Find every bug, fix it with the smallest change, and explain each fix aloud as you go. Do not rewrite from scratch.
+
+      ```python
+      def merge(intervals):
+          result = []
+          for interval in intervals:
+              if result and interval[0] < result[-1][1]:
+                  result[-1][1] = interval[1]
+              else:
+                  result.append(interval)
+          return result
+      ```
+
+      ```text
+      merge([[1, 4], [2, 3]])   expected [[1, 4]]            got [[1, 3]]
+      merge([[1, 2], [2, 5]])   expected [[1, 5]]            got [[1, 2], [2, 5]]
+      merge([[5, 6], [1, 2]])   expected [[1, 2], [5, 6]]    got [[5, 2]]
+      data = [[1, 3], [2, 6]]; merge(data)
+                                expected data unchanged      got data == [[1, 6], [2, 6]]
+      ```
+    constraints:
+      - Up to 10⁴ intervals, each [start, end] with start <= end.
+      - The caller's list must not be modified.
+    hints:
+      - Take the failing tests one at a time and trace the smallest one.
+      - A contained interval should never shrink the merged end.
+      - What object does result[-1] refer to after result.append(interval)?
+    starter:
+      language: python
+      code: |-
+        def merge(intervals):
+            result = []
+            for interval in intervals:
+                if result and interval[0] < result[-1][1]:
+                    result[-1][1] = interval[1]
+                else:
+                    result.append(interval)
+            return result
+    solution:
+      language: python
+      code: |-
+        def merge(intervals):
+            result = []
+            for start, end in sorted(intervals):              # 1. merging needs start order
+                if result and start <= result[-1][1]:          # 2. touching intervals overlap
+                    result[-1][1] = max(result[-1][1], end)    # 3. contained interval must not shrink the end
+                else:
+                    result.append([start, end])                # 4. new list: never alias the caller's data
+            return result
+      explanation: "Four defects: unsorted input, strict comparison, overwriting instead of max, and aliasing the caller's inner lists (which made the in-place update mutate the input). O(n log n) time for the sort, O(n) space for the output."
+    rubric:
+      - {key: all_bugs, label: "Finds all four defects including the aliasing that mutates the input", points: 4}
+      - {key: minimal_fix, label: "Fixes each with a small targeted change rather than a rewrite", points: 2}
+      - {key: traced, label: "Locates each bug by tracing a small failing input aloud", points: 2}
+      - {key: retested, label: "Re-runs all four tests and adds an edge case such as empty input or a single interval", points: 2}
+    follow_ups:
+      - prompt: Which test would have caught the aliasing bug if the fourth test did not exist?
+        look_for: "Any test that checks the input after the call, or reuses the same input twice; aliasing bugs are invisible if you only check the return value."
+      - prompt: What changes if intervals that only touch must stay separate?
+        look_for: "Only the comparison: start < result[-1][1]; mention it as a clarification question to ask up front."
+- key: eng.debugging_under_pressure.window_trace
+  type: debugging_exercise
+  title: "Debugging drill: a longest-unique-substring function that is almost right"
+  skills: [execution.debugging_under_pressure, sliding_window.core]
+  minutes: 10
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 600}
+  body:
+    scenario: You wrote a function that returns the length of the longest substring without repeated characters. It passes the two examples you were given, but the interviewer asks you to try the input "abba".
+    symptoms:
+      - "longest_unique('abcabcbb') returns 3 (correct)."
+      - "longest_unique('bbbbb') returns 1 (correct)."
+      - "longest_unique('abba') returns 3; the right answer is 2."
+    artifacts:
+      language: python
+      code: |-
+        def longest_unique(s: str) -> int:
+            last_seen = {}
+            left = best = 0
+            for right, ch in enumerate(s):
+                if ch in last_seen:
+                    left = last_seen[ch] + 1
+                last_seen[ch] = right
+                best = max(best, right - left + 1)
+            return best
+    tasks:
+      - Trace 'abba' in a table with columns right, ch, left, best.
+      - Name the first step where left is wrong and explain why.
+      - Fix it with a one-line change and re-test all three inputs plus the empty string.
+    hints:
+      - Watch left at right = 3.
+      - Can the window's left edge ever be allowed to move backwards?
+    reference: |-
+      Trace: right 0 'a' left 0 best 1; right 1 'b' left 0 best 2; right 2 'b' seen at 1, left 2, best 2; right 3 'a' seen at 0, so left becomes 1 — it moves **backwards** to a position before the second 'b', and the window 'bba' (length 3) contains a repeat. The stored index for 'a' is stale: it lies outside the current window. Fix: `left = max(left, last_seen[ch] + 1)` (or only move when `last_seen[ch] >= left`). After the fix 'abba' gives 2, the other examples are unchanged, and '' gives 0. Time O(n), space O(alphabet).
+    solution:
+      language: python
+      code: |-
+        def longest_unique(s: str) -> int:
+            last_seen = {}
+            left = best = 0
+            for right, ch in enumerate(s):
+                if ch in last_seen:
+                    left = max(left, last_seen[ch] + 1)   # never move the window back
+                last_seen[ch] = right
+                best = max(best, right - left + 1)
+            return best
+    rubric:
+      - {key: trace, label: "Produces a correct per-step trace of the failing input", points: 3}
+      - {key: divergence, label: "Names right = 3 as the first wrong step and explains the stale index outside the window", points: 3}
+      - {key: fix, label: "Applies the one-line max fix without other changes", points: 2}
+      - {key: retest, label: "Re-tests the original examples and the empty string", points: 2}
+    follow_ups:
+      - prompt: Why did the two given examples not reveal the bug?
+        look_for: "In both, a repeated character's last index was never behind the current left edge; the bug needs a repeat that was already left behind, as in 'abba'."
+      - prompt: What other edge input would you add to a test list for this function?
+        look_for: "Empty string, one character, all distinct, repeats at both ends, non-ASCII characters."
+- key: eng.debugging_under_pressure.cards
+  type: revision_card
+  title: "Recall: live debugging moves"
+  skills: [execution.debugging_under_pressure]
+  minutes: 4
+  body:
+    cards:
+      - front: First move when output is wrong?
+        back: Say input, expected and actual aloud, then shrink to the smallest failing input.
+      - front: Where is the bug in a trace?
+        back: At the first step where actual state differs from the invariant, not where the symptom shows.
+      - front: "[[0] * 3] * 2 — what goes wrong?"
+        back: Both rows are the same list; build rows with a comprehension.
+      - front: Mutable default argument?
+        back: Created once at definition and shared across calls; default to None instead.
+      - front: When to rewrite instead of patching?
+        back: When the trace shows the approach is wrong, not just a bound or an update.

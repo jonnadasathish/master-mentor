@@ -74,6 +74,9 @@ class PlanOut(BaseModel):
     stop_list: list[dict[str, Any]]
     dropped: list[dict[str, Any]]
     message: MessageOut
+    # Derived, not frozen (D-083): per pending item id, the learning session that would fill it
+    # ({stage, minutes, steps[], session_id}). Missing when the skill has no learning content for the stage.
+    learning: dict[str, dict[str, Any]] = {}
 
 
 class CalibrationOut(BaseModel):

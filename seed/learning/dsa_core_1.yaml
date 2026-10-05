@@ -1,0 +1,1054 @@
+# Learning content: DSA foundations — array traversal, string manipulation, hashing and prefix sums.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- arrays
+- key: dsa.arrays.lesson
+  type: lesson
+  title: Array traversal and in-place updates with a read and a write index
+  skills: [arrays.traversal]
+  minutes: 20
+  difficulty: EASY
+  body:
+    summary: Most array problems are one pass with a little state; in-place problems keep a write index that marks where the finished output ends.
+    what: |-
+      An array (a Python `list`) is a contiguous block of slots indexed from `0` to `n - 1`. Traversal problems read every element once and keep a small amount of **running state**: the best answer so far, the minimum so far, a count, or a write position.
+
+      Three shapes cover most of them:
+
+      - **Running state:** one left-to-right pass that updates a few variables (`min_so_far`, `best`).
+      - **Read/write compaction:** a `read` index scans everything, a `write` index marks where the next kept element goes. Used to filter, deduplicate or move elements in place.
+      - **Two passes:** one pass from the left and one from the right (prefix and suffix information), when an answer at `i` depends on both sides.
+    why: |-
+      Arrays give O(1) access by index and are cache friendly, so a single pass over 10⁶ elements costs a few milliseconds even in Python. Interviewers use array problems to check that you can keep an invariant, handle the first and last element, and modify data in place without an extra copy (O(1) extra space instead of O(n)).
+    when: |-
+      - The question says "in place", "O(1) extra space" or "without allocating another array".
+      - The answer at each position depends on what came before it (best so far, minimum so far).
+      - The answer at each position depends on both sides: compute a left pass and a right pass.
+      - You are tempted to remove elements while iterating: use a write index instead.
+    how: |-
+      **Running state.** Decide what you must remember about `nums[0..i-1]` to answer for `i`. For "best profit buying before selling" that is only the minimum price so far.
+
+      **Read/write compaction.** Keep the invariant "`nums[:write]` is the finished output, in order":
+
+      ```python
+      write = 0
+      for read in range(len(nums)):
+          if keep(nums[read]):
+              nums[write] = nums[read]
+              write += 1
+      # nums[:write] is the answer; whatever is after it is garbage
+      ```
+
+      **Reversal tricks.** Reversing a range in place is two indices swapping toward each other. Rotating right by `k` with O(1) space is three reversals: reverse the whole array, reverse the first `k`, reverse the rest (after `k %= n`).
+
+      **Two passes.** When the answer at `i` needs "something about the left" and "something about the right", fill one array from the left, then sweep from the right with a running variable instead of a second array.
+    mental_model: |-
+      Picture the array split by the write index: on the left, the finished answer; between write and read, slots you are allowed to overwrite; on the right, input you have not read yet. Every iteration moves read forward by one, and write moves only when an element is kept, so `write <= read` always holds and you never overwrite unread data.
+    tradeoffs: |-
+      In-place updates save O(n) memory but destroy the input; if the caller still needs it, copy first and say so. A new list built with a comprehension is often clearer and just as fast in Python; choose in-place only when the question asks for it or memory matters. Two passes cost 2n work, which is still O(n), and are often simpler than a clever single pass.
+    mistakes:
+      - Removing from a list while iterating over it with `for x in nums`, which skips the element after each removal.
+      - "Starting the running minimum at `0` instead of `nums[0]` or infinity, which is wrong for all-positive inputs."
+      - Forgetting to reduce `k` modulo `n` before rotating, so `k > n` breaks or does extra work.
+      - Writing `grid = [[0] * cols] * rows`, which creates `rows` references to the same inner list.
+      - "Using `nums.insert(0, x)` or `nums.pop(0)` in a loop: each is O(n), so the loop becomes O(n²)."
+      - Off-by-one at the last element when comparing `nums[i]` with `nums[i + 1]`.
+    interview: |-
+      Expect a simple-looking problem with a constraint like "O(1) extra space" or "in place". State the invariant aloud ("everything before `write` is kept, in order") and dry-run on an input with the edge pattern at both ends, for example `[0, 1, 0, 3, 0]`. A common follow-up is to minimise the number of writes, or to keep at most two copies of each value.
+    explain_it:
+      - Say which state you keep and why it is enough to answer for the current index.
+      - "State the invariant of the write index: `nums[:write]` is the final output."
+      - "Explain why `write <= read` means nothing unread is overwritten."
+      - Give time O(n) and extra space O(1), and mention that the input is modified.
+    example:
+      language: python
+      code: |-
+        def move_zeros_to_end(nums: list[int]) -> None:
+            """Keep the order of non-zero values, push zeros to the end, in place."""
+            write = 0                          # invariant: nums[:write] = kept values, in order
+            for read in range(len(nums)):
+                if nums[read] != 0:
+                    nums[write] = nums[read]
+                    write += 1
+            for i in range(write, len(nums)):  # fill the tail
+                nums[i] = 0
+
+        data = [0, 1, 0, 3, 12]
+        move_zeros_to_end(data)
+        assert data == [1, 3, 12, 0, 0]
+      explanation: Each element is read once and written at most twice, so O(n) time and O(1) extra space. Swapping `nums[write], nums[read]` instead of filling the tail gives the same result in one loop.
+    complexity: One pass is O(n) time; in-place compaction and reversal need O(1) extra space. Slicing (`nums[a:b]`) copies and costs O(b - a).
+    internals: |-
+      In CPython a list is a dynamic array of pointers to objects. Indexing and `append` are O(1) (append is amortised, because the capacity grows geometrically). Inserting or deleting anywhere but the end shifts every later pointer, so it is O(n). Slices create a new list, so `nums[1:]` inside a loop silently adds an O(n) copy per iteration.
+    edge_cases:
+      - Empty array and single-element array.
+      - All elements kept or all removed.
+      - The interesting value at index 0 or at index n - 1.
+      - Negative numbers when a running minimum or maximum is involved.
+    misconceptions:
+      - "`for i in range(len(nums))` re-reads the length every iteration — it does not; `range` is fixed when the loop starts."
+      - "Slicing is free — it copies the selected elements."
+- key: dsa.arrays.check
+  type: concept_check
+  title: "Concept check: traversal, running state and in-place updates"
+  skills: [arrays.traversal]
+  minutes: 8
+  difficulty: EASY
+  body:
+    intro: Trace each snippet by hand before choosing. Most of these are one-line traps.
+    questions:
+      - id: q1
+        kind: single
+        prompt: What does this function return for `[7, 1, 5, 3, 6, 4]`?
+        code:
+          language: python
+          code: |-
+            def f(prices):
+                best, low = 0, prices[0]
+                for p in prices[1:]:
+                    best = max(best, p - low)
+                    low = min(low, p)
+                return best
+        options: ["4", "5", "6", "0"]
+        answer: [1]
+        explanation: "It is the best buy-low-sell-later profit: buy at 1, sell at 6, so 5. The tempting 6 is max minus min (7 - 1), but 7 comes before 1, so you cannot sell at 7 after buying at 1. Updating `best` before `low` guarantees the sell day is after the buy day."
+      - id: q2
+        kind: single
+        prompt: What is `nums` after this loop runs on `nums = [2, 4, 6, 1]`?
+        code:
+          language: python
+          code: |-
+            for x in nums:
+                if x % 2 == 0:
+                    nums.remove(x)
+        options: ["[1]", "[4, 1]", "[4, 6, 1]", "It raises RuntimeError"]
+        answer: [1]
+        explanation: "The list iterator walks by index. Removing 2 shifts 4 into index 0, and the iterator moves on to index 1, which now holds 6, so 4 is skipped. Result [4, 1]. RuntimeError is what a dict or set raises when its size changes during iteration; a list silently misbehaves instead."
+      - id: q3
+        kind: multi
+        prompt: Which of these are O(n) on a Python list of length n?
+        options: ["nums[-1]", "nums[1:]", "nums.insert(0, x)", "nums.append(x)", "x in nums"]
+        answer: [1, 2, 4]
+        explanation: "Slicing copies n - 1 pointers, insert at the front shifts every element, and `in` scans linearly. Indexing from the end is O(1) and append is amortised O(1)."
+      - id: q4
+        kind: single
+        prompt: You must rotate an array right by k positions in place with O(1) extra space. Which sequence works?
+        options:
+          - Reverse the whole array, then reverse the first k elements, then reverse the remaining n - k
+          - Reverse the first k elements, then reverse the whole array
+          - Swap nums[i] with nums[(i + k) % n] for every i from left to right
+          - Pop from the end and insert at the front k times
+        answer: [0]
+        explanation: "For [1, 2, 3, 4, 5] and k = 2: reverse all gives [5, 4, 3, 2, 1], reverse first two gives [4, 5, 3, 2, 1], reverse the rest gives [4, 5, 1, 2, 3]. Pairwise swapping overwrites values it still needs, and pop plus insert at the front is O(n) per step, O(nk) total."
+      - id: q5
+        kind: single
+        prompt: What does this print?
+        code:
+          language: python
+          code: |-
+            grid = [[0] * 3] * 3
+            grid[0][0] = 1
+            print(grid)
+        options:
+          - "[[1, 0, 0], [0, 0, 0], [0, 0, 0]]"
+          - "[[1, 0, 0], [1, 0, 0], [1, 0, 0]]"
+          - "[[1, 1, 1], [0, 0, 0], [0, 0, 0]]"
+          - It raises an error
+        answer: [1]
+        explanation: "`[row] * 3` repeats a reference to the same inner list three times, so one write shows up in every row. Build grids with `[[0] * cols for _ in range(rows)]`."
+      - id: q6
+        kind: short
+        prompt: Remove every occurrence of `val` from `nums` in place and return the new length. State the invariant and why the approach is O(n) time and O(1) space.
+        model_answer: "Keep a write index. Invariant: `nums[:write]` holds exactly the kept elements seen so far, in order. For each read index, if `nums[read] != val`, copy it to `nums[write]` and increment write. Return write. Each element is read once and written at most once, so O(n) time; only two integers are used, so O(1) extra space. Because write never passes read, no unread element is overwritten."
+        explanation: The invariant is what makes the in-place version safe; without it candidates often reach for remove(), which is O(n) per call.
+- key: dsa.arrays.exercise
+  type: coding_exercise
+  title: "Exercise: keep each value at most twice, in place"
+  skills: [arrays.traversal, two_pointers.core]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 900}
+  body:
+    prompt: |-
+      You get a list of integers sorted in non-decreasing order. Modify it in place so that each distinct value appears at most twice, keeping the relative order, and return the number of elements kept. Only the first `k` positions matter after the call. Use O(1) extra space.
+    examples:
+      - "[1, 1, 1, 2, 2, 3] -> returns 5, prefix [1, 1, 2, 2, 3]"
+      - "[0, 0, 1, 1, 1, 1, 2, 3, 3] -> returns 7, prefix [0, 0, 1, 1, 2, 3, 3]"
+      - "[] -> returns 0"
+    constraints:
+      - Up to 10⁵ elements; values may be negative.
+      - No second list, no `del` or `remove` inside the loop.
+    hints:
+      - What does the write index say about the kept prefix?
+      - Because the input is sorted, you only need to compare the candidate with one element of the kept prefix.
+      - Keep `nums[read]` when `write < 2` or `nums[read] != nums[write - 2]`.
+    solution:
+      language: python
+      code: |-
+        def keep_at_most_two(nums: list[int]) -> int:
+            write = 0                         # invariant: nums[:write] is the valid output
+            for read in range(len(nums)):
+                if write < 2 or nums[read] != nums[write - 2]:
+                    nums[write] = nums[read]
+                    write += 1
+            return write
+      explanation: Comparing with the element two places back in the output (not in the input) is the key; it generalises to "at most m copies" by comparing with nums[write - m]. O(n) time, O(1) space.
+    rubric:
+      - {key: correct, label: Returns the right length and prefix for all three examples including the empty list, points: 4}
+      - {key: invariant, label: States the write-index invariant before or while coding, points: 2}
+      - {key: compares_output, label: Compares with the output prefix (write - 2) rather than the input (read - 2), points: 2}
+      - {key: complexity, label: States O(n) time and O(1) extra space, points: 2}
+    follow_ups:
+      - prompt: Generalise to at most m copies. What changes?
+        look_for: Replace 2 with m in both the guard and the index; complexity unchanged.
+      - prompt: Why is comparing with nums[read - 2] wrong?
+        look_for: "Positions before read may already have been overwritten, and the input copy two places back may be a dropped duplicate; e.g. [1, 1, 1, 1] would keep too many."
+- key: dsa.arrays.guided
+  type: guided_problem
+  title: "Guided practice: one pass with running state"
+  skills: [arrays.traversal]
+  minutes: 15
+  difficulty: EASY
+  problems: [45]
+  body:
+    guidance:
+      - Write the brute force first (every buy day against every later sell day) and say it is O(n²).
+      - "Ask: to answer for today's price, what single fact about the earlier days do I need?"
+      - Update the answer with today's price before updating the remembered state, so the buy day is strictly earlier.
+      - Dry-run on a strictly decreasing input; the answer must be 0, not negative.
+    hints:
+      - The best purchase for a sale today is the cheapest price seen before today.
+      - Two variables are enough; no extra array.
+- key: dsa.arrays.timed
+  type: timed_problem
+  title: "Timed practice: two-pass and in-place array problems"
+  skills: [arrays.traversal]
+  minutes: 40
+  difficulty: MEDIUM
+  problems: [46, 47]
+  body:
+    guidance:
+      - "For the product problem: the answer at i is (product of everything left of i) × (product of everything right of i). Fill one pass from the left, then sweep from the right with a running variable; no division."
+      - "For the missing-positive problem: the answer is in 1..n+1, so each value v in that range has a home slot v - 1. Place values in their homes with swaps, then scan for the first slot that is wrong."
+      - State time and space before coding, then code without hints under the timer. Test zeros, duplicates and negatives.
+- key: dsa.arrays.cards
+  type: revision_card
+  title: "Recall: array traversal and in-place updates"
+  skills: [arrays.traversal]
+  minutes: 5
+  body:
+    cards:
+      - front: Invariant of the write index in in-place compaction?
+        back: "nums[:write] is the finished output, in order, and write <= read."
+      - front: Rotate right by k in place with O(1) space?
+        back: Reverse all, reverse the first k, reverse the rest (after k %= n).
+      - front: Why not remove items while iterating a list?
+        back: The iterator advances by index, so the element after each removal is skipped.
+      - front: Correct way to build a rows × cols grid?
+        back: "[[0] * cols for _ in range(rows)], never [[0] * cols] * rows."
+      - front: Cost of nums[1:] and nums.pop(0)?
+        back: Both O(n); the slice copies, pop(0) shifts every element.
+
+# ---------------------------------------------------------------------------------------------- strings
+- key: dsa.strings.lesson
+  type: lesson
+  title: Strings in Python, building them efficiently and checking palindromes
+  skills: [strings.manipulation]
+  minutes: 20
+  difficulty: EASY
+  body:
+    summary: Python strings are immutable sequences, so build with a list and join, compare with two indices, and count characters with a fixed-size table or a Counter.
+    what: |-
+      String problems are array problems over characters with three twists: strings are **immutable** in Python, characters have an alphabet (often 26 lowercase letters), and many questions are about symmetry (palindromes) or equality up to rearrangement (anagrams).
+
+      The core tools:
+
+      - Index-based scanning with one or two indices.
+      - Building output in a `list` and calling `"".join(parts)` once at the end.
+      - Character counts with `collections.Counter` or a list of 26 integers indexed by `ord(c) - ord("a")`.
+      - Expanding around a centre for palindromic substrings.
+    why: |-
+      Because strings are immutable, `s = s + ch` creates a new string each time and copies the old one. Over n characters that can be 1 + 2 + … + n copies, which is O(n²). Knowing this, and the two-pointer and expand-around-centre techniques, turns many "looks easy" questions from quadratic into linear or from cubic into quadratic.
+    when: |-
+      - You build an output string piece by piece: use a list and join.
+      - You compare a string with its reverse, or the left half with the right half: two indices moving inward.
+      - The question asks about substrings that read the same both ways: expand around each centre.
+      - You compare multisets of characters (anagram, permutation): counts, not sorting, when the alphabet is small.
+      - You parse a string (numbers, tokens): scan once with an index and handle each phase (spaces, sign, digits) explicitly.
+    how: |-
+      **Two indices from both ends.** `lo = 0, hi = len(s) - 1`; while `lo < hi` compare `s[lo]` and `s[hi]`, then move both inward. Skip characters that should be ignored inside the loop, re-checking `lo < hi` after each skip.
+
+      **Expand around centre.** Every palindrome has a centre: a character (odd length) or the gap between two characters (even length). A string of length n has `2n - 1` centres. From each centre, expand while the characters on both sides match. That is O(n) per centre and O(n²) overall, with O(1) extra space.
+
+      **Counting.** For lowercase letters, `counts = [0] * 26` and `counts[ord(c) - ord("a")] += 1`. Two strings are anagrams exactly when their count arrays are equal: O(n) time, O(1) space for a fixed alphabet, versus O(n log n) for comparing sorted strings.
+
+      **Building.** Append pieces to a list, then `"".join(parts)`. Join computes the total length first and copies each piece once: O(total length).
+    mental_model: |-
+      Treat a string as a read-only array. You never edit it; you either read it with indices or produce a new one exactly once. For palindromes, the invariant of the two-index scan is "everything outside `[lo, hi]` already matches its mirror"; when `lo >= hi` nothing is left to check.
+    tradeoffs: |-
+      Sorting characters is the simplest anagram key and works for any alphabet, but costs O(k log k) per word. A 26-count array is O(k) but assumes lowercase ASCII; a `Counter` handles any characters at a higher constant factor. Expand-around-centre is O(n²) time and O(1) space; Manacher's algorithm is O(n) but rarely expected, and harder to get right under time pressure.
+    mistakes:
+      - Concatenating in a loop with `+=` and calling it O(n). CPython can sometimes extend a string in place, but that is an implementation detail; do not rely on it.
+      - Checking only odd-length centres and missing even palindromes such as "abba".
+      - "Using `ord(c) - 97` on input that contains uppercase letters, digits or Unicode, which indexes out of range or silently miscounts."
+      - Skipping non-alphanumeric characters without re-checking `lo < hi`, which reads past the other pointer.
+      - Forgetting that `s.split()` (no argument) collapses runs of whitespace while `s.split(" ")` produces empty strings.
+      - Comparing with `is` instead of `==`; identity of strings is an interning detail.
+    interview: |-
+      String questions test whether you know the cost of the operations you call. Say "strings are immutable, so I will collect parts in a list and join once". Clarify the alphabet (lowercase only? Unicode?), case sensitivity and what counts as a character to ignore. Typical follow-ups: do it in O(1) extra space, handle Unicode, or return all palindromic substrings instead of the longest.
+    explain_it:
+      - Name the alphabet assumption and what it buys (fixed-size count array).
+      - Say why building with join is linear and repeated concatenation is not guaranteed to be.
+      - For palindromes, state the centre count (2n - 1) and why both odd and even centres are needed.
+      - Give time and extra space, separating the output size from the working memory.
+    example:
+      language: python
+      code: |-
+        def count_palindromic_substrings(s: str) -> int:
+            def expand(lo: int, hi: int) -> int:
+                found = 0
+                while lo >= 0 and hi < len(s) and s[lo] == s[hi]:
+                    found += 1           # s[lo..hi] is a palindrome
+                    lo -= 1
+                    hi += 1
+                return found
+
+            total = 0
+            for centre in range(len(s)):
+                total += expand(centre, centre)       # odd length, centre is a character
+                total += expand(centre, centre + 1)   # even length, centre is a gap
+            return total
+
+        assert count_palindromic_substrings("aaa") == 6   # a, a, a, aa, aa, aaa
+        assert count_palindromic_substrings("abc") == 3
+      explanation: Each of the 2n - 1 centres expands at most n/2 times, so O(n²) time and O(1) extra space. The same expand helper finds the longest palindrome if it returns the bounds instead of a count.
+    complexity: Scanning is O(n); join is O(total length); sorted-string anagram keys are O(k log k) per word, count keys O(k). String equality is O(length) in the worst case.
+    internals: |-
+      CPython stores a string as a compact array of fixed-width code points (1, 2 or 4 bytes each, chosen by the widest character, PEP 393), so indexing is O(1) and `len` is O(1). `len` counts code points, not bytes and not user-perceived characters: an emoji with a skin-tone modifier is two code points.
+    edge_cases:
+      - Empty string and single character.
+      - All characters identical ("aaaa"), which maximises palindrome counts.
+      - Strings made only of characters to skip (punctuation, spaces).
+      - Mixed case when the comparison should be case-insensitive.
+    misconceptions:
+      - "`s[::-1]` is O(1) — it builds a reversed copy, O(n)."
+      - "Two strings with equal sorted characters can differ in length — they cannot; equal sorted strings imply equal length."
+- key: dsa.strings.check
+  type: concept_check
+  title: "Concept check: string costs, palindromes and parsing"
+  skills: [strings.manipulation]
+  minutes: 8
+  difficulty: EASY
+  body:
+    intro: Answer closed-book. Several questions ask what a snippet returns; trace it.
+    questions:
+      - id: q1
+        kind: multi
+        prompt: For which inputs does this function return True?
+        code:
+          language: python
+          code: |-
+            def f(s):
+                lo, hi = 0, len(s) - 1
+                while lo < hi:
+                    if s[lo] != s[hi]:
+                        return False
+                    lo += 1
+                    hi -= 1
+                return True
+        options: ["\"abba\"", "\"abca\"", "\"a\"", "\"\""]
+        answer: [0, 2, 3]
+        explanation: "It is a palindrome check. For the empty string hi = -1, so lo < hi is false at once and it returns True, as it should. \"abca\" fails at the inner pair b/c."
+      - id: q2
+        kind: single
+        prompt: "Building a string of n characters with `s = s + ch` in a loop has which worst-case time complexity?"
+        options: ["O(n)", "O(n log n)", "O(n²)", "O(1) per step, so O(n)"]
+        answer: [2]
+        explanation: "Each concatenation may copy the whole string built so far: 1 + 2 + … + n. CPython sometimes resizes in place when nothing else references the string, which can hide the cost, but the language does not promise it. `\"\".join(parts)` is guaranteed linear."
+      - id: q3
+        kind: single
+        prompt: How many centres does expand-around-centre try for a string of length 5?
+        options: ["5", "9", "10", "25"]
+        answer: [1]
+        explanation: "2n - 1 = 9: five characters for odd-length palindromes and four gaps for even-length ones. Using only 5 misses palindromes like \"abba\"."
+      - id: q4
+        kind: single
+        prompt: "What does `\"a,b,,c\".split(\",\")` return?"
+        options: ["['a', 'b', 'c']", "['a', 'b', '', 'c']", "['a', 'b', ',', 'c']", "['a,b,,c']"]
+        answer: [1]
+        explanation: "With an explicit separator, consecutive separators produce an empty string between them. Only `split()` with no argument collapses runs of whitespace and drops empty strings."
+      - id: q5
+        kind: single
+        prompt: Two lowercase words of length k each. Which anagram test is O(k) time and O(1) extra space?
+        options:
+          - "sorted(a) == sorted(b)"
+          - Compare two lists of 26 counts
+          - Check that every character of a is in b
+          - "set(a) == set(b)"
+        answer: [1]
+        explanation: "Two 26-count arrays are fixed size, so O(1) space, and filling them is O(k). Sorting is O(k log k). Membership and set equality ignore multiplicity: \"aab\" and \"abb\" would pass."
+      - id: q6
+        kind: short
+        prompt: You parse a string into a 32-bit signed integer (optional leading spaces, optional sign, digits, stop at the first non-digit, clamp to the range). Which phases and edge cases do you handle?
+        model_answer: "Scan once with an index. Phase 1 skip spaces; phase 2 read at most one sign; phase 3 accumulate digits as result = result × 10 + digit and stop at the first non-digit; finally apply the sign and clamp to [-2³¹, 2³¹ - 1]. Edge cases: empty or all-space input, a sign with no digits, leading zeros, a sign after spaces but not after digits, overflow beyond the range."
+        explanation: Thinking in explicit phases is what prevents the classic bugs (two signs accepted, digits after letters parsed, overflow unhandled).
+- key: dsa.strings.exercise
+  type: coding_exercise
+  title: "Exercise: run-length encode a string"
+  skills: [strings.manipulation]
+  minutes: 12
+  difficulty: EASY
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 720}
+  body:
+    prompt: |-
+      Write `encode(s)` that replaces each maximal run of the same character with the character followed by the run length, and `decode(e)` that reverses it. Characters are letters only; run lengths can be more than 9.
+    examples:
+      - "encode(\"aaabccdddd\") == \"a3b1c2d4\""
+      - "encode(\"\") == \"\""
+      - "decode(\"a12b1\") == \"aaaaaaaaaaaab\""
+    constraints:
+      - Up to 10⁵ characters.
+      - Both functions must be O(n) in the length of their output.
+    hints:
+      - Track where the current run started; a run ends when the next character differs or the string ends.
+      - Do not forget to emit the last run after the loop.
+      - In decode, a number can have several digits; accumulate digits until the next letter.
+    solution:
+      language: python
+      code: |-
+        def encode(s: str) -> str:
+            parts: list[str] = []
+            start = 0
+            for i in range(1, len(s) + 1):
+                if i == len(s) or s[i] != s[start]:   # run s[start:i] has ended
+                    parts.append(s[start])
+                    parts.append(str(i - start))
+                    start = i
+            return "".join(parts)
+
+        def decode(e: str) -> str:
+            parts: list[str] = []
+            ch, count = "", 0
+            for c in e:
+                if c.isdigit():
+                    count = count * 10 + int(c)
+                else:
+                    if ch:
+                        parts.append(ch * count)
+                    ch, count = c, 0
+            if ch:
+                parts.append(ch * count)
+            return "".join(parts)
+      explanation: Looping to len(s) inclusive makes the final run flush inside the loop instead of after it. Both functions build with a list and one join, so they are linear in the output.
+    rubric:
+      - {key: correct, label: Both functions pass the three examples including empty input and multi-digit counts, points: 4}
+      - {key: last_run, label: Emits the final run (no lost last group), points: 2}
+      - {key: join, label: Builds output with a list and join rather than repeated concatenation, points: 2}
+      - {key: complexity, label: States linear time and the output-size caveat, points: 2}
+    follow_ups:
+      - prompt: Encode only when it makes the string shorter. How do you decide without building both?
+        look_for: Count runs first; encoded length is the sum over runs of 1 + digits(run length); compare with len(s).
+      - prompt: What breaks if the input may contain digits?
+        look_for: Decoding becomes ambiguous; use a separator or escape scheme, or a fixed-width count.
+- key: dsa.strings.guided
+  type: guided_problem
+  title: "Guided practice: palindrome check with skipped characters"
+  skills: [strings.manipulation]
+  minutes: 15
+  difficulty: EASY
+  problems: [50]
+  body:
+    guidance:
+      - Clarify which characters count (letters and digits) and whether case matters.
+      - Solve it first by building a cleaned, lower-cased copy and comparing with its reverse; state O(n) time and O(n) space.
+      - Then remove the extra space with two indices moving inward, skipping ignored characters inside the loop.
+      - Dry-run on a string with only punctuation, and on one with punctuation at both ends.
+    hints:
+      - After each skip, check again that the left index is still below the right one.
+      - "Compare `s[lo].lower()` with `s[hi].lower()`."
+- key: dsa.strings.timed
+  type: timed_problem
+  title: "Timed practice: palindromic substrings and parsing"
+  skills: [strings.manipulation]
+  minutes: 45
+  difficulty: MEDIUM
+  problems: [51, 52]
+  body:
+    guidance:
+      - "Longest palindromic substring: expand around all 2n - 1 centres and keep the best bounds; say O(n²) time and O(1) space before coding."
+      - "String to integer: write the phases (spaces, sign, digits, clamp) as comments first, then fill them in; test empty, sign-only and overflow inputs."
+      - Code each without hints within the timer and state the complexity at the end.
+- key: dsa.strings.cards
+  type: revision_card
+  title: "Recall: strings"
+  skills: [strings.manipulation]
+  minutes: 5
+  body:
+    cards:
+      - front: Efficient way to build a long string in Python?
+        back: "Append parts to a list, then \"\".join(parts) once: O(total length)."
+      - front: Number of centres for expand-around-centre on length n?
+        back: 2n - 1 (n characters for odd lengths, n - 1 gaps for even lengths).
+      - front: Anagram test in O(k) time and O(1) space for lowercase words?
+        back: Compare two 26-length count arrays.
+      - front: "split() vs split(\" \") on \"a  b\"?"
+        back: "split() gives ['a', 'b']; split(\" \") gives ['a', '', 'b']."
+      - front: Cost of s[::-1]?
+        back: O(n) — it builds a reversed copy.
+
+# ---------------------------------------------------------------------------------------------- hashing
+- key: dsa.hashing.lesson
+  type: lesson
+  title: Hashing for lookup, frequency and grouping
+  skills: [hashing.lookup_frequency]
+  minutes: 25
+  difficulty: EASY
+  body:
+    summary: A hash map answers "have I seen this, how often, and where" in average O(1), which removes the inner search loop of most brute-force solutions.
+    what: |-
+      A hash map (`dict`) maps keys to values and a hash set (`set`) stores keys, both with **average O(1)** insert, delete and lookup. The key's hash picks a slot in a table; equality (`==`) confirms the match.
+
+      Four patterns cover most interview uses:
+
+      - **Complement lookup:** while scanning, ask whether the partner of the current element was already seen (`target - x`).
+      - **Frequency counting:** `Counter(items)` or `counts[x] = counts.get(x, 0) + 1`.
+      - **Grouping by a canonical key:** items that are "the same" under some rule share a key (sorted letters, a tuple of counts, a normalised form) and go in one bucket: `defaultdict(list)`.
+      - **Index or state memory:** first or last index where something happened, or a set of visited states.
+    why: |-
+      The brute force for "find a matching pair", "does a duplicate exist" or "group equivalent items" compares every element with every other: O(n²). A hash map remembers what you have seen so that each later question costs O(1) on average, turning the whole solution into one O(n) pass at the price of O(n) memory. This trade is the single most common optimisation in coding interviews.
+    when: |-
+      - Your brute force has an inner loop that **searches** for something among earlier elements.
+      - You need counts, duplicates, or "the first element that…".
+      - You must group items that are equivalent under some rule.
+      - You need to avoid revisiting states (visited sets in graph search, cycle detection in a sequence).
+      - Order does not matter for the lookup; if you need "the nearest smaller value" or a sorted order, a hash map alone will not do.
+    how: |-
+      **One-pass complement lookup:**
+
+      ```python
+      index_of: dict[int, int] = {}
+      for i, x in enumerate(nums):
+          if target - x in index_of:          # ask about the past first
+              return [index_of[target - x], i]
+          index_of[x] = i                     # then record the present
+      ```
+
+      Looking up **before** inserting is what stops an element from pairing with itself.
+
+      **Grouping:** choose a key that is equal exactly when the items are equivalent and is hashable (`str`, `int`, `tuple`, `frozenset`). For anagrams, `"".join(sorted(word))` or `tuple(counts_of_26_letters)`.
+
+      **Counting:** `Counter` supports `most_common(k)`, addition and subtraction (subtraction drops zero and negative counts), and equality comparison of two multisets.
+    mental_model: |-
+      The map is a summary of the prefix you have already scanned. Invariant: after processing index `i`, the map contains exactly the facts about `nums[0..i]` you need (positions, counts, groups). Each new element asks one question of that summary and then adds itself to it.
+    tradeoffs: |-
+      You pay O(n) extra memory, and hashing has a larger constant factor than array indexing; for keys in a small dense range (lowercase letters, values 0..1000) a plain list of counts is faster and simpler. Hash maps lose order information, so problems needing "smallest key greater than x" need sorting, a heap or a balanced tree instead. Sorting first (O(n log n), O(1) extra space with an in-place sort) is the alternative when memory is tight or when you also need order.
+    mistakes:
+      - Inserting the current element before checking, which pairs it with itself (target equal to twice the element).
+      - Using a list or a dict as a key; they are unhashable. Convert to a tuple or a frozenset.
+      - Mutating an object after using it as a key, which changes its hash and makes it unfindable.
+      - Choosing a grouping key that is not canonical, such as a `set` of letters for anagrams, which ignores counts.
+      - "`if counts[x]:` on a plain dict raises KeyError for a missing key; use `get`, `Counter` or `defaultdict`."
+      - Claiming O(1) worst case; it is O(1) on average and O(n) in the worst case.
+    interview: |-
+      When you present a brute force with a nested loop, the expected next sentence is often "the inner loop is a search, so I can replace it with a hash map lookup". State the cost: O(n) time, O(n) space. Be ready for "what if memory is limited?" (sort plus two pointers) and "what is the worst case?" (collisions). For grouping problems, the interviewer is checking your choice of key and its cost.
+    explain_it:
+      - Name the question each element asks of the map, and what it inserts.
+      - Explain why lookup comes before insert (or why the order does not matter in this problem).
+      - Justify the key choice for grouping, including its cost per item.
+      - Give time and space with the average-case qualifier.
+    example:
+      language: python
+      code: |-
+        def is_isomorphic(s: str, t: str) -> bool:
+            """True when the characters of s can be renamed one-to-one to obtain t."""
+            if len(s) != len(t):
+                return False
+            s_to_t: dict[str, str] = {}
+            t_to_s: dict[str, str] = {}
+            for a, b in zip(s, t):
+                if s_to_t.get(a, b) != b or t_to_s.get(b, a) != a:
+                    return False              # a rule conflicts with an earlier one
+                s_to_t[a] = b
+                t_to_s[b] = a
+            return True
+
+        assert is_isomorphic("egg", "add")
+        assert not is_isomorphic("foo", "bar")
+        assert not is_isomorphic("ab", "aa")   # needs the reverse map to catch this
+      explanation: Two maps enforce a bijection; with only s_to_t, "ab" -> "aa" would wrongly pass because two letters would map to the same target. O(n) time, O(alphabet) space.
+    complexity: Average O(1) per insert, lookup and delete; O(n) worst case per operation under heavy collisions. A full pass is O(n) average time and O(n) space.
+    internals: |-
+      CPython's dict is an open-addressing hash table: the hash selects a slot and collisions probe other slots in a pseudo-random sequence. Since CPython 3.6 the table is "compact" (a small index array plus an insertion-ordered entries array), and insertion order is a language guarantee from Python 3.7. The table grows when it is about two-thirds full, so inserts are amortised O(1). String hashes are randomised per process (PYTHONHASHSEED) to make deliberate collision attacks impractical.
+    edge_cases:
+      - Duplicates of the same value (does the second copy overwrite the first index you needed?).
+      - Negative numbers and zero as keys or complements.
+      - Empty input and a single element.
+      - Many distinct keys versus a few repeated keys (memory).
+    misconceptions:
+      - "Dict order is random — insertion order is preserved since Python 3.7."
+      - "A tuple is always hashable — only if every element is hashable; (1, [2]) is not."
+- key: dsa.hashing.worked
+  type: worked_example
+  title: "Worked example: equal values within distance k"
+  skills: [hashing.lookup_frequency, execution.brute_force_to_optimal]
+  minutes: 12
+  difficulty: EASY
+  body:
+    problem: Given an integer array and an integer k, decide whether two different indices i and j hold the same value with |i - j| at most k.
+    steps:
+      - title: Clarify and restate
+        text: "Indices must differ; k can be 0 (then the answer is always False); values can be negative and repeat many times. Example: [1, 2, 3, 1] with k = 3 is True (indices 0 and 3); with k = 2 it is False."
+      - title: Brute force and its bottleneck
+        text: "For each i, scan j in i+1..i+k: O(n × k) time, which is O(n²) when k is close to n. The inner loop is a **search** for an equal value among the recent past."
+        code:
+          language: python
+          code: |-
+            def brute(nums, k):
+                for i in range(len(nums)):
+                    for j in range(i + 1, min(i + k + 1, len(nums))):
+                        if nums[i] == nums[j]:
+                            return True
+                return False
+      - title: What must I remember about the past?
+        text: "For the current value only the **closest** earlier occurrence matters: if the latest one is too far, every older one is farther. So a map value -> last index is enough, and it must be overwritten on every occurrence."
+      - title: One pass with a last-seen map
+        text: "Look up before updating; overwrite the index each time so the map always holds the most recent position."
+        code:
+          language: python
+          code: |-
+            def has_close_duplicate(nums: list[int], k: int) -> bool:
+                last_seen: dict[int, int] = {}
+                for i, x in enumerate(nums):
+                    if x in last_seen and i - last_seen[x] <= k:
+                        return True
+                    last_seen[x] = i          # keep only the most recent index
+                return False
+      - title: Dry-run and edge cases
+        text: "[1, 0, 1, 1], k = 1: i=0 store 1->0; i=1 store 0->1; i=2 sees 1 at distance 2 > 1, store 1->2; i=3 sees 1 at distance 1, True. Also check k = 0 (never True) and an empty array."
+      - title: Space refinement
+        text: "Only the last k indices can matter, so a set holding the values of the current window (remove nums[i - k] once the window exceeds k) bounds memory at O(min(n, k)). That is the sliding-window version of the same idea."
+    takeaways:
+      - Find the inner search in the brute force and ask what summary of the past would answer it in O(1).
+      - Store only what can still matter (here the latest index, or the last k values).
+      - Look up before you insert so an element never matches itself.
+    complexity: O(n) average time; O(n) space with the map, O(min(n, k)) with the windowed set.
+- key: dsa.hashing.check
+  type: concept_check
+  title: "Concept check: hash maps, sets and counters"
+  skills: [hashing.lookup_frequency]
+  minutes: 8
+  difficulty: EASY
+  body:
+    intro: Predict the output before reading the options.
+    questions:
+      - id: q1
+        kind: single
+        prompt: What does this return for `["eat", "tea", "tan", "ate", "nat", "bat"]`?
+        code:
+          language: python
+          code: |-
+            from collections import defaultdict
+
+            def f(words):
+                groups = defaultdict(list)
+                for w in words:
+                    groups["".join(sorted(w))].append(w)
+                return sorted(len(g) for g in groups.values())
+        options: ["[1, 2, 3]", "[3, 2, 1]", "[2, 2, 2]", "[1, 1, 1, 1, 1, 1]"]
+        answer: [0]
+        explanation: "Keys: aet (eat, tea, ate), ant (tan, nat), abt (bat). Group sizes 3, 2, 1, sorted ascending gives [1, 2, 3]. The descending option forgets that `sorted` is ascending."
+      - id: q2
+        kind: multi
+        prompt: Which of these can be used as dict keys?
+        options: ["(1, 2)", "[1, 2]", "frozenset({1, 2})", "(1, [2])", "\"12\""]
+        answer: [0, 2, 4]
+        explanation: "Keys must be hashable. Tuples are hashable only when all their elements are, so (1, [2]) fails; lists are mutable and unhashable; frozenset and str are hashable."
+      - id: q3
+        kind: single
+        prompt: "What is `Counter(\"aab\") - Counter(\"abc\")`?"
+        options: ["Counter({'a': 1})", "Counter({'a': 1, 'c': -1})", "Counter({'a': 1, 'b': 0, 'c': -1})", "Counter()"]
+        answer: [0]
+        explanation: "Counter subtraction keeps only positive counts: a is 2 - 1 = 1, b is 1 - 1 = 0 (dropped), c is 0 - 1 = -1 (dropped). Use `c1.subtract(c2)` if you want to keep zero and negative counts."
+      - id: q4
+        kind: single
+        prompt: In one-pass two-sum with a dict, why do you look up `target - x` before inserting `x`?
+        options:
+          - So that x is never paired with itself when target equals 2x
+          - Because dict insertion invalidates earlier lookups
+          - To keep the dict sorted
+          - It does not matter; either order is correct
+        answer: [0]
+        explanation: "With insert-first, nums = [3] and target = 6 would find 3 in the map and return the same index twice. Lookup-first only sees strictly earlier elements. The order does matter, so the last option is the tempting wrong one."
+      - id: q5
+        kind: single
+        prompt: Which statement about Python dict lookup is accurate?
+        options:
+          - O(1) in the worst case for any key type
+          - O(1) on average, O(n) in the worst case when many keys collide
+          - O(log n) because dicts are balanced trees
+          - O(n) on average because keys are compared one by one
+        answer: [1]
+        explanation: "Dicts are hash tables, not trees. With a good hash, probes are few on average; adversarial or degenerate hashes make lookups scan many slots."
+      - id: q6
+        kind: short
+        prompt: When would you choose sorting over a hash map for a "find a pair" or "find duplicates" problem?
+        model_answer: "When extra memory must be O(1) (sort in place, then two pointers or adjacent comparison), when the output must be ordered anyway, when keys are not hashable, or when worst-case guarantees matter more than average speed. The cost is O(n log n) time instead of O(n) average, and in-place sorting loses original indices unless you sort (value, index) pairs."
+        explanation: The trade-off is time versus memory and order; naming it is what interviewers listen for when they ask for an alternative.
+- key: dsa.hashing.exercise
+  type: coding_exercise
+  title: "Exercise: group strings by their shift pattern"
+  skills: [hashing.lookup_frequency, strings.manipulation]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 1200}
+  body:
+    prompt: |-
+      Two lowercase words belong together when one becomes the other by shifting every letter forward by the same amount, wrapping from z to a ("abc", "bcd" and "xyz" belong together; "az" and "ba" belong together). Group a list of words this way. Return the groups in any order.
+    examples:
+      - "[\"abc\", \"bcd\", \"acef\", \"xyz\", \"az\", \"ba\", \"a\", \"z\"] -> [[\"abc\", \"bcd\", \"xyz\"], [\"acef\"], [\"az\", \"ba\"], [\"a\", \"z\"]]"
+    constraints:
+      - Up to 10⁴ words of length up to 50.
+    hints:
+      - What stays the same when every letter is shifted by the same amount?
+      - The differences between consecutive letters, taken modulo 26.
+      - "Use a tuple of those differences as a dict key; single-letter words all get the empty tuple."
+    solution:
+      language: python
+      code: |-
+        from collections import defaultdict
+
+        def group_by_shift(words: list[str]) -> list[list[str]]:
+            groups: dict[tuple[int, ...], list[str]] = defaultdict(list)
+            for w in words:
+                key = tuple((ord(b) - ord(a)) % 26 for a, b in zip(w, w[1:]))
+                groups[key].append(w)
+            return list(groups.values())
+      explanation: The key is canonical (equal exactly for words in the same shift class) and hashable. Python's % returns a non-negative result for a positive modulus, which handles the z-to-a wrap. O(total characters) time and space.
+    rubric:
+      - {key: correct, label: Produces the groups in the example including the wrap-around pair and single letters, points: 4}
+      - {key: key_choice, label: Explains why the difference tuple is a canonical and hashable key, points: 3}
+      - {key: wrap, label: Handles wrap-around with modulo 26, points: 1}
+      - {key: complexity, label: "States O(total characters) time and space", points: 2}
+    follow_ups:
+      - prompt: An alternative key shifts every word so that it starts with 'a'. Compare it with the difference tuple.
+        look_for: Equivalent canonical form, same complexity; produces a string key, slightly easier to debug.
+      - prompt: How would you group anagrams instead, and what does the key cost?
+        look_for: Sorted word O(k log k) or a 26-count tuple O(k).
+- key: dsa.hashing.interview
+  type: interview_question
+  title: "Interview question: how a hash map gives O(1) and when it does not"
+  skills: [hashing.lookup_frequency, python.builtin_complexity]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: Explain how a Python dict finds a key in average constant time, what can make it slow, and why keys must be hashable and must not change while stored. Use a short example to illustrate the last point.
+    key_points:
+      - "The key's hash selects a slot in a table; collisions are resolved by probing other slots (CPython uses open addressing); equality confirms the match."
+      - "The table is resized when it gets about two-thirds full, so inserts are amortised O(1) and probe sequences stay short on average."
+      - Many keys with colliding hashes (poor `__hash__` or adversarial input) degrade operations towards O(n); CPython randomises str hashes per process to defend against this.
+      - "`__hash__` and `__eq__` must agree (equal objects have equal hashes), and the hash must not change while the key is stored, otherwise lookups probe the wrong slot."
+      - "Gives a concrete case: lists are unhashable; a custom object whose hash depends on a mutable field becomes unfindable after the field changes."
+    model_answer: "A dict computes hash(key), maps it to a slot, and if the slot is taken by a different key it probes further slots until it finds the key (compared with ==) or an empty slot. Because the table is kept at most about two-thirds full and grows geometrically, the expected number of probes is constant and inserts are amortised O(1). If many keys share hash values, probes grow and operations approach O(n); CPython randomises string hashing to make that hard to trigger on purpose. The hash must be stable: if I store an object keyed on a mutable field and then change that field, its new hash points to a different slot and the dict cannot find it, even though the object is still inside. That is why built-in mutable containers are unhashable."
+    pitfalls:
+      - Saying dict lookup is O(1) worst case.
+      - Describing dicts as trees or sorted structures.
+      - Missing the hash/eq contract.
+    follow_ups:
+      - prompt: You define __eq__ on a class but not __hash__. What happens when you put instances in a set?
+        look_for: In Python 3, defining __eq__ without __hash__ sets __hash__ to None, so instances become unhashable and raise TypeError.
+      - prompt: When would you use a plain list instead of a dict for counting?
+        look_for: Keys are small dense integers (letters, bounded values); index arithmetic is faster and uses less memory.
+      - prompt: Your service caches results in a dict keyed by user input. What risk does that create?
+        look_for: Unbounded memory growth and, without hash randomisation, collision attacks; bound it (LRU, TTL) and validate keys.
+- key: dsa.hashing.guided
+  type: guided_problem
+  title: "Guided practice: complement lookup and counting"
+  skills: [hashing.lookup_frequency]
+  minutes: 20
+  difficulty: EASY
+  problems: [1, 48]
+  body:
+    guidance:
+      - Write the O(n²) pair check first and point at the inner loop as the search you will remove.
+      - Decide what the map stores (value to index, or character to count) before writing code.
+      - For the pair problem, look up the complement before inserting the current value.
+      - For the anagram problem, compare counts, and handle different lengths up front.
+    hints:
+      - Which earlier value would complete a pair with the current one?
+      - "Two strings are anagrams exactly when every character has the same count in both."
+- key: dsa.hashing.timed
+  type: timed_problem
+  title: "Timed practice: grouping keys and set-based scans"
+  skills: [hashing.lookup_frequency]
+  minutes: 45
+  difficulty: MEDIUM
+  problems: [2, 49]
+  body:
+    guidance:
+      - "Grouping: name the canonical key and its cost per word before coding."
+      - "Longest run of consecutive values in O(n): put everything in a set and only start counting from values whose predecessor is absent, so each run is walked once."
+      - State the complexity, including why the nested while loop in the second problem is still O(n) overall.
+- key: dsa.hashing.cards
+  type: revision_card
+  title: "Recall: hashing patterns"
+  skills: [hashing.lookup_frequency]
+  minutes: 5
+  body:
+    cards:
+      - front: Signal that a hash map will help?
+        back: The brute force has an inner loop that searches earlier elements.
+      - front: Why look up before inserting in one-pass two-sum?
+        back: So an element never pairs with itself.
+      - front: Canonical key for anagrams?
+        back: Sorted letters (k log k) or a 26-count tuple (k).
+      - front: Dict lookup complexity, honestly stated?
+        back: O(1) average, O(n) worst case under collisions.
+      - front: "Counter(a) - Counter(b) keeps which counts?"
+        back: Only positive ones; zero and negative counts are dropped.
+      - front: Defining __eq__ without __hash__ in Python 3?
+        back: The class becomes unhashable (__hash__ is set to None).
+
+# ---------------------------------------------------------------------------------------------- prefix sums
+- key: dsa.prefix_sum.lesson
+  type: lesson
+  title: Prefix sums and prefix-state hashing
+  skills: [prefix_sum.core, hashing.lookup_frequency]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: A subarray sum is the difference of two prefix sums, so range queries become O(1) and "count subarrays with property X" becomes a hash-map lookup on earlier prefixes.
+    what: |-
+      The prefix sum array `P` has `P[0] = 0` and `P[i + 1] = P[i] + nums[i]`, so `P[i]` is the sum of the first `i` elements. Then:
+
+      ```text
+      sum(nums[l..r]) = P[r + 1] - P[l]        (inclusive l..r)
+      ```
+
+      **Prefix-state hashing** extends this: while scanning, keep a map from each prefix value (or a state derived from it: a remainder, a parity, a balance) to how many times it occurred, or to where it first occurred. A subarray ending at `j` with sum `k` exists exactly when some earlier prefix equals `P[j + 1] - k`.
+    why: |-
+      Without prefix sums, each range sum costs O(length), and counting all subarrays with a given sum costs O(n²) even with running sums. Prefix sums make each range query O(1) after an O(n) build, and prefix-state hashing counts qualifying subarrays in a single O(n) pass. Unlike a sliding window, this works with **negative numbers**, because it never assumes that growing a window increases its sum.
+    when: |-
+      - Many range-sum queries on an array that does not change.
+      - "Count or find subarrays whose sum equals k, is divisible by k, or has equal numbers of two kinds of element."
+      - The input can contain negatives or zeros, which breaks sliding-window reasoning.
+      - Variants: prefix XOR, prefix products (careful with zeros), 2-D prefix sums for rectangle sums, difference arrays for many range updates.
+    how: |-
+      **Range queries:** build `P` with a leading zero; each query is one subtraction.
+
+      **Count subarrays with sum k:**
+
+      ```python
+      count, running = 0, 0
+      seen = {0: 1}                       # the empty prefix, so subarrays starting at 0 count
+      for x in nums:
+          running += x
+          count += seen.get(running - k, 0)
+          seen[running] = seen.get(running, 0) + 1
+      ```
+
+      **Longest subarray with a property:** store the **first** index of each prefix state, and never overwrite it; length is `j - first[state]`.
+
+      **Divisible by k:** two prefixes with the same remainder `P % k` differ by a multiple of k. In Python `%` with a positive k is already non-negative, so negative sums need no fix.
+
+      **2-D:** `S[r + 1][c + 1] = grid[r][c] + S[r][c + 1] + S[r + 1][c] - S[r][c]`, and a rectangle sum uses four lookups with inclusion–exclusion.
+    mental_model: |-
+      Every subarray is "prefix up to the end, minus prefix before the start". So instead of choosing two endpoints, you stand at each end point and ask how many start points (earlier prefixes) give the value you need. Invariant: when processing index `j`, the map holds exactly the prefixes `P[0..j]`, never the current one before the lookup.
+    tradeoffs: |-
+      Prefix arrays cost O(n) memory and must be rebuilt (O(n)) after every update; with frequent updates a Fenwick tree or segment tree gives O(log n) queries and updates. For non-negative arrays a sliding window finds "shortest/longest subarray with sum at least/at most k" in O(1) extra space, so prefix hashing is the tool of choice mainly when negatives appear or when you count exact matches.
+    mistakes:
+      - "Forgetting the seed `{0: 1}` (or `{0: -1}` for first-index maps), which misses subarrays that start at index 0."
+      - Inserting the current prefix before looking it up, so a k = 0 query counts the empty subarray.
+      - Overwriting the first-seen index when looking for the longest subarray.
+      - Mixing inclusive and exclusive ends; with a leading zero, the sum of `l..r` is `P[r + 1] - P[l]`.
+      - Using a sliding window for "sum equals k" when values can be negative.
+      - Taking remainders in a language where `%` can be negative without normalising (not an issue in Python, but worth saying).
+    interview: |-
+      The tell is "count subarrays" or "longest subarray" with an exact condition, especially with negative numbers allowed. Say: "a subarray sum is a difference of prefix sums, so for each end I need the number of earlier prefixes equal to current minus k". Expect follow-ups on divisibility (remainders), equal counts of 0s and 1s (map 0 to -1), and 2-D versions.
+    explain_it:
+      - "Write the identity sum(l..r) = P[r + 1] - P[l]."
+      - Say what the map stores (count or first index) and why that matches the question (count or longest).
+      - Explain the seed for the empty prefix.
+      - Explain why negatives do not break it, unlike a sliding window.
+      - Give O(n) time and O(n) space.
+    example:
+      language: python
+      code: |-
+        def longest_balanced(bits: list[int]) -> int:
+            """Length of the longest subarray with as many 0s as 1s."""
+            first_index = {0: -1}            # balance 0 is reached before any element
+            balance, best = 0, 0
+            for i, b in enumerate(bits):
+                balance += 1 if b == 1 else -1
+                if balance in first_index:
+                    best = max(best, i - first_index[balance])
+                else:
+                    first_index[balance] = i  # keep the earliest index only
+            return best
+
+        assert longest_balanced([0, 1, 0]) == 2
+        assert longest_balanced([0, 0, 1, 0, 0, 0, 1, 1]) == 6
+      explanation: Mapping 0 to -1 turns "equal counts" into "subarray sum 0", that is two equal prefix balances. Storing the first index maximises length. O(n) time and space.
+    complexity: Build O(n), range query O(1); prefix-state hashing O(n) average time and O(n) space. 2-D build O(rows × cols), rectangle query O(1).
+    edge_cases:
+      - The whole array is the answer (needs the seed).
+      - k = 0 and runs of zeros (many overlapping subarrays).
+      - All negative values.
+      - A single element equal to k.
+    misconceptions:
+      - "Prefix sums need sorted input — they need nothing; order matters only because subarrays are contiguous."
+      - "Sliding window and prefix sums are interchangeable — the window needs a monotonic condition, usually non-negative values."
+- key: dsa.prefix_sum.check
+  type: concept_check
+  title: "Concept check: prefix sums"
+  skills: [prefix_sum.core]
+  minutes: 8
+  difficulty: MEDIUM
+  body:
+    intro: Use the identity sum(l..r) = P[r + 1] - P[l] with P[0] = 0.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "For nums = [3, -1, 2, 4], P = [0, 3, 2, 4, 8]. What is the sum of nums[1..2] (inclusive), computed from P?"
+        options: ["P[2] - P[1] = -1", "P[3] - P[1] = 1", "P[3] - P[2] = 2", "P[2] - P[0] = 2"]
+        answer: [1]
+        explanation: "Inclusive l = 1, r = 2 means P[r + 1] - P[l] = P[3] - P[1] = 4 - 3 = 1, and indeed -1 + 2 = 1. P[2] - P[1] is only nums[1]."
+      - id: q2
+        kind: single
+        prompt: What does this return for `nums = [1, 1, 1]` and `k = 2`, and what happens if the seed `{0: 1}` is replaced by `{}`?
+        code:
+          language: python
+          code: |-
+            def f(nums, k):
+                count, running, seen = 0, 0, {0: 1}
+                for x in nums:
+                    running += x
+                    count += seen.get(running - k, 0)
+                    seen[running] = seen.get(running, 0) + 1
+                return count
+        options: ["2, and 1 without the seed", "2, and 2 without the seed", "3, and 2 without the seed", "1, and 0 without the seed"]
+        answer: [0]
+        explanation: "Subarrays [1, 1] at 0..1 and 1..2 give 2. The one starting at index 0 is found only through the empty prefix 0, so without the seed the count drops to 1."
+      - id: q3
+        kind: single
+        prompt: Why does a sliding window fail for "count subarrays with sum k" when values can be negative?
+        options:
+          - Because adding an element can decrease the sum, so shrinking from the left is not a safe decision
+          - Because sliding windows only work on strings
+          - Because the window must have a fixed size
+          - It does not fail; it only becomes slower
+        answer: [0]
+        explanation: "The window relies on monotonicity: extending can only increase the sum, shrinking only decrease it. With negatives a too-large sum may become valid again after extending, so discarding the left end loses answers. Prefix hashing has no such assumption."
+      - id: q4
+        kind: multi
+        prompt: Which problems reduce naturally to prefix sums or prefix-state hashing?
+        options:
+          - Count subarrays whose sum is divisible by k
+          - Longest subarray with equal numbers of 0s and 1s
+          - Maximum of every window of size k
+          - Sum of any sub-rectangle of a fixed grid in O(1) per query
+        answer: [0, 1, 3]
+        explanation: "Divisibility uses equal remainders, the 0/1 balance uses equal prefix balances, and rectangles use a 2-D prefix table. Window maximum is not additive; it needs a monotonic deque."
+      - id: q5
+        kind: single
+        prompt: "In Python, what is `-7 % 5`, and why does it matter for remainder-based prefix hashing?"
+        options:
+          - "3; Python's % is non-negative for a positive modulus, so equal remainders group correctly without a fix"
+          - "-2; you must add 5 before using it as a key"
+          - "2; Python takes the absolute value first"
+          - It raises ValueError for negative operands
+        answer: [0]
+        explanation: "Python's % takes the sign of the divisor, so -7 % 5 == 3 (because -7 = 5 × -2 + 3). In C or Java the result is -2 and you must normalise with ((x % k) + k) % k."
+      - id: q6
+        kind: short
+        prompt: Give the formula for the sum of the rectangle with corners (r1, c1) and (r2, c2), inclusive, using a 2-D prefix table S with a zero row and column.
+        model_answer: "S[r2 + 1][c2 + 1] - S[r1][c2 + 1] - S[r2 + 1][c1] + S[r1][c1]. The last term is added back because the top-left block was subtracted twice."
+        explanation: Inclusion–exclusion is the whole trick; off-by-one errors disappear when the table has a leading zero row and column.
+- key: dsa.prefix_sum.exercise
+  type: coding_exercise
+  title: "Exercise: count subarrays with a sum divisible by k"
+  skills: [prefix_sum.core, hashing.lookup_frequency]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 1200}
+  body:
+    prompt: |-
+      Given an integer array (values may be negative) and a positive integer `k`, return the number of non-empty contiguous subarrays whose sum is divisible by `k`. Aim for O(n) time.
+    examples:
+      - "nums = [4, 5, 0, -2, -3, 1], k = 5 -> 7"
+      - "nums = [5], k = 9 -> 0"
+      - "nums = [0, 0], k = 3 -> 3"
+    constraints:
+      - Up to 3 × 10⁴ elements; -10⁴ <= value <= 10⁴; 2 <= k <= 10⁴.
+    hints:
+      - When is P[j] - P[i] divisible by k?
+      - Exactly when P[j] and P[i] have the same remainder modulo k.
+      - Count remainders seen so far, seeded with remainder 0 seen once.
+    solution:
+      language: python
+      code: |-
+        def count_divisible_subarrays(nums: list[int], k: int) -> int:
+            remainder_count = [0] * k
+            remainder_count[0] = 1            # empty prefix
+            running, total = 0, 0
+            for x in nums:
+                running = (running + x) % k   # Python: always in 0..k-1
+                total += remainder_count[running]
+                remainder_count[running] += 1
+            return total
+      explanation: Remainders are in 0..k-1, so a list replaces the dict. O(n + k) time and O(k) space. Each new prefix pairs with every earlier prefix of the same remainder.
+    rubric:
+      - {key: correct, label: Returns 7, 0 and 3 for the examples, points: 4}
+      - {key: identity, label: Explains that equal remainders imply a divisible difference, points: 2}
+      - {key: seed_and_order, label: Seeds the empty prefix and looks up before incrementing, points: 2}
+      - {key: complexity, label: "States O(n + k) time and O(k) space (or O(n) with a dict)", points: 2}
+    follow_ups:
+      - prompt: Return whether some subarray of length at least 2 has a sum divisible by k. What do you store instead of counts?
+        look_for: The first index of each remainder (seed remainder 0 at index -1) and check j - first >= 2.
+      - prompt: How would this look in Java, where % can be negative?
+        look_for: Normalise with ((running % k) + k) % k.
+- key: dsa.prefix_sum.guided
+  type: guided_problem
+  title: "Guided practice: range sums with a prefix array"
+  skills: [prefix_sum.core]
+  minutes: 15
+  difficulty: EASY
+  problems: [57]
+  body:
+    guidance:
+      - Build the prefix array once in the constructor, with a leading zero.
+      - Write the identity for an inclusive range before coding the query.
+      - "Compare the cost: O(n) per query without prefix sums versus O(1) with them, and O(n) build either way."
+      - Test a query over the whole array and a single-element query.
+    hints:
+      - P has length n + 1.
+      - "sum(l..r) = P[r + 1] - P[l]."
+- key: dsa.prefix_sum.timed
+  type: timed_problem
+  title: "Timed practice: prefix-state hashing"
+  skills: [prefix_sum.core]
+  minutes: 50
+  difficulty: MEDIUM
+  problems: [8, 58]
+  body:
+    guidance:
+      - "Count subarrays with sum k: map each prefix sum to how many times it occurred, seeded with zero once; say why a window fails with negatives."
+      - "Subarray of length at least two divisible by k: map remainders to their first index, seeded with remainder 0 at index -1; never overwrite."
+      - State time and space for each and test the k = 0 or all-zero cases aloud.
+- key: dsa.prefix_sum.cards
+  type: revision_card
+  title: "Recall: prefix sums"
+  skills: [prefix_sum.core]
+  minutes: 5
+  body:
+    cards:
+      - front: Inclusive range sum from a prefix array with a leading zero?
+        back: "P[r + 1] - P[l]."
+      - front: Seed for counting subarrays with sum k?
+        back: "{0: 1} — the empty prefix, so subarrays starting at index 0 count."
+      - front: Seed for longest subarray with a prefix-state condition?
+        back: "{0: -1}, storing first indices and never overwriting them."
+      - front: When is P[j] - P[i] divisible by k?
+        back: When P[j] and P[i] have the same remainder modulo k.
+      - front: Why prefix hashing instead of a sliding window?
+        back: It works with negative numbers; the window needs a monotonic sum.

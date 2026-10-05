@@ -155,3 +155,5 @@ class ProblemOut(BaseModel):
     skills: list[dict[str, object]]
     attempt_count: int
     last_attempt: LastAttempt | None
+    practice_state: str = "not_started"  # derived (LEARNING_ENGINE §7); attempted is not mastered
+    guide: dict[str, object] | None = None  # seed coaching metadata: pattern, complexity, hints, mistakes

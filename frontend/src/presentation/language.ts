@@ -147,6 +147,35 @@ export const PREPARE_CATEGORIES = [
 
 export type PrepareCategory = (typeof PREPARE_CATEGORIES)[number]
 
+/** Learning tracks (seed/learning/curriculum.yaml) per Prepare page. The five scored areas keep their pages;
+ * Python, practical engineering and projects are curriculum pages (their skills score inside DSA/coding and project). */
+export const TRACK_OF_SLUG: Record<string, string> = {
+  dsa: 'dsa', cs: 'cs', 'system-design': 'system_design', lld: 'lld', behavioral: 'behavioral',
+  python: 'python', engineering: 'engineering', projects: 'projects',
+}
+export const CURRICULUM_PAGES = [
+  { slug: 'python', label: 'Python', icon: 'code', track: 'python' },
+  { slug: 'engineering', label: 'Practical engineering', icon: 'zap', track: 'engineering' },
+  { slug: 'projects', label: 'Projects', icon: 'flag', track: 'projects' },
+] as const
+/** Prepare navigation order: the scored areas with the curriculum pages where a learner looks for them. */
+export const PREPARE_NAV = [
+  { slug: 'dsa', label: 'DSA', icon: 'code', route: 'dsa' },
+  { slug: 'python', label: 'Python', icon: 'code', route: 'curriculum' },
+  { slug: 'cs', label: 'CS Fundamentals', icon: 'database', route: 'track' },
+  { slug: 'system-design', label: 'System Design', icon: 'layers', route: 'track' },
+  { slug: 'lld', label: 'LLD / OOD', icon: 'box', route: 'track' },
+  { slug: 'engineering', label: 'Practical engineering', icon: 'zap', route: 'curriculum' },
+  { slug: 'projects', label: 'Projects', icon: 'flag', route: 'curriculum' },
+  { slug: 'behavioral', label: 'Behavioral', icon: 'message', route: 'track' },
+] as const
+
+export function prepareRoute(slug: string): { name: string; params?: Record<string, string> } {
+  const item = PREPARE_NAV.find((p) => p.slug === slug)
+  if (!item) return { name: 'prepare' }
+  return item.route === 'dsa' ? { name: 'dsa' } : { name: item.route, params: { slug } }
+}
+
 export function categoryForComponent(component: string): PrepareCategory | undefined {
   return PREPARE_CATEGORIES.find((c) => (c.components as readonly string[]).includes(component))
 }

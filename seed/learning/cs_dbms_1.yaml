@@ -1,0 +1,732 @@
+# Learning content: SQL querying (joins, aggregation, subqueries, window functions) and relational modeling/normalisation. MySQL 8 / InnoDB unless stated.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- SQL querying
+- key: db.sql_querying.lesson
+  type: lesson
+  title: "SQL that returns the right rows: joins, grouping, subqueries and windows"
+  skills: [db.sql_querying]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: SQL is evaluated in a fixed logical order over sets of rows; most wrong answers come from forgetting that order, NULL logic or join fan-out.
+    what: |-
+      SQL is a declarative language over **relations** (tables, sets of rows). You describe the result; the optimizer picks the algorithm. Four tools cover almost every backend query:
+
+      - **Joins** combine rows from two tables on a condition. `INNER JOIN` keeps matches only; `LEFT JOIN` keeps every left row and fills the right side with NULL when nothing matches.
+      - **Aggregation** (`GROUP BY` with `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`) collapses many rows into one per group; `HAVING` filters groups.
+      - **Subqueries** nest a query inside another: scalar (one value), `IN`/`EXISTS` (membership) or derived tables in `FROM`. CTEs (`WITH`) name them for readability.
+      - **Window functions** (`ROW_NUMBER`, `RANK`, `DENSE_RANK`, `LAG`, `LEAD`, `SUM() OVER`) compute a value per row from a window of related rows **without collapsing** them. MySQL supports CTEs and window functions from 8.0.
+    why: |-
+      Backend features are mostly queries: "orders of this customer", "top 3 products per category", "users who never paid", "revenue change month over month". Pushing that work into one well-formed query instead of looping in Python avoids N+1 round trips and lets the database use indexes. Getting it wrong is silent: a query that double counts revenue still returns a number.
+    when: |-
+      - Join when you need columns from both sides; use `EXISTS` (semi-join) when you only need to know a match exists, so a left row is never duplicated.
+      - Use `NOT EXISTS` or `LEFT JOIN ... WHERE right.id IS NULL` (anti-join) for "rows with no match".
+      - Use `GROUP BY` when the output has one row per group; use a window function when you need per-row output plus a group-level value (rank, running total, previous value).
+      - Use a CTE when a query has stages (aggregate, then rank, then filter).
+    how: |-
+      Read every query in its **logical** evaluation order, not the written order:
+
+      1. `FROM` and `JOIN ... ON` build the row set.
+      2. `WHERE` filters individual rows (no aggregates allowed here).
+      3. `GROUP BY` forms groups; `HAVING` filters groups (aggregates allowed).
+      4. Window functions are computed over the remaining rows.
+      5. `SELECT` expressions and aliases, then `DISTINCT`.
+      6. `ORDER BY`, then `LIMIT`/`OFFSET`.
+
+      Consequences: a window function cannot appear in `WHERE` (wrap it in a CTE and filter outside); a `SELECT` alias cannot be used in `WHERE` (MySQL does allow aliases in `GROUP BY`, `HAVING` and `ORDER BY`, but portable SQL does not rely on it in `HAVING`).
+
+      ```sql
+      -- Customers with at least 3 paid orders in September, with their total and rank.
+      WITH paid AS (
+        SELECT customer_id, COUNT(*) AS orders, SUM(total_cents) AS revenue_cents
+        FROM orders
+        WHERE status = 'PAID'
+          AND created_at >= '2026-09-01' AND created_at < '2026-10-01'
+        GROUP BY customer_id
+        HAVING COUNT(*) >= 3
+      )
+      SELECT c.id, c.name, p.orders, p.revenue_cents,
+             RANK() OVER (ORDER BY p.revenue_cents DESC) AS revenue_rank
+      FROM paid p
+      JOIN customers c ON c.id = p.customer_id
+      ORDER BY revenue_rank, c.id;
+      ```
+    mental_model: |-
+      Think in sets flowing through a pipeline. A join multiplies rows (one customer with 5 orders becomes 5 rows), `WHERE` removes rows, `GROUP BY` folds rows, and a window function decorates rows. Before trusting a number, ask "how many rows exist at this stage, and how many times can one real-world fact appear?"
+    tradeoffs: |-
+      Joins vs subqueries is mostly about clarity: the MySQL 8 optimizer rewrites many `IN`/`EXISTS` subqueries into semi-joins and merges simple derived tables, so the plans often converge. Check `EXPLAIN` rather than assuming. A correlated subquery in `SELECT` can run once per outer row; a join plus `GROUP BY` usually scales better. Window functions need the rows sorted by `PARTITION BY` and `ORDER BY`, which costs O(n log n) unless an index already supplies that order. Doing aggregation in the database moves CPU to a shared resource; for very heavy analytics a replica or a warehouse is the better place.
+    mistakes:
+      - Filtering the right table of a `LEFT JOIN` in `WHERE` (`WHERE o.status = 'PAID'`), which discards the NULL rows and silently turns it into an inner join. Put the condition in `ON`.
+      - "Join fan-out: joining customers to both orders and payments, then `SUM(orders.total)`, counts each order once per payment."
+      - Using `NOT IN (subquery)` when the subquery can return NULL; the result becomes empty because `x NOT IN (1, NULL)` is UNKNOWN, never TRUE.
+      - "`COUNT(col)` when you meant `COUNT(*)`: it skips NULLs, so a LEFT JOIN count of orders uses `COUNT(o.id)` on purpose and `COUNT(*)` gives 1 for customers with no orders."
+      - "`SUM` over no rows returns NULL, not 0; wrap it in `COALESCE(SUM(x), 0)`."
+      - Expecting `ROW_NUMBER()` to be deterministic when the `ORDER BY` inside `OVER` has ties; add a unique tie-breaker such as the id.
+    interview: |-
+      SQL rounds usually give two or three tables and ask for a report: anti-join ("never ordered"), top-N per group, second highest value, running totals, month-over-month change, duplicates. Interviewers watch whether you clarify ties and NULLs before writing, whether you avoid fan-out, and whether you can say which index would make the query fast. Say the row count at each stage out loud.
+    explain_it:
+      - Restate the output grain (one row per what?).
+      - Walk the logical order FROM, WHERE, GROUP BY, HAVING, window, SELECT, ORDER BY.
+      - Say how NULLs and ties are handled.
+      - Name the index that supports the main filter or join.
+    example:
+      language: sql
+      code: |-
+        -- Anti-join: customers with no paid order, correct even if orders.customer_id has NULLs.
+        SELECT c.id, c.name
+        FROM customers c
+        WHERE NOT EXISTS (
+          SELECT 1 FROM orders o
+          WHERE o.customer_id = c.id AND o.status = 'PAID'
+        );
+      explanation: NOT EXISTS is NULL-safe and never duplicates a customer. MySQL 8.0.17 and later can execute it as an antijoin; an index on orders(customer_id, status) makes each probe a short index lookup.
+    complexity: With an index on the join key, a nested-loop join costs about n index probes of O(log m) each. Without one, MySQL 8.0.18+ can use a hash join for equi-joins, O(n + m) time with memory for the build side. Sorting for ORDER BY, DISTINCT or a window is O(n log n) unless an index already provides the order.
+    internals: |-
+      MySQL executes joins as nested loops by default: for each row of the driving table it looks up matching rows in the next table, ideally through an index (`EXPLAIN` type `ref` or `eq_ref`). Since 8.0.18 it can build an in-memory hash table on one side when no index helps (`Using join buffer (hash join)` in `EXPLAIN`). Semi-joins (`IN`, `EXISTS`) have dedicated strategies such as first-match and materialization, which is why a well-written `EXISTS` is rarely slower than the equivalent join.
+    edge_cases:
+      - Groups with no rows do not appear in GROUP BY output; generate them from the parent table with a LEFT JOIN.
+      - Ties at a rank boundary (top 3 with two products tied for third).
+      - NULL in a GROUP BY column forms its own group.
+      - "`ONLY_FULL_GROUP_BY` (on by default since MySQL 5.7.5) rejects selecting a column that is neither grouped, aggregated nor functionally dependent on the grouped key."
+    misconceptions:
+      - "Subqueries are always slower than joins — the optimizer often transforms them; measure with EXPLAIN."
+      - "HAVING is just a slower WHERE — HAVING filters groups after aggregation; row filters belong in WHERE so fewer rows are grouped."
+- key: db.sql_querying.visual_joins
+  type: visual_explanation
+  title: "Visual: inner, left, semi and anti joins on the same data"
+  skills: [db.sql_querying]
+  minutes: 6
+  difficulty: EASY
+  body:
+    summary: The same two tables produce four different results; watch how many rows each join returns and where NULLs appear.
+    frames:
+      - caption: Input. Ann has two orders, Bob has one, Cy has none. One guest order has no customer.
+        diagram: |-
+          customers            orders
+          id  name             id  customer_id  total
+          1   Ann              10  1            30
+          2   Bob              11  1            20
+          3   Cy               12  2            50
+                               13  NULL         70
+      - caption: INNER JOIN keeps only matching pairs. Ann appears twice (fan-out); Cy and the guest order disappear.
+        diagram: |-
+          SELECT c.name, o.id FROM customers c JOIN orders o ON o.customer_id = c.id
+
+          name  o.id
+          Ann   10
+          Ann   11
+          Bob   12            -> 3 rows
+      - caption: LEFT JOIN keeps every customer. Cy gets NULLs on the right side.
+        diagram: |-
+          SELECT c.name, o.id FROM customers c LEFT JOIN orders o ON o.customer_id = c.id
+
+          name  o.id
+          Ann   10
+          Ann   11
+          Bob   12
+          Cy    NULL          -> 4 rows; COUNT(o.id) per name gives 2, 1, 0
+      - caption: Semi-join (EXISTS) returns each customer with a match once; anti-join (NOT EXISTS) returns those without.
+        diagram: |-
+          WHERE EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.id)
+          -> Ann, Bob             (no duplicates, unlike the inner join)
+
+          WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.id)
+          -> Cy
+
+          WHERE c.id NOT IN (SELECT customer_id FROM orders)
+          -> nothing at all: the subquery contains NULL, so every test is UNKNOWN
+- key: db.sql_querying.worked_window
+  type: worked_example
+  title: "Worked example: running totals, day-over-day change and a 7-day average"
+  skills: [db.sql_querying]
+  minutes: 15
+  difficulty: MEDIUM
+  body:
+    problem: "A `signups(user_id, created_at)` table holds one row per new user. Produce one row per calendar day of September 2026 with the day's signups, the running total for the month, the change versus the previous day and a 7-day moving average. Days with zero signups must appear."
+    steps:
+      - title: Fix the grain first
+        text: "The output is one row per day, including empty days. Aggregating `signups` alone would skip days with no rows, so the days must come from a calendar. A recursive CTE (MySQL 8.0+) generates 30 dates."
+        code:
+          language: sql
+          code: |-
+            WITH RECURSIVE days AS (
+              SELECT DATE('2026-09-01') AS day
+              UNION ALL
+              SELECT day + INTERVAL 1 DAY FROM days WHERE day < '2026-09-30'
+            )
+            SELECT day FROM days;
+      - title: Aggregate per day and LEFT JOIN onto the calendar
+        text: "Group signups by date with a sargable range on `created_at` (no function on the column in WHERE), then LEFT JOIN so empty days survive. `COALESCE` turns the missing count into 0."
+        code:
+          language: sql
+          code: |-
+            daily AS (
+              SELECT DATE(created_at) AS day, COUNT(*) AS n
+              FROM signups
+              WHERE created_at >= '2026-09-01' AND created_at < '2026-10-01'
+              GROUP BY DATE(created_at)
+            ),
+            filled AS (
+              SELECT d.day, COALESCE(x.n, 0) AS n
+              FROM days d LEFT JOIN daily x ON x.day = d.day
+            )
+      - title: Running total with an explicit ROWS frame
+        text: "`SUM(n) OVER (ORDER BY day)` defaults to a RANGE frame, which treats rows with equal `day` as peers and adds them together. Days are unique here, but writing `ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW` states the intent and stays correct if the key ever has ties."
+        code:
+          language: sql
+          code: |-
+            SELECT day, n,
+                   SUM(n) OVER (ORDER BY day ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS running_total
+            FROM filled;
+      - title: Previous-day change and moving average
+        text: "`LAG(n) OVER (ORDER BY day)` returns the previous row's value (NULL on the first row; pass a default as the third argument if you want 0). The 7-day average uses `ROWS BETWEEN 6 PRECEDING AND CURRENT ROW`. Because empty days were filled in step 2, 7 rows really are 7 days; without the calendar the window would silently span more days."
+        code:
+          language: sql
+          code: |-
+            SELECT day, n,
+                   SUM(n) OVER w_all AS running_total,
+                   n - LAG(n) OVER w_day AS change_vs_prev,
+                   AVG(n) OVER (ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) AS avg_7d
+            FROM filled
+            WINDOW w_day AS (ORDER BY day),
+                   w_all AS (ORDER BY day ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+            ORDER BY day;
+    takeaways:
+      - Decide the output grain and generate missing groups from a driving set before aggregating.
+      - Window functions decorate rows; they never reduce the row count.
+      - State the frame (ROWS vs RANGE) whenever an ORDER BY appears inside OVER.
+      - A ROWS frame counts rows, not time; fill gaps or the window covers the wrong period.
+    complexity: One range scan of September's signups (index on created_at), a group-by over at most 30 groups and one sort of 30 rows for the windows. The cost is dominated by reading the month's signups.
+- key: db.sql_querying.check
+  type: concept_check
+  title: "Concept check: joins, grouping and window functions"
+  skills: [db.sql_querying]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Predict the row counts and results before reading the explanations. Assume MySQL 8.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "`customers` has 3 rows; `orders` has 4 rows, one with `customer_id` NULL. What does this return?"
+        code:
+          language: sql
+          code: |-
+            SELECT COUNT(*) FROM customers
+            WHERE id NOT IN (SELECT customer_id FROM orders);
+        options: ["The number of customers with no orders", "0", "3", "An error"]
+        answer: [1]
+        explanation: "`id NOT IN (1, 2, NULL)` expands to `id <> 1 AND id <> 2 AND id <> NULL`; the last term is UNKNOWN, so no row passes and the count is 0. The tempting answer (customers without orders) is what NOT EXISTS returns, because it does not compare against NULL."
+      - id: q2
+        kind: single
+        prompt: "Which query returns every customer with their number of PAID orders, including customers with zero?"
+        options:
+          - "LEFT JOIN orders o ON o.customer_id = c.id WHERE o.status = 'PAID' GROUP BY c.id, with COUNT(o.id)"
+          - "LEFT JOIN orders o ON o.customer_id = c.id AND o.status = 'PAID' GROUP BY c.id, with COUNT(o.id)"
+          - "LEFT JOIN orders o ON o.customer_id = c.id AND o.status = 'PAID' GROUP BY c.id, with COUNT(*)"
+          - "JOIN orders o ON o.customer_id = c.id AND o.status = 'PAID' GROUP BY c.id, with COUNT(o.id)"
+        answer: [1]
+        explanation: "The status filter must sit in ON so unmatched customers keep a NULL row, and COUNT(o.id) counts those as 0. Option A filters in WHERE, which removes the NULL rows and drops zero-order customers. Option C counts the NULL row with COUNT(*) and reports 1 for them. Option D is an inner join."
+      - id: q3
+        kind: single
+        prompt: "Scores 90, 80, 80, 70 ordered descending. What do RANK() and DENSE_RANK() give for the 70?"
+        options: ["RANK 4, DENSE_RANK 3", "RANK 3, DENSE_RANK 3", "RANK 4, DENSE_RANK 4", "RANK 3, DENSE_RANK 4"]
+        answer: [0]
+        explanation: "RANK leaves a gap after ties (1, 2, 2, 4); DENSE_RANK does not (1, 2, 2, 3). ROW_NUMBER would give 1, 2, 3, 4 with the order between the two 80s undefined unless a tie-breaker is added."
+      - id: q4
+        kind: multi
+        prompt: Which statements about this query are true in MySQL 8?
+        code:
+          language: sql
+          code: |-
+            SELECT customer_id, total_cents,
+                   ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY total_cents DESC) AS rn
+            FROM orders
+            WHERE rn = 1;
+        options:
+          - It fails because the window function result is not available in WHERE.
+          - It returns each customer's largest order.
+          - Moving the window query into a CTE and filtering rn = 1 outside it works.
+          - Replacing WHERE with HAVING rn = 1 is the standard fix.
+        answer: [0, 2]
+        explanation: "Window functions are evaluated after WHERE, GROUP BY and HAVING, so `rn` does not exist when WHERE runs; the query errors. The fix is a CTE or derived table filtered outside. HAVING also runs before window functions, so it is not the fix."
+      - id: q5
+        kind: single
+        prompt: "A customer has 2 orders (30 and 20) and 3 payment rows. `SELECT SUM(o.total) FROM customers c JOIN orders o ON ... JOIN payments p ON p.customer_id = c.id WHERE c.id = 1` returns…"
+        options: ["50", "150", "100", "60"]
+        answer: [1]
+        explanation: "Each order row is repeated once per payment row (2 x 3 = 6 rows), so each total is counted 3 times: (30 + 20) x 3 = 150. Aggregate each child table separately (in subqueries or CTEs) before joining them."
+      - id: q6
+        kind: short
+        prompt: Explain the difference between WHERE and HAVING and why a filter on a plain column should go in WHERE even when the query has GROUP BY.
+        model_answer: "WHERE filters individual rows before grouping and cannot use aggregates; HAVING filters groups after aggregation and can use aggregates like COUNT(*) > 3. A plain-column filter in WHERE removes rows before they are grouped, so less data is aggregated and an index on that column can be used for the filter; putting it in HAVING (when MySQL allows it) groups everything first."
+        explanation: The logical evaluation order explains both the legality and the performance difference.
+- key: db.sql_querying.exercise_anti_join
+  type: sql_exercise
+  title: "SQL exercise: customers who went quiet"
+  skills: [db.sql_querying, db.indexing]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    prompt: |-
+      Marketing wants a win-back list: every customer who has **no PAID order in the 30 days before 2026-10-01** (that is, from 2026-09-01 inclusive to 2026-10-01 exclusive), including customers who have never ordered. Return `id`, `email` and the date of their most recent PAID order ever (NULL if none), ordered by that date with never-ordered customers first, then by id.
+
+      Sample data: customer 1 paid on 2026-09-15 (must not appear); customer 2 last paid on 2026-07-02 (appears with 2026-07-02); customer 3 has only a CANCELLED order in September (appears with NULL); customer 4 never ordered (appears with NULL). Guest orders have `customer_id` NULL. Write the query for MySQL 8, then name the index you would add and explain its plan.
+    schema:
+      language: sql
+      code: |-
+        CREATE TABLE customers (
+          id         BIGINT PRIMARY KEY AUTO_INCREMENT,
+          email      VARCHAR(255) NOT NULL UNIQUE,
+          created_at DATETIME NOT NULL
+        );
+
+        CREATE TABLE orders (
+          id          BIGINT PRIMARY KEY AUTO_INCREMENT,
+          customer_id BIGINT NULL,             -- NULL for guest checkout
+          status      ENUM('PENDING','PAID','CANCELLED') NOT NULL,
+          total_cents INT NOT NULL,
+          created_at  DATETIME NOT NULL,
+          FOREIGN KEY (customer_id) REFERENCES customers(id)
+        );
+        -- About 2 million customers and 40 million orders.
+    hints:
+      - Separate the two questions. "No paid order in the window" is an anti-join; "most recent paid order ever" is an aggregate per customer.
+      - "`NOT IN (SELECT customer_id ...)` breaks because guest orders have NULL customer_id. Use NOT EXISTS."
+      - Compute the latest paid date with a correlated MAX or a grouped derived table joined with LEFT JOIN, so customers with no orders keep a NULL.
+      - MySQL sorts NULLs first in ascending order, which already puts never-ordered customers first; say so explicitly because other databases (PostgreSQL) sort NULLs last by default.
+      - "An index on orders(customer_id, status, created_at) answers both the existence probe and the MAX with index-only reads."
+    solution:
+      language: sql
+      code: |-
+        SELECT c.id,
+               c.email,
+               (SELECT MAX(o2.created_at)
+                  FROM orders o2
+                 WHERE o2.customer_id = c.id AND o2.status = 'PAID') AS last_paid_at
+        FROM customers c
+        WHERE NOT EXISTS (
+          SELECT 1
+            FROM orders o
+           WHERE o.customer_id = c.id
+             AND o.status = 'PAID'
+             AND o.created_at >= '2026-09-01'
+             AND o.created_at <  '2026-10-01'
+        )
+        ORDER BY last_paid_at, c.id;   -- MySQL sorts NULL first in ascending order
+
+        -- Supporting index (equality columns first, range/ordering column last):
+        CREATE INDEX idx_orders_customer_status_created
+          ON orders (customer_id, status, created_at);
+      explanation: |-
+        NOT EXISTS is NULL-safe and returns each customer once. For each customer the anti-join probe is one index range lookup on (customer_id, 'PAID', September range), and the correlated MAX reads the last entry of the (customer_id, 'PAID') index range, both O(log n) and index-only (EXPLAIN Extra shows Using index). The outer query scans all customers, so total cost is about 2 million short index probes plus a sort of the result. A grouped derived table (SELECT customer_id, MAX(created_at) ... GROUP BY customer_id) joined with LEFT JOIN is also correct; it aggregates all 40 million orders once, which can be better when most customers are in the result.
+    rubric:
+      - {key: correct_rows, label: "Returns exactly customers 2, 3 and 4 for the sample, with the right last_paid_at values", points: 3}
+      - {key: null_safe, label: Uses NOT EXISTS or LEFT JOIN ... IS NULL and explains why NOT IN fails with guest orders, points: 2}
+      - {key: half_open_range, label: "Uses a sargable half-open date range (no DATE() or YEAR() on created_at)", points: 2}
+      - {key: index_named, label: "Names a composite index with equality columns before the date and explains that it makes both lookups index-only", points: 2}
+      - {key: plan_cost, label: States the cost as one short index probe per customer and compares with the grouped-derived-table alternative, points: 1}
+    follow_ups:
+      - prompt: The list must now also exclude customers created after 2026-09-01. Where does that filter go and does it change the index choice?
+        look_for: "A plain WHERE on customers.created_at; it filters the driving table and could use an index on customers(created_at) if it is selective. The orders index is unchanged."
+      - prompt: How would you return the list in pages of 1000 for a batch job without OFFSET?
+        look_for: "Keyset pagination on a unique, ordered key, for example ORDER BY c.id with WHERE c.id > last_seen_id LIMIT 1000; OFFSET re-reads and discards all skipped rows."
+- key: db.sql_querying.exercise_top_n
+  type: sql_exercise
+  title: "SQL exercise: top three products per category"
+  skills: [db.sql_querying]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 1200}
+  body:
+    prompt: |-
+      For September 2026, return the top three products by revenue within each category, counting only PAID orders. Revenue is `quantity * unit_price_cents` from the order lines. If products tie, include all tied products (a category may return more than three rows). Output `category_id`, `product_id`, `name`, `revenue_cents`, `rnk`, ordered by category, rank, product id.
+
+      Sample: in category 5, products A = 9000, B = 7000, C = 7000, D = 4000, E = 4000 cents. The result for category 5 is A (1), B (2), C (2), D (3), E (3). Products with no September sales do not appear.
+    schema:
+      language: sql
+      code: |-
+        CREATE TABLE products (
+          id          BIGINT PRIMARY KEY,
+          category_id BIGINT NOT NULL,
+          name        VARCHAR(200) NOT NULL
+        );
+
+        CREATE TABLE orders (
+          id         BIGINT PRIMARY KEY,
+          status     ENUM('PENDING','PAID','CANCELLED') NOT NULL,
+          created_at DATETIME NOT NULL,
+          KEY idx_status_created (status, created_at)
+        );
+
+        CREATE TABLE order_items (
+          order_id         BIGINT NOT NULL,
+          product_id       BIGINT NOT NULL,
+          quantity         INT NOT NULL,
+          unit_price_cents INT NOT NULL,       -- price at purchase time
+          PRIMARY KEY (order_id, product_id)
+        );
+    hints:
+      - Stage it. First compute revenue per product for September, then rank within each category, then filter.
+      - "\"Include all ties\" plus \"A, B, C, D, E\" in the sample tells you which ranking function: the one without gaps."
+      - A window result cannot be filtered in the same SELECT's WHERE; put the ranking in a CTE.
+      - "Filter orders with `status = 'PAID' AND created_at >= '2026-09-01' AND created_at < '2026-10-01'` so idx_status_created gives a range scan."
+    solution:
+      language: sql
+      code: |-
+        WITH product_revenue AS (
+          SELECT p.category_id,
+                 p.id   AS product_id,
+                 p.name,
+                 SUM(oi.quantity * oi.unit_price_cents) AS revenue_cents
+          FROM orders o
+          JOIN order_items oi ON oi.order_id = o.id
+          JOIN products p     ON p.id = oi.product_id
+          WHERE o.status = 'PAID'
+            AND o.created_at >= '2026-09-01'
+            AND o.created_at <  '2026-10-01'
+          GROUP BY p.category_id, p.id, p.name
+        ),
+        ranked AS (
+          SELECT pr.*,
+                 DENSE_RANK() OVER (PARTITION BY category_id ORDER BY revenue_cents DESC) AS rnk
+          FROM product_revenue pr
+        )
+        SELECT category_id, product_id, name, revenue_cents, rnk
+        FROM ranked
+        WHERE rnk <= 3
+        ORDER BY category_id, rnk, product_id;
+      explanation: |-
+        DENSE_RANK matches the sample (1, 2, 2, 3, 3). RANK would give D and E rank 4 and drop them; ROW_NUMBER would cut ties arbitrarily. The plan: range scan of idx_status_created for September's paid orders, primary-key lookups into order_items (its PK starts with order_id), eq_ref lookups into products, a hash or temporary-table aggregation per product, then one sort per category for the window. Cost is linear in September's order lines plus O(p log p) for p products sold.
+    rubric:
+      - {key: correct_result, label: Produces the sample result including both pairs of ties, points: 3}
+      - {key: ranking_choice, label: "Chooses DENSE_RANK and explains why RANK and ROW_NUMBER give different results", points: 2}
+      - {key: staged_query, label: Aggregates before ranking and filters the rank outside the window query, points: 2}
+      - {key: index_friendly, label: Uses a sargable September range that matches idx_status_created, points: 1}
+      - {key: plan_explained, label: Describes the join order and the cost in terms of order lines and products, points: 2}
+    follow_ups:
+      - prompt: Product names can change after the order. Does grouping by p.name cause a problem?
+        look_for: "No duplicates arise because name is functionally dependent on p.id (one current name per product); the report shows today's name. If the historical name matters, it must be stored on the order line."
+      - prompt: This report runs every minute on a 300 million row order_items table. What do you change?
+        look_for: "Pre-aggregate into a daily product_revenue summary table updated incrementally or by a job, query a replica, and keep the live query for small ranges only."
+- key: db.sql_querying.interview
+  type: interview_question
+  title: "Interview question: walk through how SQL evaluates a query"
+  skills: [db.sql_querying]
+  minutes: 10
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 600}
+  body:
+    prompt: |-
+      An interviewer shows this query and asks: in what order is it logically evaluated, what does it return, and what would you change?
+
+      ```sql
+      SELECT c.country, COUNT(*) AS customers_with_orders, SUM(o.total_cents) AS revenue
+      FROM customers c
+      LEFT JOIN orders o ON o.customer_id = c.id
+      WHERE o.created_at >= '2026-01-01'
+      GROUP BY c.country
+      HAVING revenue > 100000
+      ORDER BY revenue DESC;
+      ```
+    key_points:
+      - "Gives the logical order: FROM/JOIN, WHERE, GROUP BY, HAVING, SELECT, ORDER BY (window functions would sit between HAVING and SELECT)."
+      - "Spots that the WHERE on o.created_at removes the NULL rows, so the LEFT JOIN behaves as an inner join."
+      - "Spots that COUNT(*) counts order rows, not distinct customers; the name customers_with_orders needs COUNT(DISTINCT c.id)."
+      - "Notes that MySQL accepts the alias in HAVING but portable SQL writes HAVING SUM(o.total_cents) > 100000."
+      - "Proposes an index such as orders(created_at, customer_id, total_cents) or (customer_id, created_at, total_cents) and says which side drives the join."
+    model_answer: |-
+      Logically the database builds the joined rows, applies WHERE, groups by country, filters groups with HAVING, computes the SELECT list and sorts. The WHERE condition on the right table discards customers without 2026 orders, so it is effectively an inner join; that is fine if only countries with revenue matter, otherwise move the date filter into ON. COUNT(*) counts orders, so either rename it to orders or use COUNT(DISTINCT c.id) for customers. HAVING revenue relies on a MySQL extension; HAVING SUM(o.total_cents) > 100000 is portable. For speed, the optimizer will likely drive from orders with a range on created_at; an index (created_at, customer_id, total_cents) covers that access, then each customer is a primary-key lookup.
+    pitfalls:
+      - Reading the query top to bottom as written and claiming SELECT runs first.
+      - Missing that the LEFT JOIN has become an inner join.
+      - Fixing performance with "add an index on everything" instead of one composite index matched to the predicate.
+    follow_ups:
+      - prompt: Rewrite it so countries with customers but no 2026 orders appear with revenue 0.
+        look_for: "Move the date filter into ON, use COALESCE(SUM(o.total_cents), 0), drop or relax the HAVING, and count with COUNT(o.id) or COUNT(DISTINCT o.customer_id)."
+      - prompt: Why can't you write WHERE revenue > 100000 instead of HAVING?
+        look_for: WHERE runs before grouping, so the aggregate and its alias do not exist yet; WHERE filters rows, HAVING filters groups.
+      - prompt: When would you add a window function to this query?
+        look_for: "For per-row output plus a group value, for example each country's share of total revenue with SUM(SUM(o.total_cents)) OVER () or a rank across countries, without collapsing rows."
+- key: db.sql_querying.cards
+  type: revision_card
+  title: "Recall: SQL evaluation, NULLs and windows"
+  skills: [db.sql_querying]
+  minutes: 5
+  body:
+    cards:
+      - front: Logical evaluation order of a SELECT?
+        back: FROM/JOIN, WHERE, GROUP BY, HAVING, window functions, SELECT, DISTINCT, ORDER BY, LIMIT.
+      - front: Why does NOT IN (subquery) return nothing sometimes?
+        back: One NULL in the subquery makes every comparison UNKNOWN; use NOT EXISTS.
+      - front: LEFT JOIN with a WHERE filter on the right table?
+        back: Drops the NULL rows, so it behaves as an inner join; move the filter into ON.
+      - front: RANK vs DENSE_RANK vs ROW_NUMBER for 90, 80, 80, 70?
+        back: RANK 1,2,2,4; DENSE_RANK 1,2,2,3; ROW_NUMBER 1,2,3,4 (tie order undefined).
+      - front: How do you filter on a window function result?
+        back: Compute it in a CTE or derived table and filter in the outer query.
+      - front: What causes join fan-out double counting?
+        back: Joining two one-to-many children at once; aggregate each child before joining.
+
+# ---------------------------------------------------------------------------------------------- modeling and normalisation
+- key: db.modeling_normalization.lesson
+  type: lesson
+  title: "Relational modeling: keys, functional dependencies and normal forms"
+  skills: [db.modeling_normalization]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Store each fact once, keyed by what determines it; denormalise only for a measured read path and own the consistency cost.
+    what: |-
+      The **relational model** stores data as relations: tables of rows with a fixed set of typed columns, where each row is identified by a key and relationships are expressed by values (foreign keys), not pointers.
+
+      Keys:
+
+      - **Superkey**: any set of columns that uniquely identifies a row. **Candidate key**: a minimal superkey (remove any column and it stops being unique).
+      - **Primary key**: the candidate key you choose as the row's identity. Other candidate keys become `UNIQUE` constraints (alternate keys).
+      - **Foreign key**: columns whose values must exist as a key in another table; the database enforces it on insert, update and delete (`ON DELETE RESTRICT`, `CASCADE`, `SET NULL`).
+      - **Natural key**: a real-world identifier (email, ISBN, country code). **Surrogate key**: a meaningless generated id (`BIGINT AUTO_INCREMENT`, UUID).
+
+      **Normalisation** removes redundancy by following **functional dependencies** (FDs): `X -> Y` means rows that agree on X always agree on Y (`customer_id -> customer_email`).
+    why: |-
+      Redundant facts drift apart. If a customer's email is copied onto every order row, changing it means updating thousands of rows, and a missed row leaves two "truths" (an **update anomaly**). You also cannot record a customer before their first order (**insertion anomaly**), and deleting their last order deletes the customer (**deletion anomaly**). A normalised schema makes these states impossible instead of relying on application code.
+    when: |-
+      Normalise to 3NF (usually BCNF) by default for transactional (OLTP) data: orders, payments, users, inventory. Denormalise deliberately when a read path is hot and measured, the copied data changes rarely, and you have a mechanism to keep it consistent (same-transaction update, trigger, event consumer, or rebuildable read model). Analytics stores (star schemas, wide tables) are denormalised on purpose because they are written in batches and read heavily.
+    how: |-
+      Find the FDs, then apply the forms in order:
+
+      - **1NF**: every column holds one atomic value for the purposes of your queries; no repeating groups (`phone1, phone2, phone3`) and no comma-separated lists (`tags = 'a,b,c'`). Move them to a child table.
+      - **2NF**: 1NF, and no non-key column depends on only **part** of a composite candidate key. In `order_lines(order_id, product_id, order_date, quantity)` with key `(order_id, product_id)`, `order_date` depends on `order_id` alone, so it moves to `orders`.
+      - **3NF**: 2NF, and no non-key column depends on another non-key column (no **transitive** dependency). `orders(id, customer_id, customer_email)` has `id -> customer_id -> customer_email`; the email moves to `customers`.
+      - **BCNF**: for every non-trivial FD `X -> Y`, X is a superkey. It differs from 3NF only when overlapping candidate keys exist.
+
+      ```sql
+      CREATE TABLE customers (
+        id    BIGINT PRIMARY KEY AUTO_INCREMENT,      -- surrogate key
+        email VARCHAR(255) NOT NULL,
+        UNIQUE KEY uk_customers_email (email)         -- natural key kept unique
+      );
+      CREATE TABLE orders (
+        id          BIGINT PRIMARY KEY AUTO_INCREMENT,
+        customer_id BIGINT NOT NULL,
+        created_at  DATETIME NOT NULL,
+        CONSTRAINT fk_orders_customer FOREIGN KEY (customer_id) REFERENCES customers(id)
+      );
+      CREATE TABLE order_items (
+        order_id         BIGINT NOT NULL,
+        product_id       BIGINT NOT NULL,
+        quantity         INT NOT NULL CHECK (quantity > 0),
+        unit_price_cents INT NOT NULL,                -- price at purchase: a fact of the order line
+        PRIMARY KEY (order_id, product_id),
+        FOREIGN KEY (order_id) REFERENCES orders(id),
+        FOREIGN KEY (product_id) REFERENCES products(id)
+      );
+      ```
+    mental_model: |-
+      "The key, the whole key, and nothing but the key." Every non-key column must describe the key (1NF), the whole key (2NF) and nothing but the key (3NF). When you see a column, ask "what single thing determines this value?" and put it in that thing's table.
+    tradeoffs: |-
+      Normalised schemas make writes simple and correct but reads need joins; each join is cheap with the right index, but a page that needs ten joins across large tables can be slow. Denormalising (a cached `order_count` on customers, the customer name copied onto orders for search) speeds reads but adds write paths that must stay in sync, and a bug creates silent drift. Surrogate keys are stable, small and never change, which keeps foreign keys and InnoDB secondary indexes (they embed the primary key) compact; natural keys avoid a lookup and enforce real uniqueness but can change (emails do) and are often wide. A common compromise: surrogate primary key plus a `UNIQUE` constraint on the natural key.
+    mistakes:
+      - Treating a copied value as redundancy when it is a historical fact; the price on an order line must not be normalised away to the product's current price.
+      - Using a natural key that can change (email, phone) as a primary key referenced by many tables.
+      - Storing lists in a VARCHAR and parsing them in code, which blocks indexing, foreign keys and correct counting.
+      - Skipping the UNIQUE constraint on the natural key when using a surrogate primary key, which allows duplicate customers.
+      - Forgetting that InnoDB requires an index on foreign-key columns (it creates one if missing) and that FK checks take shared locks on parent rows during child inserts.
+      - Denormalising before measuring, then maintaining sync code for a read that was never slow.
+    interview: |-
+      Expect "design the tables for X" (orders, bookings, a chat app) and "is this table normalised?" questions. State the entities and their keys first, then the relationships and cardinalities (one-to-many becomes a foreign key on the many side, many-to-many becomes a junction table), then the constraints, then which read paths might justify denormalisation. Naming the normal form a table violates and the anomaly it causes shows understanding, not memorisation.
+    explain_it:
+      - List entities and their candidate keys; say which is primary and why (surrogate vs natural).
+      - Write the important FDs and show which normal form each table satisfies.
+      - Point out values that look redundant but are historical facts.
+      - Name any denormalisation, the read it speeds up and how it stays consistent.
+    internals: |-
+      In InnoDB the primary key is the clustered index: rows are stored in primary-key order and every secondary index stores the primary-key value as its row pointer. A wide or random primary key (a 36-character UUID string) therefore makes every secondary index bigger and inserts land on random pages. Prefer `BIGINT AUTO_INCREMENT` or a time-ordered id stored as `BINARY(16)`. `CHECK` constraints are enforced from MySQL 8.0.16; earlier versions parsed and ignored them.
+    edge_cases:
+      - "BCNF vs 3NF: in (student, course, instructor) where each instructor teaches one course, instructor -> course violates BCNF; decomposing loses the rule that a student has one instructor per course."
+      - Soft-deleted rows and UNIQUE constraints conflict (a deleted email blocks re-signup) unless the constraint includes a deletion marker.
+      - Many-to-many with attributes (role in a membership) belongs on the junction table.
+    misconceptions:
+      - "Normalised means slow — with indexes, joins on keys are a few page reads each; most slow queries are missing indexes, not joins."
+      - "Higher normal forms are always better — BCNF decomposition can lose dependency preservation, and OLTP schemas usually stop at 3NF/BCNF."
+- key: db.modeling_normalization.check
+  type: concept_check
+  title: "Concept check: keys and normal forms"
+  skills: [db.modeling_normalization]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: For each table, find the functional dependencies first, then the normal form.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "`enrolments(student_id, course_id, student_name, grade)` with key (student_id, course_id). Which normal form does it violate first?"
+        options: ["1NF", "2NF", "3NF", "None, it is in BCNF"]
+        answer: [1]
+        explanation: "student_name depends on student_id alone, part of the composite key: a partial dependency, so 2NF fails. It is not a 3NF problem first because the dependency is on part of the key, not on a non-key column. grade depends on the whole key and is fine."
+      - id: q2
+        kind: single
+        prompt: "`employees(id, dept_id, dept_name, salary)` with key id. What is wrong?"
+        options:
+          - Partial dependency, violates 2NF
+          - "Transitive dependency id -> dept_id -> dept_name, violates 3NF"
+          - Repeating group, violates 1NF
+          - Nothing; every column depends on id
+        answer: [1]
+        explanation: "With a single-column key there can be no partial dependency, so 2NF holds. dept_name is determined by dept_id, a non-key column, which is a transitive dependency; move it to departments. 'Every column depends on id' is true but incomplete: 3NF requires it to depend on nothing but the key."
+      - id: q3
+        kind: multi
+        prompt: Which are reasons to prefer a surrogate BIGINT primary key over email in an InnoDB users table?
+        options:
+          - Emails can change, and a primary key referenced by other tables should not.
+          - Every InnoDB secondary index stores the primary key, so a narrow key keeps them small.
+          - A surrogate key removes the need for a UNIQUE constraint on email.
+          - Sequential ids append to the end of the clustered index instead of splitting random pages.
+        answer: [0, 1, 3]
+        explanation: "Stability, narrow secondary indexes and append-friendly inserts are real benefits. The tempting option C is wrong: without UNIQUE(email) you can now insert duplicate users, because the surrogate key is unique by construction and says nothing about email."
+      - id: q4
+        kind: single
+        prompt: "An order line stores unit_price_cents, which is also on products. A reviewer says this violates 3NF. What is the best reply?"
+        options:
+          - Agree and read the price from products at query time.
+          - "Disagree: it is the price at purchase time, a different fact determined by the order line, not by product_id."
+          - Agree, but keep it for performance as denormalisation.
+          - It does not matter because prices rarely change.
+        answer: [1]
+        explanation: "The product's current price and the price paid are different facts. The line's price is determined by (order_id, product_id), so there is no FD product_id -> unit_price_cents on order_items and no violation. Reading the current price would rewrite history when prices change."
+      - id: q5
+        kind: single
+        prompt: "A tags column stores 'python,sql,redis'. Which query becomes hard or unindexable?"
+        options:
+          - Finding all posts tagged sql
+          - Selecting a post by id
+          - Counting posts per author
+          - Sorting posts by creation time
+        answer: [0]
+        explanation: "Matching one tag needs LIKE '%sql%' or FIND_IN_SET, which cannot use a B-tree seek and also matches 'mysql'. A post_tags(post_id, tag_id) junction table makes it an indexed lookup. The other queries do not touch the list."
+      - id: q6
+        kind: short
+        prompt: You denormalise customer_name onto orders so the support search page avoids a join. What must you also build, and what risk remains?
+        model_answer: "A sync path: update orders.customer_name in the same transaction as the customer rename, or asynchronously via an event consumer or a rebuild job, plus a check that detects drift. Risks: renames now touch many order rows (write amplification and lock time), and any missed path leaves stale names. It is only worth it if the join was measured as the bottleneck."
+        explanation: Denormalisation is a consistency contract you must implement and monitor, not a free speed-up.
+- key: db.modeling_normalization.exercise
+  type: sql_exercise
+  title: "SQL exercise: normalise a flat order export"
+  skills: [db.modeling_normalization, db.sql_querying]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 1200}
+  body:
+    prompt: |-
+      A legacy system stores orders as one flat table (below). List its functional dependencies, say which normal forms it violates and which anomalies that causes, then write MySQL 8 DDL for a 3NF schema with primary keys, foreign keys, unique constraints and the indexes the two main queries need: "a customer's orders, newest first" and "all lines of an order". Finally write the `INSERT ... SELECT` statements that migrate the data.
+
+      Facts: a customer has one email and one name; a product has one current name and current price; an order belongs to one customer and has one date and one shipping city; the price paid can differ from the current price.
+    schema:
+      language: sql
+      code: |-
+        CREATE TABLE order_lines_flat (
+          order_id         BIGINT NOT NULL,
+          product_id       BIGINT NOT NULL,
+          order_date       DATETIME NOT NULL,
+          shipping_city    VARCHAR(100) NOT NULL,
+          customer_id      BIGINT NOT NULL,
+          customer_email   VARCHAR(255) NOT NULL,
+          customer_name    VARCHAR(200) NOT NULL,
+          product_name     VARCHAR(200) NOT NULL,
+          current_price    INT NOT NULL,          -- cents, copied from the catalogue nightly
+          paid_price       INT NOT NULL,          -- cents, price at purchase
+          quantity         INT NOT NULL,
+          PRIMARY KEY (order_id, product_id)
+        );
+        -- Rows: (1001, 7, '2026-09-03 10:00', 'Pune', 42, 'a@x.io', 'Asha', 'Kettle', 2500, 2200, 1)
+        --       (1001, 9, '2026-09-03 10:00', 'Pune', 42, 'a@x.io', 'Asha', 'Mug',     400,  400, 2)
+        --       (1002, 7, '2026-09-04 18:30', 'Delhi', 43, 'b@x.io', 'Ravi', 'Kettle', 2500, 2500, 1)
+    hints:
+      - "Write the FDs: order_id -> order_date, shipping_city, customer_id; customer_id -> email, name; product_id -> product_name, current_price; (order_id, product_id) -> paid_price, quantity."
+      - "Dependencies on order_id or product_id alone are partial (2NF). customer_id -> email reached through order_id is transitive (3NF)."
+      - paid_price stays on the line; current_price belongs to products.
+      - "Index for \"a customer's orders, newest first\": orders(customer_id, created_at). \"Lines of an order\" is already served by the primary key (order_id, product_id)."
+      - Migrate parents before children so foreign keys are satisfied; use SELECT DISTINCT for each parent.
+    solution:
+      language: sql
+      code: |-
+        CREATE TABLE customers (
+          id    BIGINT PRIMARY KEY,
+          email VARCHAR(255) NOT NULL,
+          name  VARCHAR(200) NOT NULL,
+          UNIQUE KEY uk_customers_email (email)
+        );
+
+        CREATE TABLE products (
+          id                  BIGINT PRIMARY KEY,
+          name                VARCHAR(200) NOT NULL,
+          current_price_cents INT NOT NULL
+        );
+
+        CREATE TABLE orders (
+          id            BIGINT PRIMARY KEY,
+          customer_id   BIGINT NOT NULL,
+          created_at    DATETIME NOT NULL,
+          shipping_city VARCHAR(100) NOT NULL,
+          KEY idx_orders_customer_created (customer_id, created_at),  -- also serves the FK
+          CONSTRAINT fk_orders_customer FOREIGN KEY (customer_id) REFERENCES customers(id)
+        );
+
+        CREATE TABLE order_items (
+          order_id         BIGINT NOT NULL,
+          product_id       BIGINT NOT NULL,
+          quantity         INT NOT NULL CHECK (quantity > 0),
+          unit_price_cents INT NOT NULL,
+          PRIMARY KEY (order_id, product_id),                         -- serves "lines of an order"
+          KEY idx_items_product (product_id),                         -- FK index, "who bought X"
+          CONSTRAINT fk_items_order   FOREIGN KEY (order_id)   REFERENCES orders(id),
+          CONSTRAINT fk_items_product FOREIGN KEY (product_id) REFERENCES products(id)
+        );
+
+        INSERT INTO customers (id, email, name)
+          SELECT DISTINCT customer_id, customer_email, customer_name FROM order_lines_flat;
+        INSERT INTO products (id, name, current_price_cents)
+          SELECT DISTINCT product_id, product_name, current_price FROM order_lines_flat;
+        INSERT INTO orders (id, customer_id, created_at, shipping_city)
+          SELECT DISTINCT order_id, customer_id, order_date, shipping_city FROM order_lines_flat;
+        INSERT INTO order_items (order_id, product_id, quantity, unit_price_cents)
+          SELECT order_id, product_id, quantity, paid_price FROM order_lines_flat;
+
+        -- If the legacy data is inconsistent, the DISTINCT parents produce duplicate keys and the
+        -- INSERT fails. Find the offenders first:
+        SELECT customer_id FROM order_lines_flat
+        GROUP BY customer_id HAVING COUNT(DISTINCT customer_email, customer_name) > 1;
+      explanation: |-
+        The flat table is in 1NF but violates 2NF (order_date, shipping_city, customer_id depend on order_id alone; product_name, current_price on product_id alone) and 3NF (customer email and name depend on customer_id, a non-key attribute of the order). Anomalies: changing Asha's email means updating every line she ever bought; a product cannot exist before it is sold; deleting order 1002 deletes the only record of Ravi. In the new schema every non-key column depends on the key of its own table. The duplicate check matters: the primary key failing during migration is the database telling you the old data already drifted.
+    rubric:
+      - {key: fds, label: Lists the four groups of FDs correctly, points: 2}
+      - {key: forms_and_anomalies, label: "Names the 2NF and 3NF violations and gives one update, insert and delete anomaly", points: 2}
+      - {key: schema, label: "Produces four tables with correct PKs, FKs and UNIQUE(email), keeping paid price on the line", points: 3}
+      - {key: indexes, label: "Adds (customer_id, created_at) and explains that the order_items PK already serves the lines query", points: 2}
+      - {key: migration, label: Migrates parents before children and checks for inconsistent duplicates, points: 1}
+    follow_ups:
+      - prompt: Customers can now have several shipping addresses and choose one per order. What changes?
+        look_for: "An addresses table (id, customer_id, city, ...) and orders.address_id; or copy the address onto the order as a historical snapshot, because editing an address must not rewrite past shipments."
+      - prompt: Would you keep customer_id as the natural legacy id or introduce a new surrogate?
+        look_for: "Keeping the existing numeric id as the PK is fine if it is stable and unique; it is already a surrogate. Introduce a new one only if the legacy id has meaning that can change."
+- key: db.modeling_normalization.cards
+  type: revision_card
+  title: "Recall: keys and normal forms"
+  skills: [db.modeling_normalization]
+  minutes: 5
+  body:
+    cards:
+      - front: Candidate key vs primary key?
+        back: A candidate key is any minimal unique column set; the primary key is the one chosen as identity.
+      - front: What does 2NF forbid?
+        back: A non-key column depending on only part of a composite candidate key.
+      - front: What does 3NF forbid?
+        back: A non-key column depending on another non-key column (transitive dependency).
+      - front: BCNF in one line?
+        back: For every non-trivial FD X -> Y, X is a superkey.
+      - front: Why prefer a narrow surrogate PK in InnoDB?
+        back: Every secondary index stores the PK, and sequential keys append instead of splitting pages.
+      - front: Is the price on an order line redundant?
+        back: No, it is the price at purchase time, a fact of the line, not of the product.

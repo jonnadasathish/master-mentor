@@ -425,6 +425,15 @@ export interface Plan {
   stop_list: { skill: string; code: string; instruction: string; minutes_7d: number }[]
   dropped: { key: string; reason: string; detail: string | null }[]
   message: { rule: string; text: string; payload: Record<string, unknown> }
+  /** Derived per pending item id (D-083): the learning session that would fill the mission. */
+  learning?: Record<string, PlanLearning>
+}
+
+export interface PlanLearning {
+  stage: string
+  minutes: number
+  steps: StepPreview[]
+  session_id: number | null
 }
 
 export interface Today {
@@ -729,4 +738,274 @@ export interface CurrentState {
       declared_unknown: boolean
     }[]
   }[]
+}
+
+/* ---- Learning layer (API_SPEC §11, D-083) ---- */
+export type ContentType =
+  | 'lesson' | 'concept' | 'worked_example' | 'visual_explanation' | 'concept_check' | 'quiz' | 'coding_exercise'
+  | 'guided_problem' | 'timed_problem' | 'debugging_exercise' | 'sql_exercise' | 'design_exercise'
+  | 'architecture_case' | 'project' | 'interview_question' | 'behavioral_question' | 'revision_card'
+export type LearningTab = 'learn' | 'practice' | 'test' | 'revision'
+export type CoverageState = 'FULL' | 'PARTIAL' | 'UNMEASURED' | 'CONTENT_GAP'
+export type PracticeCase = 'DIRECT' | 'RELATED' | 'CONCEPT' | 'UNCOVERED'
+export type ProblemPracticeState =
+  | 'not_started' | 'attempted' | 'failed' | 'solved_after_solution' | 'solved_with_hint' | 'independent_solve'
+  | 'timed_solve' | 'interview_grade'
+export type Rating = 0 | 1 | 2
+
+export interface CodeSnippet { language: string; code: string; explanation?: string }
+
+export interface ContentProgress {
+  completions: number
+  last_points: number | null
+  best_points: number | null
+  last_on: string | null
+  passed: boolean | null
+  milestones_done: string[]
+  defended: boolean
+}
+
+export interface ContentSummary {
+  key: string
+  type: ContentType
+  title: string
+  minutes: number
+  difficulty: string | null
+  skills: string[]
+  tab: LearningTab
+  stages: string[]
+  observation_kind: string
+  time_limit_seconds: number | null
+  progress: ContentProgress | null
+}
+
+export interface ProblemBrief {
+  id: number
+  key: string
+  title: string
+  difficulty: string
+  expected_minutes: number | null
+  url: string | null
+  practice_state: ProblemPracticeState
+}
+
+export interface CheckQuestion {
+  id: string
+  kind: 'single' | 'multi' | 'short'
+  prompt: string
+  code?: CodeSnippet
+  options?: string[]
+  model_answer?: string
+}
+
+export interface RubricCriterion { key: string; label: string; points: number }
+export interface FollowUp { prompt: string; look_for: string }
+export interface Milestone {
+  key: string
+  title: string
+  goal: string
+  deliverables: string[]
+  skills: string[]
+  minutes: number
+  rubric: RubricCriterion[]
+}
+
+/** The body is type-specific (CONTENT_AUTHORING_GUIDE §3); views read the fields their type defines. */
+export type ContentBody = Record<string, unknown>
+
+export interface ContentDetail extends ContentSummary {
+  body: ContentBody
+  rubric: RubricCriterion[]
+  pass_points: number | null
+  problems: ProblemBrief[]
+  topic: { key: string; title: string; track: string } | null
+}
+
+export interface CompletionInput {
+  answers?: Record<string, number[]>
+  self_grades?: Record<string, Rating>
+  ratings?: Record<string, Rating>
+  followups?: Record<string, Rating>
+  minutes?: number
+  notes_used?: boolean
+  reference_used?: boolean
+  hints_used?: number
+  timed?: boolean
+  time_seconds?: number
+  milestone?: string
+  defense?: boolean
+  notes?: string
+  client_request_id?: string
+}
+
+export interface QuestionResult {
+  id: string
+  kind: string
+  earned: number
+  chosen: number[]
+  answer: number[]
+  explanation: string
+  model_answer: string | null
+}
+
+export interface CompletionResult {
+  content_key: string
+  points: number | null
+  passed: boolean | null
+  followup_points: number | null
+  questions: QuestionResult[]
+  observation: AssessmentRecord
+  progress: ContentProgress | null
+}
+
+export interface TopicSkill {
+  key: string
+  name: string
+  tier: string | null
+  required: boolean | null
+  score: number | null
+  target_score: number | null
+  label: string
+  status: string | null
+  content_count: number
+  done_count: number
+  coverage_state: CoverageState
+}
+
+export interface LearningTopic { key: string; title: string; summary: string; skills: TopicSkill[] }
+
+export interface LearningTrack {
+  key: string
+  title: string
+  summary: string
+  components: string[]
+  topics: LearningTopic[]
+  content_count: number
+  done_count: number
+}
+
+export interface LearningTrackDetail extends LearningTrack {
+  content: Record<string, ContentSummary[]>
+}
+
+export interface StepPreview {
+  position: number
+  kind: 'CONTENT' | 'PROBLEM' | 'REFLECTION'
+  title: string
+  minutes: number
+  content_key: string | null
+  content_type: ContentType | null
+  problem_id: number | null
+}
+
+export interface NextAction {
+  kind: 'RESUME_SESSION' | 'START_SESSION' | 'FALLBACK' | 'NONE'
+  stage: string | null
+  reason: 'GAP_FOCUS' | 'UNASSESSED' | 'MAINTAIN' | 'ACTIVE_SESSION' | 'NO_CONTENT' | 'PREREQUISITE_FIRST'
+  session_id: number | null
+  minutes: number | null
+  steps: StepPreview[]
+  fallback_skill: string | null
+}
+
+export interface SkillLearning {
+  skill: {
+    key: string; name: string; component: string; group: string; tier: string | null; importance: number | null
+    target_score: number | null; required: boolean | null
+  }
+  why_it_matters: {
+    tier_label: string | null
+    importance: number | null
+    target_score: number | null
+    rounds: string[]
+    unlocks: string[]
+    topic: { key: string; title: string; track: string } | null
+  }
+  state: {
+    score: number | null
+    effective_score: number | null
+    label: string
+    confidence: string
+    assessed: boolean
+    gap_status: string | null
+    gap_type: string | null
+    focus_stage: string | null
+    focus_skill: string | null
+    reason_codes: string[]
+  }
+  tabs: Record<LearningTab, ContentSummary[]>
+  practice: {
+    case: PracticeCase
+    direct: ProblemBrief[]
+    related: { problem: ProblemBrief; via_skill: string; via_name: string; relation: 'USES_THIS' | 'FOUNDATION' | 'SAME_GROUP' }[]
+    fallback_skill: string | null
+    fallback_name: string | null
+    fallback_relation: 'FOUNDATION' | 'SAME_GROUP' | null
+  }
+  related_skills: { key: string; name: string; relation: 'PREREQUISITE' | 'DEPENDENT' | 'SAME_TOPIC' }[]
+  next_action: NextAction
+  coverage_state: CoverageState
+}
+
+export interface SessionStep {
+  position: number
+  kind: 'CONTENT' | 'PROBLEM' | 'REFLECTION'
+  title: string
+  minutes: number
+  status: 'PENDING' | 'DONE' | 'SKIPPED'
+  content_key: string | null
+  content_type: ContentType | null
+  problem: ProblemBrief | null
+  observation_type: string | null
+  observation_id: number | null
+  points: number | null
+  passed: boolean | null
+  reflection: string | null
+}
+
+export interface LearningSession {
+  id: number
+  skill: string
+  skill_name: string
+  stage: string
+  status: 'ACTIVE' | 'COMPLETED' | 'ABANDONED'
+  outcome: 'PASSED' | 'NEEDS_REPEAT' | 'NOT_SCORED' | null
+  plan_item_id: number | null
+  budget_minutes: number | null
+  minutes: number
+  started_at: string
+  completed_at: string | null
+  next_position: number | null
+  steps: SessionStep[]
+  before: { score: number | null; level: number | null }
+  after: { score: number | null; level: number | null }
+}
+
+export interface StepResult {
+  session: LearningSession
+  completion: CompletionResult | null
+  attempt_id: number | null
+}
+
+export interface CoverageRow {
+  skill_key: string
+  skill_name: string
+  component: string
+  tracks: string[]
+  tier: string | null
+  importance: number
+  required: boolean
+  direct_learning_content: number
+  concept_checks: number
+  practice_count: number
+  timed_practice: number
+  revision_content: number
+  mock_coverage: string[]
+  coverage_state: CoverageState
+}
+
+export interface CoverageReport {
+  summary: { all: Record<CoverageState, number>; required: Record<CoverageState, number> }
+  content_counts: Record<ContentType, number>
+  rows: CoverageRow[]
 }

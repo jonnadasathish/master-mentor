@@ -1,0 +1,532 @@
+# Practical engineering 4: testing strategy (unit, integration, contract, end-to-end) and test design.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- unit and integration testing
+- key: eng.unit_integration.lesson
+  type: lesson
+  title: "Testing strategy: what unit, integration, contract and end-to-end tests each catch"
+  skills: [testing.unit_integration]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Put each check at the cheapest level that can catch the bug — pure logic in unit tests, SQL and wiring in integration tests against the real engine, cross-service shape in contract tests, a few critical journeys end to end.
+    what: |-
+      Tests differ by how much real system they exercise:
+
+      - **Unit tests** run one unit of behaviour (a function, a class, a domain rule) in process, with no network, disk or database. Milliseconds each.
+      - **Integration tests** run your code with real collaborators: the actual database engine with migrations applied, Redis, the web framework's request handling, serialisation. Tens to hundreds of milliseconds each.
+      - **Contract tests** check that a consumer and a provider agree on an API's shape and behaviour without deploying both: the consumer records the requests it makes and the responses it relies on, and the provider verifies it still satisfies them (consumer-driven contracts, or validation against a published OpenAPI schema).
+      - **End-to-end tests** drive the deployed system through its public interface, as a user would. Seconds to minutes each, and the most prone to flakiness.
+      - **Smoke tests** are a handful of end-to-end checks run right after a deploy to confirm the release is alive.
+    why: |-
+      Each level catches bugs the others cannot. A unit test with a mocked repository will never notice a misspelled column, a missing migration, a unique-constraint violation or a transaction that commits too early; an integration test will. An end-to-end test catches wiring between services but is too slow and too flaky to cover every edge case. Choosing levels deliberately gives the most confidence per minute of CI time.
+    when: |-
+      - Pure domain rules (pricing, eligibility, state transitions, date math): **unit**.
+      - Repositories, raw SQL, ORM mappings, migrations, transactions, cache behaviour: **integration**, against the same engine as production.
+      - HTTP handlers (validation, status codes, error shape, auth): **API-level integration** through the framework's test client.
+      - Calls between services owned by different teams: **contract**.
+      - The two or three journeys that must never break (sign up, pay, place an order): a few **end-to-end** tests, plus smoke tests after deploy.
+    how: |-
+      **Structure each test as Arrange, Act, Assert**, one behaviour per test, named after the behaviour ("refund above remaining amount is rejected").
+
+      **Use the real database engine** for integration tests, typically a container started once per test session with migrations applied. SQLite is not PostgreSQL or MySQL: it differs in types, constraints, locking, case sensitivity of `LIKE`, and SQL features, so a green SQLite suite proves little about production queries.
+
+      **Isolate tests.** Common options: wrap each test in a transaction and roll it back at the end (fast, but breaks if the code under test commits itself or uses a second connection); truncate tables between tests (slower, works with commits); give each parallel worker its own database or schema.
+
+      **Control nondeterminism.** Inject the clock and random sources instead of calling `now()` deep inside code; seed randomness; never `sleep` to wait for something — poll for the condition with a timeout or run the background work synchronously in tests.
+
+      **Keep a time budget.** A few thousand unit tests should run in seconds, integration tests in a few minutes, end-to-end in minutes. If CI takes 40 minutes, people stop running tests locally.
+    mental_model: |-
+      A test is a claim about behaviour, paid for in runtime, flakiness and maintenance. The pyramid (many unit, fewer integration, very few end-to-end) and the "trophy" (emphasise integration) are two answers to the same question: where do you buy the most confidence per second? For backend services with thin logic and lots of SQL, integration tests usually give the most; for rich domain logic, unit tests do.
+    tradeoffs: |-
+      - **Unit**: fast and precise about what broke, but can pass while the system is broken at the seams.
+      - **Integration**: realistic about SQL and wiring, slower, needs infrastructure in CI.
+      - **Contract**: catches API drift between teams cheaply, but needs both sides to maintain the contracts.
+      - **End-to-end**: highest realism, highest cost and flakiness; keep few.
+      - **Mocks** make tests fast and focused but encode your assumptions about the collaborator; if the assumption is wrong, both the code and the test are wrong together.
+    mistakes:
+      - Testing a PostgreSQL application against SQLite.
+      - Mocking the database in repository tests, so the test verifies the mock.
+      - Relying on end-to-end tests for edge cases, producing a slow, flaky suite.
+      - Tests that depend on execution order or on data left by another test.
+      - Only happy-path tests; no tests for invalid input, permission failure or dependency errors.
+      - Fixing a bug without adding a test that fails before the fix.
+      - Treating coverage percentage as the goal; 90% line coverage can still miss every boundary.
+    interview: |-
+      "How would you test this service?" and "what tests would you add for this bug?" appear in project deep dives and code review rounds. Interviewers look for the right level per concern (rule → unit, SQL → integration on the real engine, cross-team API → contract), named edge cases, a story for isolation and determinism, and awareness of cost.
+    explain_it:
+      - Name the level for each concern and why that level can catch the bug.
+      - Explain how tests stay isolated and deterministic (rollback or truncate, injected clock, no sleeps).
+      - Name the specific edge and failure cases, not just "more tests".
+      - Say how long the suite runs and what stays out of CI's critical path.
+    example:
+      language: python
+      code: |-
+        # Unit: a pure rule, no I/O.
+        def test_refund_cannot_exceed_remaining():
+            order = Order(total_cents=5000, refunded_cents=4000)
+            assert can_refund(order, 1000) is True      # exactly the remaining amount
+            assert can_refund(order, 1001) is False     # one cent more
+
+        # Integration: real PostgreSQL with migrations; the fixture rolls back after the test.
+        def test_concurrent_refunds_never_exceed_total(db_engine, order_factory):
+            order = order_factory(total_cents=5000)
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                results = list(pool.map(lambda _: refund_service.refund(order.id, 3000), range(2)))
+            assert sorted(r.ok for r in results) == [False, True]
+            assert fetch_refunded_cents(order.id) == 3000
+      explanation: "The unit test pins the boundary of the rule; the integration test is the only one that can show the row lock or conditional update really prevents an over-refund. (The concurrent test needs real commits, so it uses truncation rather than a rollback fixture.)"
+    edge_cases:
+      - Code that commits inside the unit of work breaks rollback-based isolation; use truncation for those tests.
+      - Tests that pass alone and fail in the full suite usually share state (a global, a cache, a row).
+      - Time-zone-dependent code tested only on UTC machines.
+    misconceptions:
+      - "More end-to-end tests mean more confidence — beyond a few journeys they mostly add flakiness and runtime."
+      - "Integration tests are too slow for CI — with one database container per session and transactional isolation, hundreds run in a minute or two."
+- key: eng.unit_integration.check
+  type: concept_check
+  title: "Concept check: choosing the test level"
+  skills: [testing.unit_integration]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: For each situation decide what kind of test can actually catch the problem.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "A test calls the repository's `find_overdue_invoices()` against a PostgreSQL container with all migrations applied. What kind of test is it?"
+        options: ["Unit test", "Integration test", "Contract test", "End-to-end test"]
+        answer: [1]
+        explanation: "It exercises your code with a real collaborator (the database engine), which makes it an integration test. It is not end-to-end because it does not go through the deployed system's public interface."
+      - id: q2
+        kind: multi
+        prompt: Which bugs can a unit test with a mocked database NOT catch?
+        options:
+          - A misspelled column name in a raw SQL query
+          - A unique-constraint violation on a duplicate insert
+          - An off-by-one in a pure function that computes due dates
+          - "Behaviour that differs between SQLite and PostgreSQL, such as `LIKE` being case-insensitive for ASCII in SQLite but case-sensitive in PostgreSQL"
+        answer: [0, 1, 3]
+        explanation: "The mock never parses SQL, enforces constraints or behaves like a specific engine. The pure date function has no database at all, which is exactly what unit tests are good at."
+      - id: q3
+        kind: single
+        prompt: The billing team consumes your orders API. Last month you renamed a response field and their service broke in production. Which test would have caught this earliest and most cheaply?
+        options:
+          - A unit test of your serializer
+          - A consumer-driven contract test, where billing's expectations are verified in your CI
+          - A nightly end-to-end test across all services
+          - Manual QA before each release
+        answer: [1]
+        explanation: "Only the consumer knows which fields it relies on. A contract test runs in the provider's pipeline and fails on the rename before merge. Your serializer unit test would happily assert the new name; a nightly end-to-end run is slower to fail and harder to diagnose."
+      - id: q4
+        kind: single
+        prompt: A suite takes 35 minutes, mostly end-to-end browser and API tests, and fails randomly about one run in five. What is the best direction?
+        options:
+          - Add automatic retries to every test
+          - Move most checks down to unit and API-level integration tests, keep a few end-to-end tests for critical journeys, and fix or quarantine the flaky ones with owners
+          - Run the suite only nightly
+          - Delete the end-to-end tests entirely
+        answer: [1]
+        explanation: "Edge cases belong at cheaper, deterministic levels. Retries hide real flakiness (and sometimes real bugs); nightly runs delay feedback; deleting all end-to-end tests loses the check that services are wired together."
+      - id: q5
+        kind: single
+        prompt: Which isolation strategy for database integration tests is fast and keeps tests independent, provided the code under test does not commit on its own?
+        options:
+          - Share one database and run tests in a fixed order
+          - Wrap each test in a transaction and roll it back afterwards
+          - Drop and recreate the database before each test
+          - Mock the database
+        answer: [1]
+        explanation: "Rollback per test leaves no data behind at almost no cost. Dropping and recreating is isolated but far too slow; a fixed order creates hidden dependencies; mocking stops it being an integration test. If the code commits itself or uses several connections, switch to truncation."
+      - id: q6
+        kind: short
+        prompt: You fixed a bug where a refund larger than the order total was accepted. Which tests do you add, and at which levels?
+        model_answer: "A unit test of the rule with boundaries: refunding exactly the remaining amount succeeds, one minor unit more fails, zero and negative amounts fail. An API-level integration test that the endpoint returns the documented 4xx error and the database is unchanged. An integration test against the real database with two concurrent refunds whose sum exceeds the total, asserting that only one succeeds. Each test should fail on the old code before the fix."
+        explanation: The regression test reproduces the original bug; the boundary and concurrency tests protect the rule's real failure modes.
+- key: eng.unit_integration.test_plan
+  type: interview_question
+  title: "Interview question: write a test plan for a coupon service"
+  skills: [testing.unit_integration, testing.test_design]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    prompt: "A new coupon service validates and redeems discount codes: each code has a percentage or fixed amount, a minimum basket, an expiry date, a per-user limit and a global redemption limit; checkout calls it over HTTP. You have two days before launch. What do you test, at which level, and what do you test first?"
+    key_points:
+      - "Starts with the highest-risk rules: global and per-user limits under concurrency, and discount never exceeding the basket (money and abuse)."
+      - "Unit tests for pure rules with boundaries: minimum basket exactly met, expiry at the boundary instant in the right time zone, percentage rounding."
+      - "Integration tests on the real database for redemption counting, unique constraints and concurrent redemption of the last unit."
+      - "API tests for validation, error codes and authentication on the HTTP endpoints."
+      - "A contract test with checkout for the request and response shape."
+      - "Injects the clock so expiry tests are deterministic; names one or two end-to-end checkout journeys only."
+    model_answer: "First the rules where a bug costs money or invites abuse: a global limit of 100 redeemed concurrently must give exactly 100 redemptions, the per-user limit must hold under parallel requests, and a discount must never make the total negative. Those are integration tests against the real database, because only the database's locking or conditional updates enforce them. Then unit tests for each pure rule with boundary values: basket equal to and one unit below the minimum, expiry one second before and after in the configured time zone, rounding of percentages to minor units, fixed discounts larger than the basket. API tests cover validation errors, unknown codes, expired codes and authentication. A contract test pins the response fields checkout relies on. One end-to-end test applies a coupon in a full checkout. The clock is injected everywhere so date tests do not depend on when CI runs."
+    pitfalls:
+      - Listing test types without saying what risk each addresses.
+      - Testing concurrency limits with mocks, which cannot show a race.
+      - Ignoring time zones and rounding.
+    follow_ups:
+      - prompt: How exactly would you test that the global limit holds under concurrency?
+        look_for: "Real database, a limit of N, launch more than N parallel redemptions (threads or async tasks against the service), assert exactly N succeeded and the counter equals N; repeat several times."
+      - prompt: Which tests would you not write, given only two days?
+        look_for: "Trivial getters, exhaustive end-to-end permutations, UI styling; prefer risk-based priority and record what was deferred."
+- key: eng.unit_integration.cards
+  type: revision_card
+  title: "Recall: test levels"
+  skills: [testing.unit_integration]
+  minutes: 4
+  body:
+    cards:
+      - front: What does an integration test add over a unit test?
+        back: Real collaborators — SQL, constraints, transactions, serialisation, framework wiring.
+      - front: What does a contract test check?
+        back: That a provider still satisfies the requests and responses its consumers rely on.
+      - front: Why not SQLite for a PostgreSQL app's tests?
+        back: Different types, constraints, locking and SQL behaviour; green there proves little.
+      - front: Rollback-per-test isolation breaks when?
+        back: The code under test commits itself or uses another connection; use truncation.
+      - front: First test to add after fixing a bug?
+        back: One that fails on the old code and passes on the fix.
+
+# ---------------------------------------------------------------------------------------------- test design
+- key: eng.test_design.lesson
+  type: lesson
+  title: "Test design: edge cases, test doubles, fixtures and flaky tests"
+  skills: [testing.test_design]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Choose cases by partitions and boundaries, use the simplest double that isolates a slow or uncontrollable dependency, keep fixtures small and explicit, and remove nondeterminism instead of retrying it.
+    what: |-
+      Test design is deciding **which cases** to test and **how** to make them reliable:
+
+      - **Case selection**: equivalence partitions (classes of input that behave the same), boundary values (the edges between them), error paths, state transitions, and properties that must always hold.
+      - **Test doubles** (Gerard Meszaros' taxonomy): a **dummy** fills a parameter and is never used; a **stub** returns canned answers; a **spy** records how it was called; a **mock** is pre-programmed with expected calls and fails the test if they do not happen; a **fake** is a working lightweight implementation (an in-memory repository, a fake payment gateway).
+      - **Fixtures**: the setup a test needs — data, clients, a database session — shared through factories or framework fixtures with explicit scope.
+      - **Determinism**: control of time, randomness, ordering, concurrency and external services so a test gives the same result every run.
+    why: |-
+      Bugs live at boundaries and in failure paths, not in the middle of the happy path. And a test suite people do not trust is worse than useless: when one run in ten fails randomly, engineers learn to re-run instead of read, and a real failure slips through.
+    when: |-
+      Every time you write tests, review a test diff, or triage a flaky build. Interview prompts: "what cases would you test for this function?", "stub or mock?", "this test fails one run in twenty — why?".
+    how: |-
+      **Pick cases deliberately.** For "free shipping for baskets from 1,000 to 50,000 cents inclusive": partitions below, inside, above; boundaries 999, 1,000, 50,000, 50,001; plus invalid input (negative, missing). Add error paths (dependency down, timeout, duplicate request) and the cases from past bugs.
+
+      **Choose the simplest double.** Replace a collaborator only when it is slow, nondeterministic or hard to put into a state (payments, email, the clock, a flaky partner). Prefer a **stub** or **fake** and assert on outcomes (state) — "the order is marked paid" — over a **mock** that asserts calls ("save was called once with X"), which couples the test to implementation and breaks on harmless refactors. Use a mock or spy when the interaction *is* the behaviour (an email must be sent exactly once). Wrap third-party clients in your own small interface and fake that interface, rather than mocking a library's internals.
+
+      **Keep fixtures small and local.** Factories with sensible defaults (`order_factory(total_cents=5000)`) make each test state only what matters to it. A giant shared fixture hides why a test passes and couples unrelated tests. Scope expensive fixtures (a database container) to the session and cheap state to the test.
+
+      **Remove sources of flakiness.**
+
+      - Time: `now()` and `date.today()` inside tests or code; local time vs UTC; month-end and daylight-saving transitions. Inject a clock or freeze time.
+      - Waiting: `sleep(0.2)` for a background job; replace with polling for the condition with a timeout, or run the job synchronously in tests.
+      - Order: asserting the order of results from a query without `ORDER BY`, or of a set; tests depending on the order they run in.
+      - Shared state: globals, caches, singletons, rows or Redis keys shared across tests or parallel workers.
+      - Randomness without a seed; external network calls; fixed ports; resource leaks.
+
+      **Decide what to test first** by risk: money, permissions, data loss and irreversible actions; complex branching; code that broke before. Test public behaviour, not private helpers.
+    mental_model: |-
+      A good test is a precise, repeatable experiment: controlled inputs, one variable changed, an observable outcome. Every uncontrolled input — the clock, the network, another test's data, the scheduler — is a second variable that can flip the result.
+    tradeoffs: |-
+      - **Mocks** give speed and pinpoint failures but encode assumptions and over-specify; **fakes** take effort to write but are reused and assert behaviour.
+      - **Shared fixtures** remove duplication but create coupling; **local factories** repeat a little but stay readable.
+      - **Property-based tests** find cases you would not think of, but need clear invariants and can be slower.
+      - **Quarantining** a flaky test keeps CI green but loses its protection; it needs an owner and a deadline.
+    mistakes:
+      - Testing only the example from the ticket.
+      - Asserting that a mock was called instead of asserting the outcome.
+      - Mocking the code under test, or so much around it that nothing real runs.
+      - Using sleep to wait for asynchronous work.
+      - Comparing unordered results as ordered lists.
+      - Adding automatic retries to hide flaky tests.
+      - Tests whose names do not say what behaviour fails when they fail.
+    interview: |-
+      You may be asked to list test cases for a small function, explain stub vs mock vs fake with an example, or diagnose a flaky test from code. Strong answers enumerate partitions and boundaries systematically, justify each double, and tie each flake to a concrete nondeterministic input with a fix that removes it.
+    explain_it:
+      - Derive cases from partitions, boundaries, error paths and past bugs.
+      - Pick the simplest double and prefer asserting outcomes over calls.
+      - Keep fixtures explicit with factories and the right scope.
+      - Name the nondeterministic input behind a flake and remove it.
+    example:
+      language: python
+      code: |-
+        class FakePaymentGateway:                      # a fake: real behaviour, in memory
+            def __init__(self):
+                self.charges = {}
+            def charge(self, key: str, amount_cents: int) -> str:
+                return self.charges.setdefault(key, f"ch_{len(self.charges) + 1}")
+
+        class FixedClock:                              # a stub for time
+            def __init__(self, now):
+                self._now = now
+            def now(self):
+                return self._now
+
+        def test_retry_with_same_key_charges_once():
+            gateway = FakePaymentGateway()
+            service = PaymentService(gateway, FixedClock(datetime(2026, 3, 1, tzinfo=timezone.utc)))
+            first = service.pay(order_id=7, idem_key="k1", amount_cents=2500)
+            second = service.pay(order_id=7, idem_key="k1", amount_cents=2500)
+            assert first == second
+            assert len(gateway.charges) == 1           # outcome, not "charge called once"
+      explanation: The fake supports realistic retries and the fixed clock removes time from the test; the assertion is about what happened, not how the service called its collaborator.
+    edge_cases:
+      - Empty, single, maximum-size inputs and duplicates.
+      - The boundary instant of an expiry, in the right time zone.
+      - Daylight-saving transitions and month ends for anything scheduled.
+      - Unicode and very long strings for text fields.
+    misconceptions:
+      - "Mock and stub are synonyms — a stub supplies answers; a mock verifies interactions."
+      - "A flaky test is a test problem, not a product problem — sometimes the flake is a real race in the code."
+- key: eng.test_design.check
+  type: concept_check
+  title: "Concept check: test design"
+  skills: [testing.test_design]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Choose cases, doubles and fixes as you would in a real review.
+    questions:
+      - id: q1
+        kind: single
+        prompt: A test uses an in-memory OrderRepository that stores orders in a dict and implements the same methods as the real one. What kind of test double is it?
+        options: ["Dummy", "Stub", "Mock", "Fake"]
+        answer: [3]
+        explanation: "It has working behaviour (save, load, query), just a simpler implementation — a fake. A stub only returns canned answers; a mock verifies expected calls; a dummy is never used."
+      - id: q2
+        kind: single
+        prompt: "A test's only assertion is `repo.save.assert_called_once_with(order)`. Someone refactors the service to save orders in a batch call, behaviour is identical, and the test fails. What is the underlying problem?"
+        options:
+          - The refactor introduced a bug
+          - The test over-specifies the interaction; it should assert the outcome (for example, the order can be loaded with the new status) using a fake or a real database
+          - The mock library is broken
+          - The test should use assert_called instead
+        answer: [1]
+        explanation: "Interaction assertions couple a test to how the code works, not what it achieves, so harmless refactors fail. Loosening to assert_called keeps the same coupling. Assert on state unless the call itself is the behaviour."
+      - id: q3
+        kind: multi
+        prompt: Which lines make this test flaky?
+        code:
+          language: python
+          code: |-
+            def test_daily_report(api, db):
+                api.post("/orders", json={"sku": "A1", "qty": 1})          # server stores UTC
+                time.sleep(0.2)                                           # report is built by a worker
+                report = api.get(f"/reports/daily?date={date.today()}").json()
+                assert report["skus"] == ["A1", "B2"]                     # B2 inserted by a session fixture
+        options:
+          - "time.sleep(0.2) waiting for a background worker"
+          - "date.today() in the runner's local time zone while the server uses UTC"
+          - Comparing a list built from an unordered query with a fixed order
+          - The use of a JSON body in the POST
+        answer: [0, 1, 2]
+        explanation: "The sleep races the worker, so it fails on slow runners; date.today() picks a different day than the server near midnight in non-UTC zones; unordered query results can come back in either order. The JSON body is deterministic."
+      - id: q4
+        kind: single
+        prompt: "Free shipping applies to baskets from 1,000 to 50,000 cents inclusive. Which set of basket values best covers the boundaries?"
+        options: ["1,000 and 50,000", "999, 1,000, 50,000, 50,001", "500, 25,000, 75,000", "0 and 100,000"]
+        answer: [1]
+        explanation: "Boundary testing checks each edge and its neighbour outside the range, catching both < vs <= mistakes. Values only inside or far outside the range miss off-by-one errors at the edges."
+      - id: q5
+        kind: single
+        prompt: You have one hour to add tests to a new refund feature before release. What do you test first?
+        options:
+          - Getters and setters on the Refund model
+          - That refunds cannot exceed the remaining amount and that only authorised users can refund, including a concurrent attempt
+          - The format of log messages
+          - Every combination of optional request fields
+        answer: [1]
+        explanation: "Prioritise by risk: money movement and permissions are irreversible or exploitable when wrong. Trivial accessors and log formats rarely hide costly bugs; exhaustive combinations do not fit the hour."
+      - id: q6
+        kind: short
+        prompt: Explain the difference between a stub and a mock using a payment client as the example, and say when you would use each.
+        model_answer: "A stub of the payment client returns a canned result, such as charge succeeds with id ch_1 or raises a declined error, so you can test how the service behaves for each outcome, asserting on the order's resulting state. A mock is set up with expectations about how it is called, such as charge must be called exactly once with amount 2500 and idempotency key k1, and the test fails if the interaction differs. Use a stub (or a fake) by default; use a mock when the interaction itself is the requirement, such as never charging twice or always passing the idempotency key."
+        explanation: Stubs feed inputs to the code under test; mocks verify outputs that are calls.
+- key: eng.test_design.flaky_tests
+  type: debugging_exercise
+  title: "Debugging scenario: three flaky tests in CI"
+  skills: [testing.test_design, testing.unit_integration]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 1200}
+  body:
+    scenario: |-
+      The team's CI fails about one run in four, always in one of three tests, and people have started clicking "re-run". Every test passes when run alone on a laptop. CI runners are configured with `TZ=Asia/Kolkata` (UTC+5:30) and the suite runs in parallel with four workers. The database fixture wraps each test in a transaction and rolls back; Redis is one shared instance for the whole CI job.
+    symptoms:
+      - The failures are spread across three tests, each with its own pattern.
+      - Re-running the same commit usually passes.
+      - Nobody can reproduce any failure locally.
+    artifacts: |-
+      ```python
+      def test_daily_report_includes_new_order(api, db):
+          api.post("/orders", json={"sku": "A1", "qty": 1})      # server stores created_at in UTC
+          report = api.get(f"/reports/daily?date={date.today().isoformat()}").json()
+          assert report["order_count"] == 1
+
+      def test_active_sessions_count(api, redis_client):
+          api.post("/login", json={"user": "ana", "password": "pw"})
+          api.post("/login", json={"user": "bo", "password": "pw"})
+          assert len(redis_client.keys("session:*")) == 2
+
+      def test_welcome_email_sent(api, outbox):
+          api.post("/signup", json={"email": "c@example.com"})   # enqueues a background job
+          time.sleep(0.2)
+          assert outbox.sent_to("c@example.com")
+      ```
+
+      ```text
+      Failures in the last 60 CI runs:
+      test_daily_report_includes_new_order   9 failures   all between 18:30 and 24:00 UTC
+      test_active_sessions_count             11 failures  only when run with 4 workers; never with 1
+                                                          message: assert 3 == 2 (sometimes 4 == 2)
+      test_welcome_email_sent                4 failures   on the shared runner pool at high load; passes on re-run
+      ```
+    tasks:
+      - For each test, connect the failure pattern to a specific source of nondeterminism.
+      - Explain why each one passes on a laptop.
+      - Fix each test (and say if the product code should change too).
+      - Propose CI and team practices so new flaky tests are caught and handled.
+    hints:
+      - What is the local date in Kolkata at 19:00 UTC?
+      - What else writes session keys into the same Redis while this test runs?
+      - How long does the background job take on a loaded runner?
+    reference: |-
+      **Daily report: time zone.** Between 18:30 and 24:00 UTC it is already the next day in Kolkata, so `date.today()` on the runner asks for tomorrow's report while the order was stored under today's UTC date. Laptops in UTC (or tests run during the day) never hit the window. Fix: take the date from the same clock and zone the server uses (`datetime.now(timezone.utc).date()`), or better, freeze or inject the clock in both test and app. Product question to raise: which time zone defines a business "day" for the report — it should be explicit in the API.
+
+      **Session count: shared state across parallel workers.** All four workers share one Redis, and `KEYS session:*` counts sessions created by other tests running at the same time (hence 3 or 4). Alone, nothing else writes sessions. Fix: isolate per worker (a separate Redis database index or a key prefix containing the worker id) and flush it in the fixture; assert on the sessions this test created rather than a global count. Also avoid `KEYS` in product code; `SCAN` in tests is fine on a small instance.
+
+      **Welcome email: sleep-based waiting.** 200 ms is enough on an idle laptop, not on a loaded shared runner. Fix: run the job synchronously in tests (eager mode) or poll until the email appears with a generous timeout such as five seconds, which returns as soon as the condition is true.
+
+      **Practices.** Run CI in parallel and with random test order (so order dependence shows up), and add one job with a non-UTC TZ; track flake rate per test; quarantine a flaky test only with an owner and a deadline; ban automatic retries as the fix; review new tests for `sleep`, `now()`, `today()` and global key scans.
+    rubric:
+      - {key: timezone, label: "Explains the 18:30-24:00 UTC window as the Kolkata date running ahead of the UTC date", points: 3}
+      - {key: shared_state, label: "Explains the extra sessions as other parallel workers sharing one Redis", points: 2}
+      - {key: sleep, label: "Explains the sleep racing a slower background job under load", points: 2}
+      - {key: fixes, label: "Gives fixes that remove each nondeterminism (injected clock, per-worker isolation, polling or eager jobs) rather than retries", points: 2}
+      - {key: practices, label: "Proposes CI practices such as random order, a non-UTC job, flake tracking and quarantine with an owner", points: 1}
+    follow_ups:
+      - prompt: A teammate suggests marking all three tests with an automatic retry plugin. What is your response?
+        look_for: "Retries hide the cause, slow CI and can hide real product races; acceptable only as a short, tracked quarantine while the test is fixed."
+      - prompt: Could any of these flakes be a real product bug rather than a test bug?
+        look_for: "Yes, the report's undefined time zone is a product ambiguity; and a sleep-based flake can reveal that a job is slower than its SLA."
+- key: eng.test_design.code_review_cache
+  type: debugging_exercise
+  title: "Code review: a pull request that adds Redis caching to product listing"
+  skills: [testing.test_design, engineering.caching_practice, engineering.debugging]
+  minutes: 30
+  difficulty: HARD
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 1800}
+  body:
+    scenario: |-
+      The catalog service serves many tenants (shops) from one deployment. A pull request adds a Redis cache in front of the product listing because listing queries are the top database load. The author added tests and CI is green. Review it: find correctness risks, scalability risks, security issues, testing gaps and maintainability problems, and rank them.
+    symptoms:
+      - "PR description: cache product listing pages, invalidate on update, unit tests added."
+      - Listing is called with tenant_id, page and page_size from the public storefront API.
+      - Product updates come from the admin UI and from a bulk import job that writes directly to the database.
+    artifacts:
+      language: diff
+      code: |-
+        diff --git a/app/services/catalog.py b/app/services/catalog.py
+        --- a/app/services/catalog.py
+        +++ b/app/services/catalog.py
+        @@ -1,7 +1,19 @@
+        +import json
+        +import redis
+         from app.repositories import repo
+
+        +r = redis.Redis(host=os.environ["REDIS_HOST"])
+        +
+         def list_products(tenant_id: int, page: int, page_size: int):
+        -    return repo.list_products(tenant_id, offset=page * page_size, limit=page_size)
+        +    key = f"products:page:{page}"
+        +    cached = r.get(key)
+        +    if cached:
+        +        return json.loads(cached)
+        +    rows = repo.list_products(tenant_id, offset=page * page_size, limit=page_size)
+        +    r.set(key, json.dumps(rows))
+        +    return rows
+
+         def update_product(tenant_id: int, product_id: int, changes: dict):
+        -    repo.update_product(tenant_id, product_id, changes)
+        +    repo.update_product(tenant_id, product_id, changes)   # caller commits the transaction
+        +    for k in r.keys("products:*"):
+        +        r.delete(k)
+        diff --git a/tests/test_catalog.py b/tests/test_catalog.py
+        --- a/tests/test_catalog.py
+        +++ b/tests/test_catalog.py
+        @@ -9,0 +10,14 @@
+        +def test_list_products_uses_cache(mocker):
+        +    fake_redis = mocker.patch("app.services.catalog.r")
+        +    fake_redis.get.return_value = None
+        +    repo = mocker.patch("app.services.catalog.repo")
+        +    repo.list_products.return_value = [{"id": 1}]
+        +    assert list_products(1, 0, 20) == [{"id": 1}]
+        +    fake_redis.set.assert_called_once()
+        +
+        +def test_update_invalidates(mocker):
+        +    fake_redis = mocker.patch("app.services.catalog.r")
+        +    fake_redis.keys.return_value = ["products:page:0"]
+        +    mocker.patch("app.services.catalog.repo")
+        +    update_product(1, 1, {"price": 10})
+        +    fake_redis.delete.assert_called_with("products:page:0")
+    tasks:
+      - "List correctness risks, including what a customer of one shop could see."
+      - "List security issues."
+      - "List scalability and resilience risks for Redis and the database."
+      - "Explain why the tests pass despite the bugs, and name the tests you would require."
+      - "List maintainability problems."
+      - "Rank the findings and propose a corrected design in a few lines."
+    hints:
+      - Which arguments of list_products are missing from the cache key?
+      - What does KEYS cost on a large keyspace, and whose keys does this loop delete?
+      - The bulk import writes directly to the database. When does its change become visible?
+      - What would a test with two tenants and a real (or fake) Redis show?
+    reference: |-
+      **Blocker — cross-tenant data leak (correctness and security).** The key `products:page:{page}` omits `tenant_id` and `page_size`. The first shop to load page 0 fills the key and every other shop's storefront then shows that shop's products, and a request with `page_size=20` can be served a cached page of 100 items. The key must include every input of the query: `products:{tenant_id}:{page}:{page_size}` (plus a version).
+
+      **Correctness.**
+      - No TTL: anything that bypasses `update_product` — the bulk import writing directly to the database, a failed delete, a manual fix — leaves stale data forever. Add a TTL with jitter as the safety net.
+      - Invalidation runs before the caller commits; a concurrent reader can repopulate the old rows. Invalidate after commit (an after-commit hook or the caller's unit of work).
+      - `json.dumps(rows)` fails if rows contain `Decimal` or `datetime`; serialisation needs an explicit schema.
+
+      **Scalability and resilience.**
+      - `KEYS products:*` is O(N) over the whole keyspace and blocks Redis for every client; it also deletes every tenant's cache on each update, causing a miss storm. Use per-tenant versioned keys (increment `products:ver:{tenant}` on update and include it in the key, letting old keys expire) or delete only the tenant's keys tracked in a set.
+      - Without a TTL, memory grows with tenants × pages × page sizes; with the default `noeviction` policy, writes start failing when memory is full.
+      - No socket timeouts and no fallback: if Redis is slow or down, the listing fails. Configure timeouts and fall back to the database on cache errors.
+      - `page_size` is unbounded and offset pagination grows slower with depth; cap the page size.
+
+      **Security.** Beyond the leak, the client is built from an environment variable at import time with no TLS or auth configuration visible; confirm Redis is not reachable without credentials.
+
+      **Why the tests pass.** Both tests mock Redis and the repository and assert calls, not behaviour: `set.assert_called_once()` never checks the key, and the invalidation test hard-codes what `keys` returns. They would pass with any key, including the leaking one. Required tests, with a real Redis container or a faithful fake: two tenants requesting page 0 get their own products; different page sizes get different results; after an update and commit, the next read shows the change; a cache hit returns the cached value without calling the repository; a Redis error falls back to the database; values with Decimal and datetime round-trip.
+
+      **Maintainability.** Module-level client created at import (and `os` is not imported), magic key strings scattered in code, caching mixed into the service; extract a small cache helper with key building, TTL and error handling in one place, and add hit/miss metrics.
+
+      **Corrected design.** Key `products:v{tenant_version}:{tenant_id}:{page}:{page_size}`, TTL 300 s plus jitter, invalidate by incrementing the tenant version after commit (the import job does the same), short client timeouts with database fallback, capped page size.
+    rubric:
+      - {key: tenant_leak, label: "Identifies the missing tenant_id and page_size in the key as a cross-tenant data leak and a blocker", points: 3}
+      - {key: staleness, label: "Flags the missing TTL, the import job bypassing invalidation and invalidation before commit", points: 2}
+      - {key: redis_ops, label: "Flags KEYS blocking Redis, over-invalidation across tenants, and no timeout or fallback", points: 2}
+      - {key: test_gaps, label: "Explains why mock-based call assertions pass and names behaviour tests with two tenants and a real or fake Redis", points: 2}
+      - {key: design, label: "Proposes a corrected key and invalidation design and ranks findings", points: 1}
+    follow_ups:
+      - prompt: Would a fake Redis library be enough for the tests, or do you need a real Redis container?
+        look_for: "A faithful fake covers key and TTL logic quickly; a real container is needed for behaviour such as eviction, timeouts, scripting and performance; often fake for unit-level, real for a few integration tests."
+      - prompt: How would you roll this out safely given it has already been merged once?
+        look_for: "Flush the existing products keys, deploy the fix behind a flag, verify per-tenant hit ratio and correctness on a canary, then enable."
+- key: eng.test_design.cards
+  type: revision_card
+  title: "Recall: test design"
+  skills: [testing.test_design]
+  minutes: 5
+  body:
+    cards:
+      - front: Stub vs mock?
+        back: A stub supplies canned answers; a mock verifies the calls made to it.
+      - front: What is a fake?
+        back: A working lightweight implementation, such as an in-memory repository.
+      - front: Boundary values for 1,000 to 50,000 inclusive?
+        back: 999, 1,000, 50,000 and 50,001.
+      - front: Replace sleep in an async test with?
+        back: Polling for the condition with a timeout, or running the job synchronously.
+      - front: Three common flaky-test causes?
+        back: Time and time zones, shared state between tests, waiting with sleep.
+      - front: What to test first?
+        back: The riskiest behaviour — money, permissions, data loss, past bugs.

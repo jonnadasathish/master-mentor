@@ -1,0 +1,718 @@
+# Learning content: behavioral foundations — STAR structure, probing follow-ups and the two-minute introduction.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- structured answers (STAR)
+- key: beh.structured.lesson
+  type: lesson
+  title: STAR answers that lead with the point and end with a number
+  skills: [communication.structured_answers]
+  minutes: 20
+  difficulty: EASY
+  body:
+    summary: A strong behavioral answer opens with a one-sentence headline, spends most of its time on what you personally did, and ends with a measured result and a reflection.
+    what: |-
+      STAR is a structure for answering "tell me about a time…" questions: **Situation**, **Task**, **Action**, **Result**. In this course every story you prepare records seven parts, because the four letters alone leave out what interviewers probe most:
+
+      - **Situation**: the context in one or two sentences (team, system, scale, what was at stake).
+      - **Task**: what you specifically were responsible for, and the constraint (deadline, SLA, budget).
+      - **Action**: the decisions and steps **you** took, in order, with the reasoning behind each.
+      - **Result**: what changed, stated as an outcome rather than an activity.
+      - **Metrics**: the numbers behind the result, with a baseline, an after value and how it was measured.
+      - **Trade-offs**: what you gave up or chose not to do, and why.
+      - **Reflection**: what you would do differently, and what you changed in how you work since.
+    why: |-
+      A behavioral interview is an evidence-gathering exercise. The interviewer has a short list of competencies (ownership, conflict, ambiguity…) and needs concrete, checkable signal for each in roughly 45 minutes. A rambling answer forces them to dig for the signal and often they run out of time; a structured answer hands it over. Structure also protects you: when you are nervous, a fixed sequence stops you from spending four minutes on background and thirty seconds on what you did.
+    when: |-
+      Any question that starts with "tell me about a time", "give me an example", "describe a situation", or "walk me through a project". Also use a compressed version (headline, two actions, result) for questions inside technical rounds such as "have you dealt with a production incident?".
+    how: |-
+      1. **Headline first.** One sentence that answers the question directly: "Yes — I led the rollback and root-cause fix for a checkout outage that was failing about one in five payments."
+      2. **Situation and task in under 30 seconds.** Only the context needed to understand the stakes. Name your role.
+      3. **Actions take roughly 60 percent of the time.** Three or four concrete steps, each with a "because". Use "I" for what you did and name others for what they did.
+      4. **Result with numbers.** Baseline, after, and the unit: "error rate went from 18 percent to under 1 percent within 12 minutes".
+      5. **One trade-off.** "I chose to roll back rather than hot-fix, which meant losing the new discount feature for a day."
+      6. **Reflection in one or two sentences**, ideally a mechanism you introduced afterwards (a check, a runbook, a habit).
+
+      Time budget for a two to three minute answer: about 20 seconds of headline and context, 90 seconds of actions, 30 seconds of result and metrics, 20 seconds of trade-off and reflection. Stop there and let the interviewer choose where to dig.
+    mental_model: |-
+      Write the answer like a pull request description: the title says what changed, the body says why and how, the testing section gives the numbers, and the "follow-ups" section says what you would still improve. A reviewer should be able to read only the title and know whether to approve.
+    tradeoffs: |-
+      Structure costs naturalness if you recite it. Memorise the **skeleton** (headline, three action bullets, the numbers, the reflection), not a script, so you can adapt to the exact question. A very short answer (under a minute) is crisp but usually skips the reasoning behind actions; a long one (over four minutes) loses the interviewer. Aim for two to three minutes and offer depth: "I can go deeper into how we found the root cause."
+    mistakes:
+      - Starting with two minutes of company and system background before saying what happened.
+      - "Saying 'we' throughout, so the interviewer cannot tell what you did."
+      - Ending with activity ("and then we shipped it") instead of a result.
+      - Results without a baseline ("latency was 200 ms") so nobody can tell whether it improved.
+      - Picking a story that does not match the competency asked (a conflict question answered with a technical deep dive).
+      - A hero story where colleagues are absent or incompetent.
+    interview: |-
+      Interviewers usually take notes against the competency and then probe: "what exactly did you do?", "what was the number?", "what would you do differently?". A structured answer makes those follow-ups confirm your story instead of rescuing it. Many interviewers decide early whether an answer has signal, so the headline sentence matters more than any other.
+    explain_it:
+      - Open with a one-sentence direct answer that names the outcome.
+      - Context and your role in under 30 seconds.
+      - Three or four actions in first person, each with a reason.
+      - A result with baseline, after value and how it was measured.
+      - One trade-off and one reflection that changed how you work.
+    example:
+      language: text
+      code: |-
+        Question: Tell me about a time you handled a production incident.
+
+        Headline:   I led the rollback and the root-cause fix for a checkout outage that was failing
+                    about one in five payments, and I added the check that stopped it recurring.
+        Situation:  Our order service (Python, PostgreSQL, about 40 requests per second at peak)
+                    started returning 500s ten minutes after a Friday deploy.
+        Task:       I was on call. My job was to restore checkout first, then find the cause.
+        Action:     - Checked the dashboard: errors started exactly at the deploy, so I rolled back
+                      instead of debugging live; I posted status updates in the incident channel
+                      every 10 minutes so support could answer customers.
+                    - Reproduced on staging with production-sized data and found a new query doing a
+                      sequential scan on the orders table, exhausting the connection pool.
+                    - Wrote the index migration (CREATE INDEX CONCURRENTLY), asked a teammate to
+                      review it, and redeployed on Monday morning.
+        Result:     Checkout recovered 12 minutes after the alert; the redeploy was clean.
+        Metrics:    Error rate 18 percent to under 1 percent; roughly 2,300 failed checkouts in the
+                    window, which support recovered through retry emails.
+        Trade-offs: Rolling back removed a discount feature for three days; I judged that a working
+                    checkout was worth more than the feature.
+        Reflection: I added an EXPLAIN check for new queries on large tables to our PR template, and
+                    I now ask for a staging run with production-sized data before risky deploys.
+      explanation: The headline answers the question in one breath, the actions are first person with reasons, and every claim in the result has a number the interviewer can probe.
+    internals: |-
+      What an interviewer typically writes down per answer: the competency, the scope of the problem (one service, one team, several teams), your specific contribution, the evidence of impact, and a signal on self-awareness. If any of these is missing they will ask for it, which costs you time and suggests the story is thinner than it is.
+    edge_cases:
+      - "No hard number available: give an honest range and how you would have measured it ('roughly 30 to 40 percent fewer tickets, from the support dashboard')."
+      - "A team effort: say 'the team of four did X; my part was Y and Z' and then stay in first person."
+      - A story still in progress has no result yet; pick another story or say clearly what is measured so far.
+    misconceptions:
+      - "STAR means equal time on each letter. The Action carries the signal and should take most of the time."
+      - Longer answers show more experience. Interviewers usually prefer two to three focused minutes plus follow-ups.
+- key: beh.structured.worked
+  type: worked_example
+  title: "Worked example: turning a rambling migration answer into STAR"
+  skills: [communication.structured_answers, behavioral.impact]
+  minutes: 12
+  difficulty: EASY
+  body:
+    problem: |-
+      The question is "Tell me about a technically challenging project." The first draft below is what many engineers say. Rebuild it into the seven parts, step by step.
+
+      Draft: "So at my company we had this monolith, it was really old, written in Django 1.11, and the team had been talking about splitting it for ages. There were a lot of meetings. Eventually we decided to move the notification code out. We used Celery and Redis. It was hard because of the data. We did a lot of testing and it went fine in the end and everyone was happy."
+    steps:
+      - title: Find the headline
+        text: "Ask: what is the one-sentence answer? Here it is the extraction plus its outcome. 'I designed and led the extraction of notifications from our Django monolith into a separate worker service, with no downtime, which cut notification delay from minutes to seconds.' If you cannot write this sentence, you have not picked the story yet."
+      - title: Cut the situation to what explains the stakes
+        text: "Keep the facts that make the problem real: the monolith sent about 300,000 emails and SMS a day inside web requests, so a slow SMS provider made checkout slow. Drop the meetings and the framework history unless they changed a decision."
+      - title: Rewrite actions in first person with reasons
+        text: |-
+          Replace "we used Celery" with decisions you made and why:
+
+          - I mapped every call site that sent a notification (37 of them) and wrapped them behind one interface, so the switch could be done with a flag.
+          - I chose a transactional outbox table written in the same database transaction as the order, because sending directly to the queue could lose messages if the transaction rolled back.
+          - I ran both paths in shadow mode for a week and compared delivery logs to catch differences before switching.
+      - title: Replace "it went fine" with metrics
+        text: "'It went fine' is not a result. State baseline, after and source: p95 notification delay from about 4 minutes to under 10 seconds; checkout p95 latency dropped from 1,200 ms to 450 ms because requests no longer waited on SMS; zero lost notifications in the shadow comparison."
+      - title: Add a trade-off and a reflection
+        text: "Trade-off: the outbox added a polling worker and a table to maintain, which I accepted over adopting a new message broker the team had no experience running. Reflection: I would have written the call-site inventory into the design doc earlier; two late-discovered call sites cost us four days."
+    takeaways:
+      - Write the headline before anything else; it forces you to choose the outcome.
+      - Every "we used X" becomes "I chose X because Y".
+      - "'It went fine' is replaced by baseline, after, and where the number came from."
+      - A reflection is a specific change, not "I learned a lot".
+- key: beh.structured.visual
+  type: visual_explanation
+  title: "Visual: where the time goes in a three-minute answer"
+  skills: [communication.structured_answers]
+  minutes: 5
+  body:
+    summary: The Action section carries most of the signal, so it gets most of the time.
+    frames:
+      - caption: A common weak answer spends most of its time on background.
+        diagram: |-
+          0s                     90s            150s      180s
+          |--- situation -------|--- action ----|-result-|
+          [#####################][#############][###]
+          Interviewer at 90s: "still don't know what this person did"
+      - caption: A strong answer gets to the actions within half a minute.
+        diagram: |-
+          0s   20s                                 120s       160s  180s
+          |head|------------ action ---------------|-result---|refl|
+          [####][##################################][#########][###]
+           ^ direct answer        ^ "I ... because ..."    ^ numbers   ^ change made
+      - caption: Then stop and let the follow-ups do the rest.
+        diagram: |-
+          answer (2-3 min)  -->  "what exactly did you do?"   -> deeper action detail
+                            -->  "what was the number?"       -> metric + how measured
+                            -->  "what would you change?"     -> reflection, mechanism
+- key: beh.structured.check
+  type: concept_check
+  title: "Concept check: recognising a structured answer"
+  skills: [communication.structured_answers]
+  minutes: 8
+  difficulty: EASY
+  body:
+    intro: Each question shows part of a sample answer. Judge it as an interviewer collecting evidence would.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "The question is 'Tell me about a time you improved a slow system.' Which opening sentence is strongest?"
+        options:
+          - "So, a bit of background: our company has about 200 engineers and a lot of legacy code."
+          - "I cut the p95 latency of our search API from 1,800 ms to 300 ms by replacing an N+1 query pattern, without changing the API contract."
+          - "Performance is something I care a lot about, and I think every engineer should."
+          - "We had a project last year where the team worked on performance."
+        answer: [1]
+        explanation: "The second option answers directly, names the outcome, the number and the constraint. The first is background that delays the signal; the third is an opinion, not evidence; the fourth hides the speaker's role behind 'the team'."
+      - id: q2
+        kind: multi
+        prompt: Which of these sentences belong in the Action section of a STAR answer?
+        options:
+          - "I added a composite index on (customer_id, created_at) because the query filtered on both."
+          - "Our platform serves about 2 million users."
+          - "I asked the data team for a week of slow-query logs to confirm which endpoint was the worst."
+          - "Latency dropped by 80 percent."
+        answer: [0, 2]
+        explanation: "Actions are the steps you took and why. The user count is Situation; the latency drop is Result. Mixing them is how answers lose shape."
+      - id: q3
+        kind: single
+        prompt: "Sample result: 'After my change the dashboard loaded in 900 ms.' What is the main problem?"
+        options:
+          - It is too short.
+          - It has no baseline, so the improvement cannot be judged.
+          - It should be in seconds.
+          - It mentions a number, which sounds rehearsed.
+        answer: [1]
+        explanation: "900 ms means nothing without the before value and ideally how it was measured (for example 'p95 from 4,000 ms to 900 ms in the RUM dashboard over two weeks'). Length and units are not the issue."
+      - id: q4
+        kind: single
+        prompt: "An answer uses 'we' in every sentence of the Action section. What will a careful interviewer most likely do?"
+        options:
+          - Assume the candidate did everything.
+          - Ask 'what exactly did you do?' and spend follow-up time extracting the candidate's role.
+          - Give full credit for teamwork.
+          - Move to the next question immediately.
+        answer: [1]
+        explanation: "Interviewers assess the individual. 'We' is not penalised as such, but it forces a probe; if the probe shows a small role, the story loses value. Say what the team did, then what you did."
+      - id: q5
+        kind: multi
+        prompt: Which of these are valid reflections at the end of a story?
+        options:
+          - "I learned a lot from this project."
+          - "I now write a rollback plan into every migration PR, and we used it twice since."
+          - "Next time I would involve the support team before launch, because the first two days of tickets were about a change we never announced."
+          - "Everything went well, so I would not change anything."
+        answer: [1, 2]
+        explanation: "A reflection names a specific change in behaviour or process, ideally with evidence it stuck. 'I learned a lot' has no content, and 'I would not change anything' signals low self-awareness."
+      - id: q6
+        kind: short
+        prompt: "Rewrite this opening into a one-sentence headline: 'So we had this payments thing and there were issues with duplicates and it was a whole saga.'"
+        model_answer: "I removed duplicate charges in our payment flow by adding idempotency keys to the charge endpoint, which took duplicate charges from about 40 a week to zero."
+        explanation: A headline names your action, the problem and the measured outcome in one sentence. Any concrete version with a role, an action and a number is a full answer.
+- key: beh.structured.interview
+  type: interview_question
+  title: "Interview drill: fix a weak answer live"
+  skills: [communication.structured_answers]
+  minutes: 10
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 420}
+  body:
+    prompt: |-
+      A colleague practising for interviews gives this answer to "Tell me about a time you met a tough deadline":
+
+      "Yeah so last year there was a big release, the client wanted a reporting feature, the deadline was really tight, we all worked a lot of late nights, there were some bugs but we fixed them, and we delivered on time. The client was happy."
+
+      Explain, out loud and in under seven minutes, what is missing, and restructure it into a strong answer (inventing plausible specifics is fine for the drill).
+    key_points:
+      - Identifies that there is no headline that states the outcome and the candidate's role.
+      - "Identifies 'we all worked late nights' as effort, not action; no decisions or reasons are given."
+      - Points out the missing result metrics (what was delivered, scope, quality, how 'happy' was measured).
+      - Points out the missing trade-off (what was cut or deferred to meet the date) and reflection.
+      - Produces a restructured version with a headline, first-person actions with reasons and a result with numbers.
+    model_answer: |-
+      The answer has effort but no evidence: no headline, no individual actions, no numbers, no trade-off and no reflection. A restructured version: "I delivered a client reporting feature in three weeks instead of the estimated six by cutting scope with the client's agreement. I was the lead on the backend. I split the feature into must-have exports and nice-to-have dashboards and got the PM to agree to ship exports first; I reused our existing query layer instead of a new reporting service; and I set up a daily 15-minute bug triage so we fixed the four blocking bugs before release. We shipped on the date with the three export formats the client used weekly; dashboards followed two weeks later. The trade-off was a manual CSV step for one month. In hindsight I would have proposed the scope split in week one rather than week two."
+    pitfalls:
+      - Criticising the structure without producing a better version.
+      - Inventing a version that is still all "we".
+    follow_ups:
+      - prompt: What if the candidate genuinely does not have a number for the result?
+        look_for: "Give an honest estimate with the source or method ('about 30 percent fewer tickets, from the support queue'), or a qualitative but checkable result; never invent a precise figure."
+      - prompt: How long should the restructured answer take, and where should the time go?
+        look_for: Two to three minutes; most of it in actions; context under about 30 seconds.
+- key: beh.structured.story
+  type: behavioral_question
+  title: "Story: the technically hardest thing you built"
+  skills: [communication.structured_answers, behavioral.impact]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: STORY_REHEARSAL, time_limit_seconds: 180}
+  body:
+    prompt: Walk me through the most technically challenging piece of work you delivered in the last two years. Answer in under three minutes, then take the follow-ups.
+    competency: Structured, concise communication of a technical story
+    look_for:
+      - Opens with a one-sentence headline that states what was built and the outcome.
+      - Context and own role stated in under about 30 seconds.
+      - Names at least three concrete actions in first person, each with a reason.
+      - Explains what made it hard in technical terms (scale, consistency, legacy constraints), not just "it was complex".
+      - "States a result with baseline and after values, and how they were measured."
+      - Ends with one trade-off and one reflection, within the time limit.
+    pitfalls:
+      - Describing the architecture for three minutes with no decisions or outcome.
+      - Choosing a story where the hard part was done by someone else.
+    follow_ups:
+      - prompt: Which decision in that project are you least sure was right?
+        look_for: Names a real decision, the alternative, and what evidence would change their mind; no defensive answer.
+      - prompt: What exactly was your part, and what did others do?
+        look_for: Clear split between own work and named teammates' work; consistent with the original answer.
+      - prompt: How did you know it worked in production?
+        look_for: A concrete signal such as dashboards, alerts, error rates, user metrics, or a test strategy, with numbers.
+- key: beh.structured.story_2
+  type: behavioral_question
+  title: "Story: explaining a technical decision to non-engineers"
+  skills: [communication.structured_answers, behavioral.influence_leadership]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: STORY_REHEARSAL, time_limit_seconds: 180}
+  body:
+    prompt: Tell me about a time you had to explain a technical decision or risk to people without an engineering background, such as product, support or sales.
+    competency: Clear, audience-aware communication
+    look_for:
+      - Opens with what the decision was and who needed to understand it.
+      - Describes how they translated the technical issue into business terms (risk, cost, time, customer effect).
+      - Gives a concrete artefact or technique (a one-page summary, a comparison table, a demo, an analogy).
+      - States what the audience decided or did differently as a result.
+      - Mentions checking understanding rather than assuming it.
+    pitfalls:
+      - Talking down to the audience in the retelling ("they didn't get it").
+      - Never saying what changed after the explanation.
+    follow_ups:
+      - prompt: How did you know they actually understood?
+        look_for: "A check: they restated it, made a decision consistent with it, or asked a question that showed understanding."
+      - prompt: What would you have done if they had still disagreed?
+        look_for: Separates understanding from agreement; offers data, a trial, or escalation with the trade-offs written down.
+      - prompt: What did you leave out of the explanation, and why?
+        look_for: Deliberate simplification choices tied to what the audience needed to decide.
+- key: beh.structured.cards
+  type: revision_card
+  title: "Recall: STAR structure and timing"
+  skills: [communication.structured_answers]
+  minutes: 5
+  body:
+    cards:
+      - front: The seven parts a prepared story records?
+        back: Situation, Task, Action, Result, Metrics, Trade-offs, Reflection.
+      - front: What does the first sentence of a behavioral answer do?
+        back: Answers the question directly and names the outcome and your role.
+      - front: Which STAR section gets most of the time?
+        back: Action, roughly 60 percent, in first person with a reason per step.
+      - front: What makes a result checkable?
+        back: A baseline, an after value, the unit and how it was measured.
+      - front: Target length of a behavioral answer?
+        back: Two to three minutes, then let the follow-ups choose the depth.
+
+# ---------------------------------------------------------------------------------------------- follow-up handling
+- key: beh.followups.lesson
+  type: lesson
+  title: Handling probing follow-ups without losing the story
+  skills: [communication.followup_handling, communication.structured_answers]
+  minutes: 18
+  difficulty: MEDIUM
+  body:
+    summary: Follow-ups test whether a story is real and whether you understand it; prepare each story in layers so every probe has a short, honest, consistent answer.
+    what: |-
+      A probing follow-up is a question that drills into one part of your story. The common ones map directly onto the seven story parts:
+
+      - "What exactly did you do?" probes **Action** and your role.
+      - "What was the number? How did you measure it?" probes **Metrics**.
+      - "Why not option B?" probes **Trade-offs**.
+      - "What would you do differently?" probes **Reflection**.
+      - "What did your manager or the other team think?" probes context and how you worked with people.
+      - "What if the deadline had been half as long?" is a hypothetical that tests judgement on top of the story.
+    why: |-
+      The first answer is rehearsed; follow-ups are not. Interviewers use them to separate people who did the work from people who were near it, and to see how you reason when the script runs out. A good follow-up answer often earns more credit than the main answer because it is harder to fake.
+    when: |-
+      After every behavioral answer, and in project deep dives. Expect two or three follow-ups per story; some interviewers go five levels deep on one detail ("and how did you find that query?" → "what did the plan show?" → "why was the index not used?").
+    how: |-
+      1. **Prepare each story in three layers.** Layer one is the two-minute answer. Layer two is one more sentence of detail for each part (the exact query, the stakeholder's objection, the alternative you rejected). Layer three is the evidence (the dashboard, the PR, the postmortem).
+      2. **Answer the follow-up directly first**, in one sentence, then add the detail. "Yes, I wrote the migration myself; the review was by our DBA."
+      3. **Give numbers with their source**: "p95 went from 1,200 to 450 ms, measured in our APM over the week after the switch."
+      4. **When you do not know, say so and bound it.** "I do not remember the exact figure; it was in the low thousands of requests per minute, and the reason it mattered was…" Never invent a precise number; a later inconsistency costs far more than an honest range.
+      5. **For "what would you do differently", name a real mistake** and the mechanism you changed. "Nothing" is a weak answer.
+      6. **For hypotheticals, reason aloud**: state what would change, what you would cut, and what you would protect.
+      7. **Stay consistent.** If a follow-up reveals that the team did more than you implied, correct yourself plainly: "To be precise, my colleague found the query; I designed the fix."
+    mental_model: |-
+      Think of a story as a tree. The main answer is the trunk; each follow-up walks one branch. If a branch is empty (you cannot say what the alternative was, or how the number was measured), the interviewer starts doubting the trunk. Rehearsal means walking every branch at least once before the interview.
+    tradeoffs: |-
+      Too much detail in the main answer leaves nothing for follow-ups and runs over time; too little looks shallow. Put the headline, actions and result in the main answer and keep the evidence for the follow-ups. Correcting yourself mid-interview feels awkward, but it signals integrity and is almost always better than defending an overstatement.
+    mistakes:
+      - Repeating the main answer louder instead of answering the narrower question.
+      - Inventing a precise number on the spot, then contradicting it later.
+      - Getting defensive when asked "why not B?" instead of explaining the trade-off.
+      - "Answering 'what would you do differently' with a disguised strength ('I would work even harder')."
+      - Blaming another team when asked what went wrong.
+      - Drifting to a different story because the follow-up felt uncomfortable.
+    interview: |-
+      Many interviewers use a fixed probing pattern: role, numbers, alternatives, reflection, and one hypothetical. Treat each as a small question with its own headline. Short, direct follow-up answers also give the interviewer time for more competencies, which helps you.
+    explain_it:
+      - Answer the narrower question in the first sentence.
+      - Give the number and where it came from, or an honest bound.
+      - Name the alternative and why you rejected it.
+      - Name a real mistake and the change you made.
+      - Correct overstatements immediately and plainly.
+    example:
+      language: text
+      code: |-
+        Story: I led a zero-downtime migration of the orders table (about 400 GB in MySQL 8,
+        InnoDB) to a new schema with a separate line-items table.
+
+        Situation:  Reporting queries were locking the orders table at month end.
+        Task:       I owned the migration plan and its execution; two engineers helped with backfill.
+        Action:     Dual writes behind a flag, a throttled backfill, a row-count and checksum
+                    comparison per day of data, then a read switch per endpoint.
+        Result:     Switched with no downtime over three weeks.
+        Metrics:    Month-end report time from about 40 minutes to 6; zero lock-wait timeouts after.
+        Trade-offs: Three weeks of dual writes doubled write load on the primary; I accepted it
+                    after checking we had headroom (CPU peaked at 55 percent).
+        Reflection: I would build the comparison job first; we found a timezone bug late.
+
+        Follow-up "What exactly did you do?"
+          "I wrote the migration plan and the dual-write code, ran the cut-over, and reviewed the
+           backfill job that Priya wrote."
+        Follow-up "How did you know the data matched?"
+          "A daily job compared row counts and a checksum of key columns per day of orders; it
+           found about 1,200 rows with a timezone mismatch, which we fixed before the switch."
+        Follow-up "What would you do differently?"
+          "Build that comparison job in week one, not week two; it would have saved four days."
+      explanation: Each follow-up answer starts with a direct sentence, adds one layer of detail, and stays consistent with the main story.
+    edge_cases:
+      - "A hypothetical that contradicts your real constraints ('what if you had no budget?'): accept the premise and reason, do not argue with it."
+      - "A follow-up about something confidential: say it is confidential and describe it at a level you can share (orders of magnitude, not exact revenue)."
+      - "An interviewer who keeps interrupting: answer more briefly; they are probably short on time and want specific signal."
+    misconceptions:
+      - Follow-ups mean the answer was bad. They are the normal way interviewers gather evidence.
+      - Admitting you do not know a number is fatal. An honest bound with a source is usually fine; a fabricated number that falls apart is not.
+- key: beh.followups.check
+  type: concept_check
+  title: "Concept check: answering follow-ups"
+  skills: [communication.followup_handling]
+  minutes: 8
+  difficulty: MEDIUM
+  body:
+    intro: Each question gives a follow-up and a sample reply. Judge the reply.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "Follow-up: 'What was the latency before and after?' The candidate does not remember exactly. Which reply is best?"
+        options:
+          - "It went from 1,234 ms to 287 ms."
+          - "I don't remember, sorry."
+          - "I don't remember the exact figures; p95 was over a second before and a few hundred milliseconds after, from our APM dashboard. The main signal was that timeouts stopped."
+          - "Latency isn't really the point of the story."
+        answer: [2]
+        explanation: "An honest bound with its source keeps credibility and still gives evidence. A suspiciously precise invented number can unravel under a second probe; a bare 'I don't remember' gives nothing; dismissing the question looks evasive."
+      - id: q2
+        kind: single
+        prompt: "Follow-up: 'What would you do differently?' Which reply shows the most self-awareness?"
+        options:
+          - "Honestly, nothing. It went really well."
+          - "I'd probably work even harder on it."
+          - "I'd get the support team involved before launch. We didn't, and the first two days produced about 60 tickets about a change we never announced. I now add a launch note step to my release checklist."
+          - "The other team should have reviewed our API earlier."
+        answer: [2]
+        explanation: "The third reply names a real mistake, its cost, and the mechanism changed. 'Nothing' and 'work harder' carry no learning, and blaming another team answers a different question."
+      - id: q3
+        kind: multi
+        prompt: "Follow-up: 'Why didn't you use a message queue instead?' Which elements belong in a strong reply?"
+        options:
+          - The alternative's real advantage, acknowledged honestly.
+          - The constraint or criterion that made you choose otherwise.
+          - "A statement that queues are generally overrated."
+          - What would have made you choose the queue.
+        answer: [0, 1, 3]
+        explanation: "A trade-off answer credits the alternative, names the deciding criterion (team experience, volume, operational cost) and states the condition under which the decision flips. Dismissing the alternative wholesale signals weak judgement."
+      - id: q4
+        kind: single
+        prompt: "Mid-follow-up the candidate realises they implied they found the root cause, but a colleague did. What should they do?"
+        options:
+          - Say nothing; the interviewer will not check.
+          - "Correct it plainly: 'To be precise, my colleague found the query; I designed and shipped the fix and the alerting.'"
+          - Change the subject to another story.
+          - Claim they would have found it anyway.
+        answer: [1]
+        explanation: "A plain correction costs a few seconds and builds trust. Interviewers often probe further, and an uncorrected overstatement that surfaces later damages the whole interview."
+      - id: q5
+        kind: single
+        prompt: "Hypothetical follow-up: 'What if you had had one week instead of three?' What is the best approach?"
+        options:
+          - Say it would have been impossible.
+          - Accept the premise, say what you would cut or defer, what risk you would accept, and what you would protect.
+          - Say you would have worked weekends.
+          - Explain why the three-week timeline was correct.
+        answer: [1]
+        explanation: "Hypotheticals test prioritisation judgement. 'Impossible' and 'work weekends' avoid the trade-off, and defending the original plan does not answer the question."
+      - id: q6
+        kind: short
+        prompt: "Name the three layers you prepare for each story so that follow-ups have answers."
+        model_answer: "Layer one is the two-minute answer (headline, actions, result). Layer two is one extra sentence of detail per part (the exact technical cause, the alternative rejected, the stakeholder objection). Layer three is the evidence: where the numbers came from, the PR, dashboard or postmortem."
+        explanation: Follow-ups walk one branch of the story; preparing each layer means no branch is empty.
+- key: beh.followups.story
+  type: behavioral_question
+  title: "Story with a deep drill: a performance improvement"
+  skills: [communication.followup_handling, behavioral.impact]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: STORY_REHEARSAL, time_limit_seconds: 180}
+  body:
+    prompt: Tell me about a time you made a system significantly faster or cheaper. Keep the answer under three minutes; the interviewer will then drill into your numbers and your role.
+    competency: Holding a story together under probing follow-ups
+    look_for:
+      - Main answer has a headline, first-person actions and a result with baseline and after.
+      - Each follow-up answer starts with a direct one-sentence reply.
+      - Gives the source of each number (dashboard, load test, billing report) or an honest bound.
+      - Role stays consistent between the main answer and the follow-ups.
+      - Names at least one alternative considered and why it was rejected.
+    pitfalls:
+      - Precise numbers that change between the answer and the follow-up.
+      - Answering "how did you find the bottleneck?" with "we profiled it" and nothing more.
+    follow_ups:
+      - prompt: What exactly did you do yourself, and what did others do?
+        look_for: Names own actions concretely (wrote, measured, decided) and credits named others; matches the main answer.
+      - prompt: What was the number before and after, and how was it measured?
+        look_for: Baseline, after, unit, percentile or time window, and the tool or report used.
+      - prompt: What did the improvement cost, and was it worth it?
+        look_for: Names a cost (complexity, memory, maintenance, money, time) and argues the trade-off with numbers.
+- key: beh.followups.story_2
+  type: behavioral_question
+  title: "Story: a decision you would make differently today"
+  skills: [communication.followup_handling, behavioral.failure_learning]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: STORY_REHEARSAL, time_limit_seconds: 180}
+  body:
+    prompt: Tell me about a technical decision you made that you would make differently today.
+    competency: Honest reflection under probing
+    look_for:
+      - Names a real decision the candidate owned, not a team decision they disagreed with.
+      - Explains why it seemed right at the time, with the information then available.
+      - States the concrete consequence (cost, incidents, rework) with a number or scale.
+      - Explains what they would do now and what changed their thinking.
+      - Names a habit or mechanism they adopted afterwards.
+    pitfalls:
+      - A trivial decision chosen to look safe (a variable name, a library version).
+      - Blaming the outcome on others while claiming the decision.
+    follow_ups:
+      - prompt: Who else was involved, and did anyone warn you?
+        look_for: Honest account of others' input; if someone warned them, says so and what they learned about listening.
+      - prompt: Given the same information, would you really decide differently?
+        look_for: Separates a bad decision from bad luck; names what information or process would have changed the call.
+      - prompt: Have you since faced a similar decision? What did you do?
+        look_for: A later concrete example where the new habit was applied.
+- key: beh.followups.cards
+  type: revision_card
+  title: "Recall: probing follow-ups"
+  skills: [communication.followup_handling]
+  minutes: 5
+  body:
+    cards:
+      - front: "'What exactly did you do?' probes which story part?"
+        back: Action and your individual role.
+      - front: You do not remember the exact number. What do you say?
+        back: An honest bound plus its source; never a fabricated precise figure.
+      - front: First sentence of any follow-up answer?
+        back: A direct one-sentence reply to the narrower question.
+      - front: Strong answer to "what would you do differently"?
+        back: A real mistake, its cost, and the mechanism you changed since.
+      - front: You realise you overstated your role. What now?
+        back: Correct it plainly at once; consistency beats a polished overstatement.
+
+# ---------------------------------------------------------------------------------------------- self-introduction
+- key: beh.self_intro.lesson
+  type: lesson
+  title: The two-minute introduction
+  skills: [behavioral.self_introduction]
+  minutes: 15
+  difficulty: EASY
+  body:
+    summary: "\"Tell me about yourself\" is a two-minute pitch: who you are now, two proof points with numbers, and what you want next, bridged to the role."
+    what: |-
+      The self-introduction is the answer to "tell me about yourself" or "walk me through your background". It is not your CV read aloud. It is a short, structured pitch with four parts:
+
+      - **Now**: your current role, scope and stack in one or two sentences ("backend engineer on the payments team, Python and PostgreSQL, owning the refunds and reconciliation services").
+      - **Proof**: two highlights, each a compressed story with a number.
+      - **Path**: one sentence on how you got here, only if it explains a strength.
+      - **Next**: what you are looking for and why this role fits it.
+    why: |-
+      It is usually the first thing you say, and it sets the agenda. Interviewers often pick their follow-up questions from what you mention, so the introduction is your chance to steer the conversation towards your strongest stories. A vague or ten-minute introduction wastes the opening and signals that your other answers will be hard to follow.
+    when: |-
+      At the start of most rounds, including technical ones (where a 60 to 90 second version is enough), and when a new interviewer joins. Prepare a two-minute version and a one-minute version.
+    how: |-
+      1. Write the **Now** sentence with role, domain, scope and stack.
+      2. Pick **two highlights** from your story bank that match the role: for a backend SDE-2 profile, typically one technical depth story (a migration, a performance fix) and one ownership or impact story (an incident, a feature end-to-end). Compress each to a headline with a number: "I led the move of notifications out of the monolith, which cut checkout p95 from 1,200 to 450 ms."
+      3. Add one **Path** sentence only if it explains something (switched from support engineering, so you are strong at debugging customer issues).
+      4. Close with **Next**: what you want to do more of, tied honestly to what the role involves. Avoid claims about the company you have not verified.
+      5. Time it: 90 to 120 seconds. Rehearse it aloud until it sounds like talking, not reciting.
+    mental_model: |-
+      A movie trailer: it shows the two best scenes and makes the interviewer want to ask about them. It does not tell the whole plot, and it ends with why you are in this room.
+    tradeoffs: |-
+      Specific highlights make you memorable but commit you to defending them, so pick ones you can go three levels deep on. A broad, safe introduction is easy to deliver but gives the interviewer nothing to pick up. Tailoring the highlights to each role helps relevance; rewriting the whole pitch per interview makes it sound unrehearsed in the wrong way.
+    mistakes:
+      - Reciting every job in chronological order starting from university.
+      - Listing technologies without saying what you built with them.
+      - Personal life details that use the time without adding signal.
+      - Ending without a "next", so the interviewer cannot see why you are applying.
+      - Highlights with no numbers ("I worked on performance").
+      - Running past three minutes.
+    interview: |-
+      Expect the first follow-up to come from your highlights: "tell me more about that migration". That is the goal. If they ask instead "why are you looking?", your Next sentence should already have set up an honest, forward-looking answer.
+    explain_it:
+      - Current role, scope and stack in one or two sentences.
+      - Two highlights, each a headline with a number.
+      - One path sentence only if it explains a strength.
+      - What you want next and why this role fits.
+      - Under two minutes.
+    example:
+      language: text
+      code: |-
+        "I'm a backend engineer with five years of experience, currently on the payments team at
+        a mid-size e-commerce company, where I own the refunds and reconciliation services in
+        Python and PostgreSQL.
+
+        Two things I'm proud of there. First, I led the extraction of notifications from our
+        Django monolith into a worker service with a transactional outbox; checkout p95 dropped
+        from about 1,200 to 450 milliseconds because requests stopped waiting on SMS providers.
+        Second, I was on call during a checkout outage last year; I rolled back within 12
+        minutes, found the missing index behind it, and added a query-plan check to our PR
+        template so it hasn't recurred.
+
+        Before that I spent two years in support engineering, which is where I got good at
+        debugging production issues from incomplete information.
+
+        I'm looking for a role where I own a larger backend system end to end and work more on
+        design at scale, which is why this SDE-2 backend role interested me."
+
+        Seven-part view of the second highlight (compressed for the intro):
+        Situation   checkout outage after a deploy        Task        on call, restore then fix
+        Action      rollback, reproduce, index migration  Result      recovered in 12 minutes
+        Metrics     errors 18 percent to under 1 percent  Trade-offs  feature rolled back
+        Reflection  query-plan check added to PR template
+      explanation: About 110 seconds aloud. Both highlights are hooks for follow-ups, and the close sets up an honest why-change answer.
+    edge_cases:
+      - "Career gap: one neutral, honest sentence ('I took eight months for family reasons and used part of it to build X'), then move on."
+      - "Early career with one job: use one work highlight and one project or internship highlight."
+      - "Technical round: cut to 60 seconds, keep the stack and one technical highlight."
+    misconceptions:
+      - The introduction is small talk. It sets the agenda for the follow-up questions.
+      - More experience means a longer introduction. Senior candidates still keep it to about two minutes.
+- key: beh.self_intro.check
+  type: concept_check
+  title: "Concept check: judging introductions"
+  skills: [behavioral.self_introduction]
+  minutes: 8
+  difficulty: EASY
+  body:
+    intro: Judge each sample introduction as the interviewer hearing it for the first time.
+    questions:
+      - id: q1
+        kind: single
+        prompt: Which opening sentence of a self-introduction is strongest?
+        options:
+          - "I was born in Pune and did my engineering degree in 2018, then I joined a service company…"
+          - "I'm a backend engineer on the payments team, where I own the refunds and reconciliation services in Python and PostgreSQL."
+          - "I know Python, Java, Go, Kafka, Redis, Docker, Kubernetes, AWS and React."
+          - "I'm a hard-working, passionate engineer who loves solving problems."
+        answer: [1]
+        explanation: "The second option states role, domain, ownership and stack in one sentence. Chronology from birth or college delays the signal; a technology list says nothing about what you built; adjectives are claims without evidence."
+      - id: q2
+        kind: multi
+        prompt: Which of these make good highlights in a two-minute introduction for a backend role?
+        options:
+          - "I cut the p95 latency of the search API from 1,800 ms to 300 ms."
+          - "I have worked with many different technologies."
+          - "I led a zero-downtime migration of a 400 GB orders table to a new schema."
+          - "I attended a lot of conferences last year."
+        answer: [0, 2]
+        explanation: "Highlights are compressed stories with scope and a number that invite a follow-up. Breadth claims and conference attendance give the interviewer nothing to probe."
+      - id: q3
+        kind: single
+        prompt: "An introduction ends with '…and that's my background.' What is missing?"
+        options:
+          - A summary of the CV.
+          - "The 'next' part: what the candidate wants and why this role fits."
+          - A joke to lighten the mood.
+          - A list of hobbies.
+        answer: [1]
+        explanation: "Without a forward-looking close the interviewer cannot connect your past to this role, and the why-change question comes cold."
+      - id: q4
+        kind: single
+        prompt: How long should a 'tell me about yourself' answer in a behavioral round usually be?
+        options: ["About 20 seconds", "About 90 to 120 seconds", "About five minutes", "As long as needed to cover every job"]
+        answer: [1]
+        explanation: "Two minutes is enough for role, two highlights and a close. Twenty seconds gives no hooks; five minutes uses time meant for competency questions."
+      - id: q5
+        kind: short
+        prompt: Why should you only put highlights in your introduction that you can discuss three levels deep?
+        model_answer: "Interviewers often choose their follow-ups from what you mention. A highlight is an invitation to drill into it, so if you cannot explain the actions, numbers and trade-offs behind it, the first follow-up exposes that."
+        explanation: The introduction steers the interview; steer it only towards stories that hold up.
+- key: beh.self_intro.story
+  type: behavioral_question
+  title: "Practice: tell me about yourself"
+  skills: [behavioral.self_introduction]
+  minutes: 10
+  difficulty: EASY
+  observation: {kind: STORY_REHEARSAL, time_limit_seconds: 180}
+  body:
+    prompt: Tell me about yourself. (Aim for about two minutes; you have three at most.)
+    competency: A concise, structured self-introduction
+    look_for:
+      - Opens with current role, scope and stack in one or two sentences.
+      - Gives exactly two or three highlights, each with a concrete number or scale.
+      - Highlights are relevant to a backend or full-stack role at the target level.
+      - Ends with what they want next and why this role fits, without unverified claims about the company.
+      - Finishes in under about two minutes without reading.
+    pitfalls:
+      - Chronological CV recital.
+      - A list of technologies with nothing built.
+    follow_ups:
+      - prompt: Which of those two highlights was harder, and why?
+        look_for: Picks one and names the specific technical or people difficulty, not "both were hard".
+      - prompt: In the first highlight, what was your part versus the team's?
+        look_for: Clear first-person contribution, consistent with the introduction.
+      - prompt: Why are you looking for a change now?
+        look_for: Honest and forward-looking, consistent with the "next" sentence; no criticism of the current employer.
+- key: beh.self_intro.story_2
+  type: behavioral_question
+  title: "Practice: the one-minute version for a technical round"
+  skills: [behavioral.self_introduction, communication.structured_answers]
+  minutes: 8
+  difficulty: EASY
+  observation: {kind: STORY_REHEARSAL, time_limit_seconds: 180}
+  body:
+    prompt: "A technical interviewer says: 'Before we start coding, give me a quick overview of what you work on.' Answer in about a minute."
+    competency: Adapting the introduction to the round
+    look_for:
+      - Fits into roughly 60 to 90 seconds.
+      - States the system they own and its scale (requests, data size, users) in concrete terms.
+      - Names the stack and one recent technical problem they solved, with a number.
+      - Skips personal history and the long career path.
+    pitfalls:
+      - Delivering the full behavioral introduction regardless of the round.
+    follow_ups:
+      - prompt: What is the hardest scaling problem in the system you described?
+        look_for: A specific bottleneck (a hot table, a slow dependency, a queue backlog) and how it shows up.
+      - prompt: What would you change about that system's design if you could?
+        look_for: A concrete change with a reason and a cost; shows critical thinking about their own system.
+      - prompt: How do you deploy and monitor it?
+        look_for: Concrete pipeline, environments, alerts or dashboards they actually use.
+- key: beh.self_intro.cards
+  type: revision_card
+  title: "Recall: the two-minute introduction"
+  skills: [behavioral.self_introduction]
+  minutes: 4
+  body:
+    cards:
+      - front: Four parts of a self-introduction?
+        back: Now, Proof (two highlights), Path (optional), Next.
+      - front: What makes a highlight?
+        back: A compressed story headline with scope and a number.
+      - front: Length of the behavioral-round introduction?
+        back: About 90 to 120 seconds; 60 seconds in a technical round.
+      - front: How should the introduction end?
+        back: What you want next and why this role fits.

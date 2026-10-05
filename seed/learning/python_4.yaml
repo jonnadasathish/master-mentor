@@ -1,0 +1,1331 @@
+# Learning content, Python for interviews (4/4): Python-specific concurrency, testing with pytest, backend frameworks and HTTP clients, packaging and environments.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- concurrency in Python
+- key: py.concurrency.lesson
+  type: lesson
+  title: "Concurrency in Python: threads, the GIL, processes and asyncio"
+  skills: [os.concurrency_practical]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Match the tool to the bottleneck — threads or asyncio for I/O-bound work, processes for CPU-bound work — and remember that the GIL never made your code thread-safe.
+    what: |-
+      Python offers three concurrency models in the standard library:
+
+      - **Threads** (`threading`, `concurrent.futures.ThreadPoolExecutor`): OS threads in one process sharing memory.
+      - **Processes** (`multiprocessing`, `ProcessPoolExecutor`): separate interpreters with separate memory; data moves between them by pickling.
+      - **asyncio**: one thread running an **event loop** that switches between coroutines at `await` points (cooperative multitasking).
+
+      In **CPython**, the **GIL** (global interpreter lock) lets only one thread execute Python bytecode at a time. It is released while a thread waits on blocking I/O (sockets, files, `time.sleep`) and by many C extensions during heavy work (NumPy, hashlib on large inputs, compression). Python 3.13 added an optional, experimental free-threaded build without the GIL (PEP 703); the default build still has it.
+    why: |-
+      Backend services spend most of their time waiting on networks and databases; the right model lets one process serve many requests at once. Choosing wrong is expensive: threads for CPU-heavy work give no speed-up because of the GIL, processes for tiny I/O tasks waste memory and pickling time, and one blocking call inside asyncio freezes every request on that event loop.
+    when: |-
+      - **I/O-bound, moderate concurrency** (tens to hundreds of calls, blocking libraries like `requests` or a DB driver): `ThreadPoolExecutor`.
+      - **I/O-bound, high concurrency** (thousands of sockets, websockets, fan-out to many services) with async libraries (`httpx.AsyncClient`, `asyncpg`): **asyncio**.
+      - **CPU-bound** pure-Python work (parsing, image processing, number crunching): `ProcessPoolExecutor` or `multiprocessing`, roughly one worker per core.
+      - **Background jobs that must survive restarts**: none of these alone; use a job queue (Celery, RQ, a database-backed queue).
+    how: |-
+      ```python
+      from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
+      import asyncio, threading
+      import httpx
+
+      # Threads for blocking I/O
+      with ThreadPoolExecutor(max_workers=16) as pool:
+          futures = {pool.submit(fetch, url): url for url in urls}
+          for fut in as_completed(futures):
+              handle(futures[fut], fut.result())        # result() re-raises the worker's exception
+
+      # Processes for CPU-bound work (guard needed where the start method is spawn)
+      if __name__ == "__main__":
+          with ProcessPoolExecutor() as pool:            # default workers = CPU count
+              results = list(pool.map(resize_image, paths, chunksize=16))
+
+      # Shared state across threads still needs a lock
+      lock = threading.Lock()
+      counter = 0
+      def increment():
+          global counter
+          with lock:                                     # counter += 1 is read, add, write: not atomic
+              counter += 1
+
+      # asyncio: bounded concurrency, never block the loop
+      async def main(urls):
+          sem = asyncio.Semaphore(50)
+          async with httpx.AsyncClient(timeout=10) as client:
+              async def one(url):
+                  async with sem:
+                      return await client.get(url)
+              return await asyncio.gather(*(one(u) for u in urls), return_exceptions=True)
+      ```
+
+      Bridges between models: `asyncio.to_thread(blocking_fn, ...)` (3.9+) or `loop.run_in_executor` runs blocking code from async code; `queue.Queue` is the thread-safe producer-consumer queue, `asyncio.Queue` the coroutine one (not thread-safe), `multiprocessing.Queue` the process one. Python 3.11 added `asyncio.TaskGroup` (structured concurrency: if one task fails, the others are cancelled and errors arrive as an `ExceptionGroup`) and `asyncio.timeout()`.
+    mental_model: |-
+      Ask "what is the CPU doing while this task waits?" If it waits on the network, any model that lets other tasks run during the wait helps; threads do it with the OS scheduler, asyncio with explicit `await` points. If the CPU is busy running Python code, only more processes (more interpreters, more GILs) add throughput.
+    tradeoffs: |-
+      Threads work with every blocking library and share memory cheaply, but shared mutable state needs locks and races are hard to reproduce; each thread costs an OS stack. asyncio scales to many thousands of concurrent waits in one thread with explicit switch points (fewer races), but needs async-native libraries end to end and one blocking call stalls everything. Processes give real CPU parallelism and isolation, but cost memory per worker, startup time, and pickling of arguments and results; unpicklable objects (lambdas, open connections) cannot be sent.
+    mistakes:
+      - "Believing the GIL makes `counter += 1` or check-then-act sequences safe; a thread switch can happen between the read and the write."
+      - "Calling `requests.get` or `time.sleep` inside `async def`, which blocks the event loop for every coroutine."
+      - "Using threads to speed up CPU-bound pure-Python code and seeing no gain (or a slowdown)."
+      - "Unbounded fan-out: `gather` over 100,000 requests at once exhausts sockets or gets rate-limited; bound with a Semaphore or a pool size."
+      - "Calling `asyncio.create_task` without keeping a reference; the event loop holds only weak references, so the task can be garbage collected before finishing."
+      - "Relying on globals inherited through `fork`; with the spawn start method (default on Windows and macOS) workers re-import the module and start fresh."
+    interview: |-
+      Expect "threads vs processes vs asyncio for X" scenarios, "what is the GIL and when does it matter", producer-consumer with a queue, and code review of a race or a blocking call in async code. Strong answers classify the workload as I/O- or CPU-bound first, name the tool and how concurrency is bounded, and mention timeouts, error handling per task, and shutdown.
+    explain_it:
+      - Classify the workload (I/O-bound or CPU-bound) before naming a tool.
+      - Explain what the GIL serialises and when it is released.
+      - Show how concurrency is bounded (pool size, Semaphore, queue size).
+      - Say how errors, timeouts and cancellation propagate in the chosen model.
+    example:
+      language: python
+      code: |-
+        import queue, threading
+
+        tasks: queue.Queue[str | None] = queue.Queue(maxsize=100)   # bounded: producers block when full
+
+        def worker() -> None:
+            while (item := tasks.get()) is not None:   # None is the shutdown sentinel
+                try:
+                    process(item)
+                finally:
+                    tasks.task_done()
+            tasks.task_done()
+
+        threads = [threading.Thread(target=worker, daemon=True) for _ in range(8)]
+        for t in threads:
+            t.start()
+        for path in produce_paths():
+            tasks.put(path)                 # backpressure when the queue is full
+        for _ in threads:
+            tasks.put(None)
+        tasks.join()                        # waits until every item is marked done
+      explanation: "queue.Queue does its own locking, so producers and consumers need no extra lock; maxsize gives backpressure and the sentinel gives clean shutdown."
+    internals: |-
+      In the default CPython build, a thread holding the GIL is asked to drop it after a switch interval (5 milliseconds by default, `sys.getswitchinterval()`) so others can run; blocking system calls release it immediately. This is why I/O-bound threads overlap well while CPU-bound threads take turns. `ThreadPoolExecutor`'s default `max_workers` is `min(32, cpu_count + 4)` since Python 3.8. An asyncio event loop keeps a ready queue of callbacks and asks the OS (epoll on Linux, kqueue on macOS) which sockets are ready, so thousands of idle connections cost little.
+    edge_cases:
+      - "A `daemon=True` thread is killed abruptly at interpreter exit; do not use daemon threads for work that must finish or flush."
+      - "Exceptions in a `ThreadPoolExecutor` task are stored in the future and appear only when you call `result()`."
+      - "`asyncio.gather` without `return_exceptions=True` raises the first error but leaves the other tasks running."
+
+- key: py.concurrency.check
+  type: concept_check
+  title: "Concept check: concurrency in Python"
+  skills: [os.concurrency_practical]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Classify each workload as I/O-bound or CPU-bound before answering.
+    questions:
+      - id: q1
+        kind: single
+        prompt: A pure-Python function computes checksums over 1,000 in-memory records and takes 40 seconds on one core. You run it in a ThreadPoolExecutor with 8 threads on an 8-core machine (default CPython build). Expected runtime?
+        options: ["About 5 seconds", "About 40 seconds or slightly more", "About 1 second", "It deadlocks"]
+        answer: [1]
+        explanation: "The work is CPU-bound Python bytecode, and the GIL lets only one thread run bytecode at a time, so threads take turns and add switching overhead. A ProcessPoolExecutor with 8 workers could approach 5 seconds, minus pickling costs."
+      - id: q2
+        kind: single
+        prompt: Two threads each run `counter += 1` 100,000 times on a shared global without a lock. What can the final value be?
+        options:
+          - Always exactly 200,000 because of the GIL
+          - Any value up to 200,000, possibly less, because the increment is not atomic
+          - Always 100,000
+          - The interpreter raises a RuntimeError
+        answer: [1]
+        explanation: "`counter += 1` is several bytecodes (load, add, store). A thread switch between the load and the store loses an update. The GIL protects the interpreter's own data structures, not your invariants; use a Lock."
+      - id: q3
+        kind: single
+        prompt: An `async def` FastAPI endpoint calls `requests.get(url, timeout=10)` to a slow service. What happens under load?
+        options:
+          - Nothing special; requests is async-aware
+          - Every other request on that worker waits while the call blocks the event loop
+          - FastAPI automatically moves the call to a thread
+          - The request is cancelled after 10 seconds and others continue meanwhile
+        answer: [1]
+        explanation: "requests is a blocking library. Inside a coroutine it holds the event loop thread, so no other coroutine runs until it returns. Use `httpx.AsyncClient` with `await`, `asyncio.to_thread`, or declare the endpoint with plain `def`, which FastAPI runs in a thread pool."
+      - id: q4
+        kind: multi
+        prompt: Which choices fit the workload?
+        options:
+          - "Resizing 10,000 images in pure Python: ProcessPoolExecutor"
+          - "Calling 5,000 HTTP endpoints with an async client: asyncio with a Semaphore"
+          - "Parsing a 2 GB JSON file faster: 16 threads"
+          - "Calling 30 endpoints with a blocking SDK: ThreadPoolExecutor"
+        answer: [0, 1, 3]
+        explanation: "CPU-bound work needs processes; high-concurrency I/O with async libraries suits asyncio; a handful of blocking I/O calls suit a thread pool. Parsing one big JSON document is CPU-bound and sequential, so threads do not help."
+      - id: q5
+        kind: single
+        prompt: Why must `ProcessPoolExecutor` code usually sit under `if __name__ == "__main__":`?
+        options:
+          - It makes the code run faster
+          - With the spawn start method, each worker imports the main module, and unguarded code would start pools recursively
+          - Processes cannot be created inside functions
+          - It disables the GIL for the workers
+        answer: [1]
+        explanation: "Spawned workers start a fresh interpreter and import your module to find the function. Without the guard the import re-runs the pool creation. Spawn is the default on Windows and macOS, so code that works with fork on Linux can break there."
+      - id: q6
+        kind: short
+        prompt: Explain what asyncio.TaskGroup (3.11+) gives you over firing tasks with create_task and gathering them later.
+        model_answer: "Structured concurrency: all tasks created in the group are awaited when the async with block exits; if one task raises, the remaining tasks are cancelled and the errors are raised together as an ExceptionGroup (handled with except*). No task is left running or forgotten, and references are kept for you, unlike loose create_task calls that can leak or be garbage collected."
+        explanation: "The key ideas are guaranteed waiting, cancellation of siblings on failure, and ExceptionGroup error reporting."
+
+- key: py.concurrency.fetch_all
+  type: coding_exercise
+  title: "Exercise: fetch many URLs with bounded concurrency"
+  skills: [os.concurrency_practical, engineering.api_engineering]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 1200}
+  body:
+    prompt: |-
+      A health-check job must call 2,000 internal URLs and return a dict from URL to either the HTTP status code or a short error string. Requirements: at most 50 requests in flight, a 3-second connect and 10-second overall timeout per request, one failing URL must not stop the others, and the job must not block an event loop. Write it with asyncio and `httpx.AsyncClient`, then explain why you chose asyncio over threads and what each line does under failure.
+    examples:
+      - "{'https://svc-a/health': 200, 'https://svc-b/health': 503, 'https://svc-c/health': 'error: ConnectTimeout'}"
+    constraints:
+      - Python 3.11+, httpx installed.
+      - Reuse one client so connections are pooled.
+    hints:
+      - "A Semaphore with 50 permits bounds the in-flight requests."
+      - "Catch `httpx.HTTPError` inside each task so a TaskGroup does not cancel the rest."
+      - "`httpx.Timeout(10, connect=3)` sets per-phase limits; HTTP error statuses are not exceptions unless you call raise_for_status()."
+    solution:
+      language: python
+      code: |-
+        import asyncio
+        import httpx
+
+
+        async def check_all(urls: list[str], limit: int = 50) -> dict[str, int | str]:
+            results: dict[str, int | str] = {}
+            sem = asyncio.Semaphore(limit)
+            timeout = httpx.Timeout(10, connect=3)
+            limits = httpx.Limits(max_connections=limit)
+
+            async with httpx.AsyncClient(timeout=timeout, limits=limits) as client:
+
+                async def one(url: str) -> None:
+                    async with sem:
+                        try:
+                            response = await client.get(url)
+                            results[url] = response.status_code
+                        except httpx.HTTPError as exc:          # timeouts, connection errors
+                            results[url] = f"error: {type(exc).__name__}"
+
+                async with asyncio.TaskGroup() as tg:          # waits for all tasks
+                    for url in urls:
+                        tg.create_task(one(url))
+            return results
+
+
+        # results = asyncio.run(check_all(urls))
+      explanation: "Wall time is roughly (n / 50) × typical latency instead of n × latency; memory O(n) for the results plus 50 in-flight responses. Writing to a shared dict is safe because all coroutines run on one thread and switch only at await points."
+    rubric:
+      - {key: bounded, label: Bounds concurrency (Semaphore or client limits) and reuses one client, points: 3}
+      - {key: timeouts, label: Sets explicit connect and total/read timeouts, points: 2}
+      - {key: isolation, label: Catches per-request errors so one failure does not cancel the rest, points: 2}
+      - {key: why_asyncio, label: "Justifies asyncio (I/O-bound, many concurrent waits) over threads and processes", points: 2}
+      - {key: complexity_stated, label: "States wall time ≈ n / limit × latency and memory", points: 1}
+    follow_ups:
+      - prompt: "Note: httpx read timeouts apply per network read. How do you enforce a hard 10-second deadline per URL?"
+        look_for: "Wrap the call in `async with asyncio.timeout(10)` (3.11+) or `asyncio.wait_for`, and record TimeoutError."
+      - prompt: Some services return 503 briefly during deploys. Add retries safely.
+        look_for: "Retry GET (idempotent) on 502/503/504 and connection errors with exponential backoff and jitter, a small attempt cap, and the retries counted inside the per-URL deadline."
+      - prompt: The same job must run inside a synchronous Django management command. What do you do?
+        look_for: "Call asyncio.run(check_all(urls)) once at the top level; or use a ThreadPoolExecutor with a blocking client if async is not wanted."
+
+- key: py.concurrency.interview
+  type: interview_question
+  title: "Interview question: choose the concurrency model"
+  skills: [os.concurrency_practical]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: |-
+      For each task, pick threads, processes or asyncio in Python, say how you bound concurrency, and name one failure mode:
+
+      1. Generating 5,000 PDF reports with a pure-Python library, each taking 2 seconds of CPU.
+      2. A websocket gateway holding 20,000 mostly idle client connections.
+      3. A script that uploads 300 files to object storage with a blocking SDK.
+    key_points:
+      - "PDFs: CPU-bound, ProcessPoolExecutor with about one worker per core; failure mode is pickling large inputs or memory per worker."
+      - "Websockets: I/O-bound with huge concurrency, asyncio; failure mode is any blocking call stalling all connections."
+      - "Uploads: I/O-bound with a blocking SDK, ThreadPoolExecutor with a bounded pool; failure modes include rate limits and partial failures needing retries."
+      - "Explains the GIL as the reason threads do not help case 1 but are fine for case 3."
+      - "Mentions timeouts and per-task error handling in every case."
+    model_answer: "1) Rendering is CPU-bound Python, so threads would take turns on the GIL; I use a ProcessPoolExecutor sized to the cores, pass file paths rather than big objects to keep pickling cheap, and collect failures per report. 2) 20,000 idle connections are pure waiting; asyncio handles them on one thread with little memory per connection. The risk is a blocking call (sync DB driver, CPU-heavy JSON) freezing every client, so I offload with to_thread or a process pool and watch event-loop lag. 3) The SDK blocks on network I/O, which releases the GIL, so a ThreadPoolExecutor with 16 to 32 workers overlaps uploads well; I bound it to respect the provider's rate limits, set timeouts, and retry failed uploads with backoff."
+    pitfalls:
+      - Saying "Python cannot do parallelism" without distinguishing threads from processes.
+      - Choosing asyncio with a blocking SDK.
+    follow_ups:
+      - prompt: How do you detect that something is blocking the event loop in production?
+        look_for: "asyncio debug mode (slow callback warnings), measuring loop lag with a periodic timer, profiling with py-spy, and latency spikes across unrelated endpoints."
+      - prompt: Does the free-threaded build change your answer for case 1?
+        look_for: "Potentially threads could scale on a free-threaded build (3.13+, optional), but only if the library is compatible; processes remain the safe default today."
+
+- key: py.concurrency.cards
+  type: revision_card
+  title: "Recall: Python concurrency"
+  skills: [os.concurrency_practical]
+  minutes: 4
+  body:
+    cards:
+      - front: What does the GIL serialise?
+        back: Execution of Python bytecode by threads in one CPython process.
+      - front: Tool for CPU-bound pure-Python work?
+        back: ProcessPoolExecutor or multiprocessing, about one worker per core.
+      - front: Does the GIL make `x += 1` thread-safe?
+        back: No — it is read, add, write; protect it with a Lock.
+      - front: Blocking call inside async code?
+        back: Stalls the whole event loop; use an async library or asyncio.to_thread.
+      - front: Bounding asyncio fan-out?
+        back: asyncio.Semaphore(n) around each request, or client connection limits.
+
+# ---------------------------------------------------------------------------------------------- testing with pytest
+- key: py.testing_unit.lesson
+  type: lesson
+  title: "Unit and integration tests with pytest: fixtures and parametrize"
+  skills: [testing.unit_integration]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: pytest turns plain functions with assert into tests; fixtures supply what a test needs and clean it up, and parametrize runs one test over many cases.
+    what: |-
+      - A **unit test** checks one unit (a function or class) in isolation, fast and deterministic.
+      - An **integration test** checks units working together with real infrastructure: a real database, the HTTP layer, the file system.
+      - **pytest** discovers `test_*.py` files and `test_*` functions, rewrites plain `assert` to show both sides on failure, and provides **fixtures** (functions decorated with `@pytest.fixture` that tests request by parameter name) and **parametrisation** (`@pytest.mark.parametrize`).
+    why: |-
+      Tests are how you change code without fear. In interviews about your projects, "how did you test it?" separates engineers who ship reliable services from those who hope. Good fixtures keep tests short and independent; parametrize makes boundary cases cheap to add, so they actually get added.
+    when: |-
+      - Unit tests for pure logic (pricing, parsing, validation, state machines): many, fast, run on every save.
+      - Integration tests for the database layer, migrations, HTTP endpoints and external contracts: fewer, slower, run in CI.
+      - A few end-to-end tests for the critical user paths.
+      - Use parametrize whenever two tests differ only in inputs and expected outputs.
+    how: |-
+      ```python
+      import pytest
+      from decimal import Decimal
+
+      from shop.pricing import apply_discount, InvalidDiscount
+
+      @pytest.mark.parametrize(
+          ("price", "percent", "expected"),
+          [
+              (Decimal("100"), 0, Decimal("100")),
+              (Decimal("100"), 15, Decimal("85")),
+              (Decimal("100"), 100, Decimal("0")),
+          ],
+          ids=["no-discount", "typical", "full"],
+      )
+      def test_apply_discount(price, percent, expected):
+          assert apply_discount(price, percent) == expected
+
+      def test_rejects_out_of_range_percent():
+          with pytest.raises(InvalidDiscount, match="0-100"):
+              apply_discount(Decimal("100"), 101)
+      ```
+
+      Fixtures, scopes and teardown (`conftest.py` makes them available to every test in that directory and below):
+
+      ```python
+      # conftest.py
+      import pytest
+      from sqlalchemy import create_engine
+      from sqlalchemy.orm import Session
+
+      @pytest.fixture(scope="session")
+      def engine():
+          eng = create_engine(TEST_DATABASE_URL)
+          run_migrations(eng)                 # once per test run
+          yield eng
+          eng.dispose()
+
+      @pytest.fixture
+      def db(engine):                         # function scope (default): fresh per test
+          with engine.connect() as conn:
+              tx = conn.begin()
+              session = Session(bind=conn)
+              yield session                   # the test runs here
+              session.close()
+              tx.rollback()                   # every test leaves the database clean
+      ```
+
+      Built-in fixtures worth knowing: `tmp_path` (a fresh `pathlib.Path` directory), `monkeypatch` (set attributes and environment variables, undone after the test), `capsys` (captured stdout/stderr), `caplog` (captured log records). For HTTP layers, FastAPI's `TestClient` and Django's test client call the app in-process.
+    mental_model: |-
+      Each test is arrange, act, assert. Fixtures are the "arrange" part, built as a dependency graph that pytest resolves by parameter name, with a lifetime set by `scope`: everything before `yield` is setup, everything after is teardown, and teardown runs even if the test fails.
+    tradeoffs: |-
+      Wider fixture scopes (module, session) make suites fast but risk tests leaking state into each other; the transaction-rollback pattern gets both speed and isolation for databases. Integration tests against a real database (often in Docker) catch SQL, migration and constraint bugs that in-memory fakes miss, at the cost of seconds per test. Parametrisation multiplies coverage cheaply but too many cases with unclear ids make failures hard to read.
+    mistakes:
+      - "Tests that depend on execution order or on data a previous test left behind."
+      - "Session-scoped fixtures returning mutable objects that tests modify."
+      - "Asserting on too much (entire JSON responses including timestamps) so tests break on irrelevant changes, or too little (only `status_code == 200`)."
+      - "Testing against SQLite when production is MySQL or PostgreSQL, missing dialect-specific behaviour such as locking and strictness."
+      - "`pytest.raises` blocks that wrap several statements, so the test passes when the wrong line raises."
+    interview: |-
+      You may be asked how you tested a project, to write tests for a given function, or how you keep integration tests fast and isolated. Good answers name the test levels and what each catches, show a parametrised boundary test, explain fixture scopes and teardown, and describe how the database is reset between tests.
+    explain_it:
+      - Name what is unit-tested and what is integration-tested, and why.
+      - Show the fixtures, their scope and their teardown.
+      - Show the parametrised cases and why those boundaries were chosen.
+      - Explain how tests stay independent and deterministic.
+    example:
+      language: python
+      code: |-
+        from fastapi.testclient import TestClient
+
+        def test_create_order_returns_201_and_location(client: TestClient, db):
+            response = client.post("/orders", json={"sku": "pen", "quantity": 2})
+            assert response.status_code == 201
+            body = response.json()
+            assert body["quantity"] == 2
+            assert response.headers["location"] == f"/orders/{body['id']}"
+
+        def test_create_order_rejects_zero_quantity(client: TestClient):
+            response = client.post("/orders", json={"sku": "pen", "quantity": 0})
+            assert response.status_code == 422          # Pydantic validation error
+      explanation: "An integration test through the HTTP layer: it exercises routing, validation, the service and the database together, and asserts only on the contract."
+    edge_cases:
+      - "Fixtures can request other fixtures; a fixture cannot request one with a narrower scope (a session fixture cannot use a function fixture)."
+      - "`autouse=True` fixtures run for every test in scope without being requested; use them sparingly."
+
+- key: py.testing_unit.check
+  type: concept_check
+  title: "Concept check: pytest fixtures and test levels"
+  skills: [testing.unit_integration]
+  minutes: 8
+  difficulty: MEDIUM
+  body:
+    intro: Think about lifetime and isolation for each fixture.
+    questions:
+      - id: q1
+        kind: single
+        prompt: In a yield fixture, when does the code after `yield` run?
+        options:
+          - Only if the test passes
+          - After the test finishes, whether it passed or failed
+          - Before the test, as part of setup
+          - Only at the end of the whole session
+        answer: [1]
+        explanation: "Code after yield is teardown and runs after the test regardless of outcome, at the end of the fixture's scope. A function-scoped fixture tears down after each test, not at the end of the session."
+      - id: q2
+        kind: single
+        prompt: Five tests use a `scope="module"` fixture that returns a list, and one test appends to it. What is the risk?
+        options:
+          - None; each test gets a copy
+          - The other tests in the module see the appended item, so results depend on order
+          - pytest raises an error for mutable fixture values
+          - The fixture is re-created after the mutation
+        answer: [1]
+        explanation: "A module-scoped fixture is created once and the same object is shared by every test in the module. Mutations leak. Use function scope for mutable values, or return immutable data."
+      - id: q3
+        kind: multi
+        prompt: Which are good reasons to write an integration test with a real database rather than a unit test with a fake repository?
+        options:
+          - Verifying that a unique constraint rejects duplicate emails
+          - Checking that a migration runs on an empty database
+          - Checking an arithmetic rounding rule in a pure function
+          - Checking that a query uses the expected join and filters correctly
+        answer: [0, 1, 3]
+        explanation: "Constraints, migrations and real SQL behaviour live in the database, so only a real database proves them. A pure rounding rule is a unit test: fast, no infrastructure."
+      - id: q4
+        kind: single
+        prompt: "What does `@pytest.mark.parametrize(\"a, b\", [(1, 2), (3, 4)])` on a test produce?"
+        options:
+          - One test that loops over both cases
+          - Two independent test cases, reported separately
+          - One test receiving a list of tuples
+          - A syntax error; names must be a list
+        answer: [1]
+        explanation: "pytest generates one test per parameter set, each reported and runnable on its own (with ids like `test_x[1-2]`). A comma-separated string of names is accepted. A loop inside one test would stop at the first failure and hide the rest."
+      - id: q5
+        kind: single
+        prompt: "How do you assert that a function raises ValueError with a message mentioning \"quantity\"?"
+        options:
+          - "try/except ValueError and pass"
+          - "with pytest.raises(ValueError, match=\"quantity\"): call()"
+          - "assert call() == ValueError"
+          - "pytest.raises(ValueError)(call())"
+        answer: [1]
+        explanation: "`pytest.raises` as a context manager fails the test if nothing is raised, and `match` applies a regular-expression search to the message. A bare try/except passes silently when nothing is raised, the tempting mistake."
+      - id: q6
+        kind: short
+        prompt: How do you keep database integration tests both fast and isolated from each other?
+        model_answer: "Create the schema once per session (run migrations in a session-scoped fixture), then give each test a connection with an open transaction and roll it back in teardown, so each test starts from the same clean state without recreating tables. Use factories to create only the rows each test needs, and run the real database engine (for example in Docker) to match production behaviour."
+        explanation: "The interviewer is looking for the session schema plus per-test rollback pattern, not dropping and recreating the database per test."
+
+- key: py.testing_unit.exercise
+  type: coding_exercise
+  title: "Exercise: test a password policy with fixtures and parametrize"
+  skills: [testing.unit_integration, testing.test_design]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 1200}
+  body:
+    prompt: |-
+      Write a pytest module for this function. Cover the rules with parametrised cases chosen at the boundaries, test the error message, and use a fixture for the policy. Then explain which cases you chose and why.
+
+      ```python
+      @dataclass(frozen=True)
+      class Policy:
+          min_length: int = 12
+          banned: frozenset[str] = frozenset({"password", "qwerty"})
+
+      class WeakPassword(ValueError):
+          pass
+
+      def check_password(pw: str, policy: Policy) -> None:
+          """Raise WeakPassword with a reason, or return None if acceptable."""
+          if len(pw) < policy.min_length:
+              raise WeakPassword(f"must be at least {policy.min_length} characters")
+          if pw.lower() in policy.banned:
+              raise WeakPassword("password is too common")
+          if pw.isalpha() or pw.isdigit():
+              raise WeakPassword("mix letters with digits or symbols")
+      ```
+    hints:
+      - "Boundary values for length: min_length − 1, min_length, and a long input."
+      - "A banned word needs to reach the banned check, so it must be long enough; use a policy fixture with a short min_length or a long banned word."
+      - "Split valid and invalid cases into two parametrised tests; assert the reason with `match`."
+    solution:
+      language: python
+      code: |-
+        import pytest
+        from auth.passwords import Policy, WeakPassword, check_password
+
+
+        @pytest.fixture
+        def policy() -> Policy:
+            return Policy(min_length=8, banned=frozenset({"password1"}))
+
+
+        @pytest.mark.parametrize(
+            "pw",
+            ["abcdef1!", "abcdefg1", "Ünïcødé-9", "x" * 200 + "1"],
+            ids=["exact-min", "letters-digit", "unicode", "very-long"],
+        )
+        def test_accepts_strong_passwords(pw, policy):
+            assert check_password(pw, policy) is None
+
+
+        @pytest.mark.parametrize(
+            ("pw", "reason"),
+            [
+                ("abc12!x", "at least 8"),            # min_length - 1
+                ("", "at least 8"),
+                ("PASSWORD1", "too common"),          # case-insensitive banned check
+                ("abcdefgh", "mix letters"),          # letters only
+                ("12345678", "mix letters"),          # digits only
+            ],
+            ids=["one-short", "empty", "banned-any-case", "alpha-only", "digits-only"],
+        )
+        def test_rejects_weak_passwords(pw, reason, policy):
+            with pytest.raises(WeakPassword, match=reason):
+                check_password(pw, policy)
+      explanation: "Each rule gets a case on both sides of its boundary; ids make failures readable. The suite runs in milliseconds because the function is pure (O(number of cases))."
+    rubric:
+      - {key: boundaries, label: "Includes length boundary cases (min − 1, min) and empty input", points: 3}
+      - {key: each_rule, label: "Covers every rule with at least one failing and one passing case, including case-insensitive banning", points: 3}
+      - {key: pytest_idioms, label: "Uses a fixture, parametrize with ids, and pytest.raises with match", points: 2}
+      - {key: rationale, label: Explains why each case was chosen and what bug it would catch, points: 2}
+    follow_ups:
+      - prompt: Which bug would survive your tests?
+        look_for: "Honest gaps: e.g. symbols-only passwords, whitespace handling, rule order when several fail; suggests property-based testing (Hypothesis) for generated inputs."
+      - prompt: Is this a unit or an integration test, and what integration test would you add?
+        look_for: "Unit; add an API test that a weak password on signup returns 422/400 with the reason and no user row is created."
+
+- key: py.testing_unit.cards
+  type: revision_card
+  title: "Recall: pytest essentials"
+  skills: [testing.unit_integration]
+  minutes: 4
+  body:
+    cards:
+      - front: Default fixture scope?
+        back: function — a fresh fixture for every test.
+      - front: Where does fixture teardown go?
+        back: After the yield in the fixture; it runs even if the test fails.
+      - front: How do fixtures become shared across files?
+        back: Define them in conftest.py; pytest discovers it per directory.
+      - front: Fast isolated DB tests?
+        back: Migrate once per session; wrap each test in a transaction and roll back.
+
+- key: py.testing_design.lesson
+  type: lesson
+  title: "Test design in Python: mocks, monkeypatch, fakes and edge cases"
+  skills: [testing.test_design]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Replace only what is slow, non-deterministic or external; patch it where it is looked up, and choose cases that sit on the boundaries where bugs live.
+    what: |-
+      - A **test double** stands in for a real collaborator: a **stub** returns canned answers, a **mock** also records calls so you can assert on them, a **fake** is a working lightweight implementation (an in-memory repository).
+      - `unittest.mock` provides `Mock`, `MagicMock` (supports magic methods), `patch` (temporarily replace an attribute), `create_autospec` / `autospec=True` (a mock with the real object's signature), `side_effect` (raise, return a sequence, or call a function) and assertions like `assert_called_once_with`.
+      - pytest's `monkeypatch` fixture sets attributes, dict items and environment variables for one test and undoes them afterwards.
+      - **Test design** is choosing inputs: equivalence classes, boundary values, error paths, and the cases that previously broke.
+    why: |-
+      Code that calls payment gateways, clocks, random number generators or the network cannot be tested reliably as-is: the tests would be slow, flaky, or would charge real cards. Doubles make those tests deterministic. But over-mocking produces tests that pass while production fails, because the mock agrees with whatever the code does. Good design keeps doubles at the boundary and asserts on outcomes.
+    when: |-
+      - Mock or fake at **process boundaries**: HTTP clients, message brokers, email/SMS providers, the clock, randomness.
+      - Prefer a **fake** (in-memory repository, fixed clock object) when the collaborator is used in many tests; prefer a **mock** when the interaction itself is the behaviour ("we must call `refund` exactly once").
+      - Do not mock the code under test, value objects or the standard library's pure functions.
+      - Prefer **dependency injection** (pass a `clock` or `client` into the constructor) over patching; patching is for code you cannot change.
+    how: |-
+      **Patch where the name is looked up**, not where it is defined:
+
+      ```python
+      # app/billing.py
+      from app.gateway import charge          # billing now has its own name "charge"
+
+      def bill(order):
+          return charge(order.total)
+
+      # test
+      from unittest.mock import patch
+
+      def test_bill_charges_total(order):
+          with patch("app.billing.charge", autospec=True) as fake_charge:   # not "app.gateway.charge"
+              fake_charge.return_value = "tx-1"
+              assert bill(order) == "tx-1"
+          fake_charge.assert_called_once_with(order.total)
+      ```
+
+      `side_effect` for failures and sequences:
+
+      ```python
+      client.get.side_effect = [TimeoutError(), TimeoutError(), Response(200)]   # fails twice, then succeeds
+      ```
+
+      `monkeypatch` for configuration and simple replacements:
+
+      ```python
+      def test_reads_region_from_env(monkeypatch):
+          monkeypatch.setenv("APP_REGION", "ap-south-1")
+          monkeypatch.setattr("app.config.load_secrets", lambda: {"key": "test"})
+          assert build_settings().region == "ap-south-1"
+      ```
+
+      Time: inject a clock (`today: Callable[[], date]`) instead of calling `date.today()` inside the logic; tests pass a fixed date.
+
+      Choosing cases: for each input, list the equivalence classes (valid, invalid, empty), then the boundaries (0, 1, max, max + 1, empty string, one element, duplicates, unicode, timezone edges such as midnight and month ends), then the error paths of each collaborator (timeout, 500, malformed body).
+    mental_model: |-
+      Draw the unit and its collaborators. Real objects inside the box, doubles only on arrows that leave the process. Then ask of each test: "if I introduced a plausible bug, would this test fail?" A test that cannot fail is noise.
+    tradeoffs: |-
+      Mocks make tests fast and precise but couple them to implementation details (which method was called, with which arguments); refactors break them even when behaviour is unchanged. Fakes take more effort once but read like real usage and survive refactors. Patching by string path is brittle (rename a module and the patch silently targets nothing unless autospec or the import fails), while dependency injection makes the seam explicit in the design.
+    mistakes:
+      - "Patching where the function is defined (`app.gateway.charge`) when the code under test imported it by name, so the real function still runs."
+      - "Mocks without autospec: a typo like `mock.assert_called_once_wiht()` or a call with wrong arguments passes silently (recent Python versions catch some assert typos, not wrong signatures)."
+      - "Asserting only that a mock was called, never checking the returned outcome or state."
+      - "Mocking so much that the test re-states the implementation line by line."
+      - "Tests that depend on real time, random values or dict/set ordering assumptions, which flake."
+      - "Testing only the happy path; no timeout, empty input or duplicate case."
+    interview: |-
+      Typical prompts: "how would you test code that calls an external payment API?", "what is the difference between a mock and a fake?", "this test passes but production fails, why?" (usually wrong patch target or over-mocking), and "which test cases would you write for this function?". Interviewers look for boundary-driven case selection, doubles only at boundaries, and dependency injection as the preferred seam.
+    explain_it:
+      - Name the boundaries you replace and why each is replaced.
+      - Say whether you use a mock, a stub or a fake, and what you assert on.
+      - "State the patch-where-it-is-looked-up rule and why autospec matters."
+      - List the equivalence classes and boundary cases for the main input.
+    example:
+      language: python
+      code: |-
+        from datetime import date
+
+        class FixedClock:
+            def __init__(self, day: date) -> None:
+                self.day = day
+            def today(self) -> date:
+                return self.day
+
+        class InMemoryReminders:
+            def __init__(self) -> None:
+                self.sent: list[str] = []
+            def send(self, to: str, message: str) -> None:
+                self.sent.append(to)
+
+        def test_reminder_sent_exactly_seven_days_before_expiry():
+            notifier = InMemoryReminders()
+            service = RenewalService(clock=FixedClock(date(2026, 3, 1)), notifier=notifier)
+            assert service.remind("a@example.com", expires=date(2026, 3, 8)) is True
+            assert notifier.sent == ["a@example.com"]
+      explanation: "Fakes injected through the constructor: no patching, deterministic dates, and the assertion is about the outcome. A sibling test with expiry on day 9 checks the other side of the boundary."
+    misconceptions:
+      - "\"More mocks means better isolation\": past the process boundary, mocks mostly test that the code does what it does."
+      - "\"100% coverage means well tested\": coverage shows lines executed, not that assertions would catch a wrong result."
+
+- key: py.testing_design.check
+  type: concept_check
+  title: "Concept check: mocks and test design"
+  skills: [testing.test_design]
+  minutes: 8
+  difficulty: MEDIUM
+  body:
+    intro: Focus on what each test would and would not catch.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "`app/orders.py` does `from app.mail import send_email` and calls `send_email(...)`. Which patch target makes the test use the mock?"
+        options:
+          - "patch(\"app.mail.send_email\")"
+          - "patch(\"app.orders.send_email\")"
+          - "patch(\"send_email\")"
+          - Either of the first two
+        answer: [1]
+        explanation: "`from ... import` copies the reference into `app.orders`'s namespace at import time. Patching `app.mail.send_email` replaces the original name, but `app.orders` still holds the real function. Patch the name where the code under test looks it up."
+      - id: q2
+        kind: single
+        prompt: A mock created without a spec is called as `gateway.chrage(100)` (typo) by the code under test. What happens?
+        options:
+          - AttributeError, so the bug is caught
+          - The call succeeds and returns another Mock, so the test may pass while the code is wrong
+          - The test is skipped
+          - pytest warns about unknown attributes
+        answer: [1]
+        explanation: "A plain Mock creates attributes on demand. `create_autospec(Gateway)` or `patch(..., autospec=True)` restricts the mock to the real object's attributes and signatures, which turns the typo into an AttributeError."
+      - id: q3
+        kind: multi
+        prompt: Which are good candidates for a test double in a unit test of an order service?
+        options:
+          - The payment gateway HTTP client
+          - The clock used to decide whether an offer expired
+          - The Money value object used to compute totals
+          - The email provider
+        answer: [0, 1, 3]
+        explanation: "External services and time are slow, non-deterministic or have side effects, so they are replaced. Money is a pure value object; mocking it would only hide bugs in the arithmetic you want to test."
+      - id: q4
+        kind: single
+        prompt: "How do you make a mocked client fail twice with a timeout and then succeed?"
+        options:
+          - "client.get.return_value = [TimeoutError(), TimeoutError(), ok]"
+          - "client.get.side_effect = [TimeoutError(), TimeoutError(), ok]"
+          - "client.get.raises = TimeoutError"
+          - "Write three separate mocks"
+        answer: [1]
+        explanation: "With an iterable `side_effect`, each call takes the next item: exception instances are raised, other values are returned. `return_value` would return the whole list on every call."
+      - id: q5
+        kind: single
+        prompt: A function accepts a page size from 1 to 100. Which set of cases is best?
+        options:
+          - "50 only"
+          - "1, 50, 100"
+          - "0, 1, 100, 101, plus a non-integer"
+          - "Every value from 1 to 100"
+        answer: [2]
+        explanation: "Bugs cluster at boundaries: test both sides of each edge (0 and 1, 100 and 101) and an invalid type. Only valid values never exercise the rejection path; all 100 values add time without adding new equivalence classes."
+      - id: q6
+        kind: short
+        prompt: A test suite mocks the database repository everywhere and is fully green, but production fails with a unique-constraint violation on signup. What went wrong in the test design and how do you fix it?
+        model_answer: "The repository mock accepted any insert, so the tests verified only that the service called save, not that the real database accepts the data; the constraint lives in the database, which no test touched. Add integration tests against the real database engine for the repository (including duplicate emails), keep unit tests with a fake for service logic, and decide in the service how a duplicate is reported (catch IntegrityError and return a 409 or a validation error)."
+        explanation: "Doubles cannot verify behaviour that only the real collaborator has; that is what integration tests are for."
+
+- key: py.testing_design.debugging
+  type: debugging_exercise
+  title: "Debugging: the test that charges a real card"
+  skills: [testing.test_design, testing.unit_integration]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    scenario: |-
+      CI is green, yet the payment provider's sandbox dashboard shows a charge for every CI run, and the test suite takes 4 seconds longer than expected. The team believes the gateway is mocked.
+    symptoms:
+      - "The sandbox shows charges with the test order's amount at CI times."
+      - "Asserting `fake.assert_called_once()` in the test fails, although `checkout` succeeds."
+    artifacts:
+      language: python
+      code: |-
+        # app/checkout.py
+        from app.payments.client import create_charge
+
+        def checkout(order):
+            charge_id = create_charge(amount=order.total, currency="INR")
+            order.mark_paid(charge_id)
+            return order
+
+        # tests/test_checkout.py
+        from unittest.mock import patch
+        from app.checkout import checkout
+
+        @patch("app.payments.client.create_charge")
+        def test_checkout_marks_order_paid(fake, order):
+            fake.return_value = "ch_1"
+            result = checkout(order)
+            assert result.status == "PAID"
+    tasks:
+      - Explain why the real function is called.
+      - Fix the test, and make it robust against signature mistakes.
+      - Propose a design change so the test needs no patching at all, and a safety net so tests can never reach the real provider.
+    hints:
+      - "Which module's namespace does `checkout` read `create_charge` from?"
+      - What would autospec have added?
+    reference: |-
+      `app.checkout` imported `create_charge` by name, so it holds its own reference. The test patched `app.payments.client.create_charge`, the original location, which leaves `app.checkout.create_charge` pointing at the real function; the sandbox charges and the extra seconds are real network calls. The assertion passed because the real sandbox returned a charge id.
+
+      Fix: `@patch("app.checkout.create_charge", autospec=True)` and assert on the interaction and the outcome: `fake.assert_called_once_with(amount=order.total, currency="INR")` and `result.charge_id == "ch_1"`. Better design: inject a `PaymentGateway` (Protocol) into the checkout service and pass a fake in tests. Safety net: tests run with no provider credentials (unset in CI test env) and a network guard (for example a fixture that makes socket connections to non-local hosts fail), so an unmocked call errors instead of charging.
+    solution:
+      language: python
+      code: |-
+        from unittest.mock import patch
+        from app.checkout import checkout
+
+        @patch("app.checkout.create_charge", autospec=True)
+        def test_checkout_marks_order_paid(fake, order):
+            fake.return_value = "ch_1"
+            result = checkout(order)
+            assert result.status == "PAID"
+            assert result.charge_id == "ch_1"
+            fake.assert_called_once_with(amount=order.total, currency="INR")
+    rubric:
+      - {key: root_cause, label: "Explains that from-import binds the name in app.checkout, so the patch hit the wrong namespace", points: 3}
+      - {key: fix, label: Patches the right target with autospec and asserts on both the call and the outcome, points: 3}
+      - {key: design, label: Proposes dependency injection of a gateway with a fake for tests, points: 2}
+      - {key: safety_net, label: "Adds a guard so tests cannot reach the real provider (no credentials, blocked network)", points: 2}
+    follow_ups:
+      - prompt: Why did the original assertion on status pass?
+        look_for: "The real sandbox call succeeded and returned an id, so the code path behaved normally; the test never checked that the double was used."
+      - prompt: How would you test the provider integration itself?
+        look_for: "A small, separately marked contract test against the sandbox, run on a schedule or before release, not in every unit test run."
+
+- key: py.testing_design.cards
+  type: revision_card
+  title: "Recall: mocks and test design"
+  skills: [testing.test_design]
+  minutes: 4
+  body:
+    cards:
+      - front: Where do you patch a function?
+        back: Where the code under test looks it up, not where it is defined.
+      - front: What does autospec add?
+        back: The mock only accepts the real object's attributes and call signatures.
+      - front: Mock vs fake?
+        back: A mock records calls to assert on; a fake is a simple working implementation.
+      - front: Making a mock fail then succeed?
+        back: side_effect = [Error(), Error(), value] — one item per call.
+      - front: Testing time-dependent logic?
+        back: Inject a clock and pass a fixed date in tests.
+
+# ---------------------------------------------------------------------------------------------- backend Python
+- key: py.api.lesson
+  type: lesson
+  title: "Request handling in FastAPI and Django, with Pydantic validation"
+  skills: [engineering.api_engineering]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Both frameworks run the same pipeline — route, validate, call the service, map errors, serialise — and most API bugs come from skipping a step or putting logic in the wrong layer.
+    what: |-
+      - **FastAPI** is an ASGI framework: path operations are functions whose parameters (path, query, body, headers) are declared with type hints; **Pydantic** models validate request bodies and shape responses; `Depends` injects dependencies such as a database session or the current user.
+      - **Django** is a full framework: a request passes through the **middleware** stack, the **URLconf** resolves a view, the view (or a Django REST Framework view with a serializer) validates input, uses the **ORM**, and returns a response that passes back through middleware.
+      - **Pydantic v2** validates and converts data from type hints, with constraints via `Field` (`gt`, `max_length`, `pattern`) and custom rules via `@field_validator`; by default it is lax and coerces compatible input (the string "5" becomes the int 5); strict mode turns that off.
+    why: |-
+      Every endpoint must reject bad input with a clear 4xx, never a 500 or corrupted data; return a stable response shape; and keep business rules out of the HTTP layer so they can be tested and reused. Interviewers ask how you implemented validation, errors and authentication in your project because that is where production incidents start.
+    when: |-
+      - FastAPI for API-only services where type-driven validation, async I/O and generated OpenAPI docs matter.
+      - Django (often with DRF) when you want an ORM, migrations, admin, auth and sessions out of the box.
+      - In both: validate at the edge with a schema, call a service function, map domain errors to HTTP status codes in one place.
+    how: |-
+      ```python
+      from typing import Annotated
+      from fastapi import Depends, FastAPI, HTTPException, status
+      from pydantic import BaseModel, ConfigDict, Field
+      from sqlalchemy.orm import Session
+
+      app = FastAPI()
+
+      class OrderIn(BaseModel):
+          model_config = ConfigDict(extra="forbid")       # unknown fields -> 422
+          sku: str = Field(min_length=1, max_length=40)
+          quantity: int = Field(gt=0, le=100)
+
+      class OrderOut(BaseModel):
+          id: int
+          sku: str
+          quantity: int
+
+      def get_db():
+          db = SessionLocal()
+          try:
+              yield db                                     # one session per request
+          finally:
+              db.close()
+
+      @app.post("/orders", response_model=OrderOut, status_code=status.HTTP_201_CREATED)
+      def create_order(body: OrderIn, db: Annotated[Session, Depends(get_db)]) -> OrderOut:
+          try:
+              order = order_service.create(db, sku=body.sku, quantity=body.quantity)
+          except OutOfStock as exc:
+              raise HTTPException(status_code=409, detail=str(exc)) from exc
+          return OrderOut.model_validate(order, from_attributes=True)
+      ```
+
+      What happens: FastAPI parses the JSON, validates it against `OrderIn` (a failure returns **422** with field-level details, before your code runs), resolves `get_db`, calls the function, then serialises the return value through `response_model`, which also filters out fields not in `OrderOut`.
+
+      Sync or async: a plain `def` endpoint runs in a thread pool, so blocking libraries are fine. An `async def` endpoint runs on the event loop, so everything it awaits must be async and nothing inside may block.
+
+      Django equivalent in outline: `urls.py` maps `orders/` to a view; middleware handles sessions, CSRF and authentication first; the view validates with a form or a DRF serializer (`serializer.is_valid(raise_exception=True)` returns 400 with errors), wraps writes in `transaction.atomic()`, and returns a `JsonResponse` or DRF `Response`.
+    mental_model: |-
+      A request is a pipeline: transport → middleware (auth, logging, CORS) → routing → input validation → service (business rules, transactions) → error mapping → output serialisation. Each layer has one job. If business rules appear in the route function or validation appears in the service, the layering is broken.
+    tradeoffs: |-
+      FastAPI is light and fast to write, but you assemble the ORM, migrations and auth yourself. Django gives an integrated stack with strong conventions, at the cost of a heavier framework and, historically, sync-first design (async views exist since 3.1, but much of the ecosystem is sync). Pydantic's lax coercion is convenient for clients but can hide sloppy input; strict mode or `extra="forbid"` is safer for internal APIs. Returning ORM objects directly is quick but leaks internal fields; explicit response schemas cost a little code and protect the contract.
+    mistakes:
+      - "Blocking calls (requests, a sync DB driver) inside `async def` endpoints."
+      - "Returning ORM objects or dicts without a response schema, leaking fields like password hashes."
+      - "Catching every exception in the route and returning 500 with the exception text, exposing internals."
+      - "Validating only types and not ranges or lengths, so quantity -5 or a 10 MB string reaches the database."
+      - "Doing several writes without a transaction, leaving partial state when the second write fails."
+      - "Opening a new database engine or HTTP client per request instead of reusing pooled ones."
+    interview: |-
+      Expect "walk me through what happens when a request hits your endpoint", "where do you validate and how do you report errors", "sync vs async endpoints in FastAPI", and Django-specific questions about middleware order and the ORM. Good answers name each layer, the status codes (400/422 validation, 401 vs 403, 404, 409 conflict), and where transactions begin and end.
+    explain_it:
+      - Walk the request through each layer and name what happens there.
+      - Show the input schema with constraints and what the client sees on failure.
+      - Show where domain errors are mapped to status codes.
+      - Explain the sync/async choice and its consequence for libraries used inside.
+    example:
+      language: python
+      code: |-
+        from fastapi import Request
+        from fastapi.responses import JSONResponse
+
+        class DomainError(Exception):
+            status_code = 400
+            code = "domain_error"
+
+        class OutOfStock(DomainError):
+            status_code = 409
+            code = "out_of_stock"
+
+        @app.exception_handler(DomainError)
+        async def domain_error_handler(request: Request, exc: DomainError) -> JSONResponse:
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={"error": {"code": exc.code, "message": str(exc)}},
+            )
+      explanation: "One handler maps every domain error to a consistent envelope; services raise domain exceptions without knowing about HTTP."
+    edge_cases:
+      - "FastAPI returns 422 for body validation errors by default; Django REST Framework uses 400. Pick one convention per API and document it."
+      - "Query parameters arrive as strings; declaring `limit: int = 20` makes FastAPI convert and validate them."
+      - "A response_model that does not match the returned data raises a server-side validation error (500), which is a bug in your code, not the client's."
+
+- key: py.api.lesson_2
+  type: lesson
+  title: "HTTP clients and SQL from Python: timeouts, retries, sessions and N+1"
+  skills: [engineering.api_engineering, db.query_optimization]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Outbound calls need explicit timeouts, pooled clients and careful retries; database access needs one session per unit of work, explicit transactions and eager loading to avoid N+1 queries.
+    what: |-
+      - **requests** is the classic blocking HTTP client; **httpx** offers both a sync `Client` and an `AsyncClient` with a requests-like API.
+      - **SQLAlchemy 2.0** provides an engine with a connection pool, a `Session` (unit of work and identity map) and the `select()` query API; the **Django ORM** provides models, lazy `QuerySet`s and `transaction.atomic()`.
+    why: |-
+      The most common causes of backend outages in Python services are an outbound call without a timeout (threads pile up waiting forever), retry storms against a struggling dependency, connection pool exhaustion, and N+1 queries that turn one page load into hundreds of round trips. Each has a small, standard fix.
+    when: |-
+      - Every outbound HTTP call: set a timeout, reuse a client, decide whether retrying is safe.
+      - Every request that touches the database: one session or transaction per unit of work, eager loading when you access relationships in a loop.
+    how: |-
+      **HTTP clients**
+
+      ```python
+      import httpx
+      import requests
+      from requests.adapters import HTTPAdapter
+      from urllib3.util.retry import Retry
+
+      # requests has NO default timeout: without one, a call can hang indefinitely
+      session = requests.Session()                       # reuses TCP/TLS connections
+      retry = Retry(total=3, backoff_factor=1, status_forcelist=[502, 503, 504],
+                    allowed_methods=["GET", "PUT", "DELETE"])   # idempotent methods only
+      session.mount("https://", HTTPAdapter(max_retries=retry))
+      resp = session.get(url, timeout=(3, 10))           # (connect, read) seconds
+      resp.raise_for_status()                            # 4xx/5xx are not exceptions otherwise
+
+      # httpx: default timeout is 5 seconds; transport retries cover connection failures only
+      client = httpx.Client(timeout=httpx.Timeout(10, connect=3),
+                            transport=httpx.HTTPTransport(retries=2))
+      ```
+
+      The read timeout is the maximum wait between bytes, not a total deadline; a slow drip can exceed it in total. Retry only idempotent operations (or POSTs with an idempotency key), with exponential backoff and jitter, and a cap.
+
+      **SQLAlchemy 2.0**
+
+      ```python
+      from sqlalchemy import create_engine, select
+      from sqlalchemy.orm import Session, selectinload
+
+      engine = create_engine(DATABASE_URL, pool_size=5, max_overflow=10, pool_pre_ping=True)
+
+      with Session(engine) as session, session.begin():          # commit on success, rollback on error
+          users = session.scalars(
+              select(User).where(User.active.is_(True)).options(selectinload(User.orders))
+          ).all()                                                  # 2 queries instead of 1 + N
+          for u in users:
+              total = sum(o.amount for o in u.orders)
+      ```
+
+      **Django ORM**
+
+      ```python
+      from django.db import transaction
+      from django.db.models import F
+
+      orders = Order.objects.select_related("customer").prefetch_related("items")
+      # select_related: SQL JOIN for foreign key / one-to-one; prefetch_related: one extra query per relation
+
+      with transaction.atomic():
+          Product.objects.filter(pk=pid, stock__gte=qty).update(stock=F("stock") - qty)   # atomic in SQL
+      ```
+
+      Always use bound parameters (`where(User.email == email)`, `text("... WHERE id = :id")`, Django filters); never format values into SQL strings.
+    mental_model: |-
+      Every outbound call is a promise you might never get back; a timeout and a retry policy are the terms of that promise. Every ORM attribute access might be a hidden query; count queries per request the way you count loops per function.
+    tradeoffs: |-
+      Retries improve availability for transient failures but multiply load during an outage; combine them with backoff, small attempt counts and ideally a circuit breaker. Eager loading removes N+1 but `joinedload` on large collections multiplies rows, so `selectinload`/`prefetch_related` (a second query with `IN`) is often better for one-to-many. ORMs speed up development; for heavy reports, hand-written SQL can be clearer and faster. A bigger connection pool raises throughput until the database itself becomes the bottleneck.
+    mistakes:
+      - "Calling `requests.get(url)` with no timeout."
+      - "Creating a new client or session per call, losing connection reuse and paying a TLS handshake each time."
+      - "Retrying POST requests that create resources, causing duplicates."
+      - "Looping over objects and touching a relationship (`order.customer.name`) without eager loading: N+1 queries."
+      - "Read-modify-write in Python (`p.stock -= qty; p.save()`) under concurrency, losing updates; use `F()` expressions, `select_for_update()`, or a conditional UPDATE."
+      - "Keeping one global SQLAlchemy Session shared across threads or requests."
+    interview: |-
+      Questions include "how do you call an unreliable downstream service?", "what is N+1 and how did you find and fix it?", "how do you prevent overselling stock under concurrent requests?", and "what is a connection pool and what happens when it is exhausted?". Name the timeout values, the retry policy, the eager-loading option and the locking or atomic-update approach.
+    explain_it:
+      - State the timeouts and retry policy for each outbound call and why they are safe.
+      - Show the query count before and after fixing N+1.
+      - Explain where the transaction starts and ends and what happens on error.
+      - Explain how concurrent updates are made safe (atomic UPDATE, F(), row lock).
+    complexity: "N+1 costs 1 + N round trips (each a network latency, often around a millisecond or more); selectinload or prefetch_related costs 2 queries regardless of N."
+    edge_cases:
+      - "Django QuerySets are lazy and cached once evaluated; iterating the same QuerySet twice reuses results, but calling `.filter()` again issues a new query."
+      - "With `pool_pre_ping=True`, SQLAlchemy tests a pooled connection before use, which avoids errors after the database closed idle connections."
+      - "A 429 response may carry a Retry-After header; honour it instead of your own backoff."
+
+- key: py.api.check
+  type: concept_check
+  title: "Concept check: Python backend request handling"
+  skills: [engineering.api_engineering]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Each question is about a production failure mode.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "A FastAPI endpoint declares `body: OrderIn` where `quantity: int = Field(gt=0)`. A client sends `{\"quantity\": 0}`. What happens?"
+        options:
+          - The function runs with quantity 0
+          - FastAPI returns 422 with a field-level error before the function runs
+          - Pydantic raises and the client receives 500
+          - The value is coerced to 1
+        answer: [1]
+        explanation: "Validation happens during request parsing. Failure produces a 422 response describing the field and constraint; your code never sees invalid data. A 500 would mean your own code raised."
+      - id: q2
+        kind: single
+        prompt: "What does `requests.get(url)` do if the server accepts the connection and then never responds?"
+        options:
+          - Times out after 5 seconds by default
+          - Waits indefinitely, because requests has no default timeout
+          - Retries three times automatically
+          - Raises immediately
+        answer: [1]
+        explanation: "requests applies no timeout unless you pass one, so the calling thread can hang forever and a worker pool slowly fills up. httpx, in contrast, defaults to 5 seconds."
+      - id: q3
+        kind: single
+        prompt: "A Django view lists 50 orders and prints `order.customer.name` for each. The page issues 51 queries. Fix?"
+        options:
+          - "Order.objects.prefetch_related(\"customer\")"
+          - "Order.objects.select_related(\"customer\")"
+          - Add an index on customer.name
+          - Cache the page for 5 minutes
+        answer: [1]
+        explanation: "customer is a foreign key, so select_related fetches it with a JOIN in the same query: 1 query instead of 51. prefetch_related would also work but uses a second query; it is meant for many-to-many and reverse relations. An index does not remove round trips."
+      - id: q4
+        kind: multi
+        prompt: Which retry policies are safe for a payment-creation POST to a provider?
+        options:
+          - Retry on any error up to 5 times with no delay
+          - Retry with the same idempotency key, exponential backoff and jitter
+          - Retry only on connection errors that occurred before the request was sent
+          - Never retry automatically and reconcile later
+        answer: [1, 2, 3]
+        explanation: "Blind retries can create duplicate charges and hammer a struggling service. An idempotency key makes retries safe; connection failures before sending are safe because the server never saw the request; reconciliation is a valid, conservative choice. httpx transport retries, for example, cover only connection failures."
+      - id: q5
+        kind: single
+        prompt: Two concurrent requests both run `p = Product.objects.get(pk=1); p.stock -= 1; p.save()` with stock 1. What can happen and what fixes it?
+        options:
+          - Nothing; Django serialises saves
+          - Both read 1 and save 0, selling two units; use a conditional `filter(pk=1, stock__gte=1).update(stock=F("stock") - 1)` or select_for_update in a transaction
+          - A deadlock always occurs
+          - The second save raises IntegrityError automatically
+        answer: [1]
+        explanation: "Read-modify-write in application code is a lost update. Doing the decrement in SQL with a condition makes it atomic and lets you check the updated row count; select_for_update locks the row for the transaction."
+      - id: q6
+        kind: short
+        prompt: Why can one slow downstream call take down a FastAPI service that uses async def endpoints with a synchronous HTTP client?
+        model_answer: "The synchronous client blocks the event loop thread while it waits, so no other request on that worker can make progress; with a slow or hanging dependency (worse, with no timeout) all requests queue behind it and health checks fail. Use an async client with timeouts (httpx.AsyncClient), or plain def endpoints that run in the thread pool, and bound concurrency to the dependency."
+        explanation: "The answer must connect blocking I/O, the single event loop, and missing timeouts."
+
+- key: py.api.debugging
+  type: debugging_exercise
+  title: "Debugging: an orders page that slows down every week"
+  skills: [engineering.api_engineering, db.query_optimization]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    scenario: |-
+      A Django REST endpoint `GET /api/customers/{id}/orders` returns a customer's orders with item names and the shipping carrier. p95 latency was 120 ms at launch and is now 2.8 s for large customers. The database CPU is low, but the number of queries per request in the APM trace is in the hundreds. A separate ticket reports that the same customer sometimes sees duplicate orders after a timeout and retry from the mobile app.
+    symptoms:
+      - Query count per request grows with the number of orders and items.
+      - Each query is fast (under 2 ms); the total is slow.
+      - Duplicate orders appear when the client retries `POST /api/orders` after a timeout.
+    artifacts:
+      language: python
+      code: |-
+        class OrderSerializer(serializers.ModelSerializer):
+            carrier = serializers.CharField(source="shipment.carrier.name")
+            items = serializers.SerializerMethodField()
+
+            def get_items(self, order):
+                return [i.product.name for i in order.items.all()]
+
+        class CustomerOrders(generics.ListAPIView):
+            serializer_class = OrderSerializer
+            def get_queryset(self):
+                return Order.objects.filter(customer_id=self.kwargs["id"])
+    tasks:
+      - Explain where the queries come from and count them for 100 orders with 5 items each.
+      - Fix the queryset and say how many queries remain.
+      - Explain the duplicate-order bug and propose a fix at the API level.
+    hints:
+      - Which attribute accesses inside the serializer hit the database?
+      - Which relations are foreign keys and which are reverse or many relations?
+    reference: |-
+      Per order, `shipment.carrier.name` lazily loads the shipment and then the carrier (2 queries), and `order.items.all()` loads the items (1 query) and then each `i.product` (5 queries). For 100 orders that is 1 + 100 × (2 + 1 + 5) = 801 queries: an N+1 pattern nested twice.
+
+      Fix: `Order.objects.filter(customer_id=...).select_related("shipment__carrier").prefetch_related("items__product")` — the JOIN brings shipment and carrier with the orders, and the prefetch runs one query for items and one for their products, so 3 queries total regardless of size. Add pagination so the response size is bounded, and a test that asserts the query count (`django_assert_num_queries` from pytest-django or `assertNumQueries`).
+
+      Duplicates: POST is not idempotent, and the client retries after a timeout even when the first request succeeded. Accept an `Idempotency-Key` header, store it with a unique constraint alongside the created order (and the response), and on a repeat key return the original result instead of creating a new order.
+    rubric:
+      - {key: diagnosis, label: Identifies lazy loads in the serializer as nested N+1 and counts about 801 queries, points: 3}
+      - {key: fix, label: "Uses select_related for shipment__carrier and prefetch_related for items__product; 3 queries", points: 3}
+      - {key: guard, label: Adds a query-count test and pagination, points: 2}
+      - {key: idempotency, label: Explains the retry duplicate and proposes an idempotency key with a unique constraint, points: 2}
+    follow_ups:
+      - prompt: Would an index have fixed the latency?
+        look_for: "No: each query is already fast; the cost is the number of round trips. Indexes help per-query time, not query count."
+      - prompt: How would you find this in a FastAPI plus SQLAlchemy service?
+        look_for: "Enable SQL echo or an event listener counting queries per request, APM traces; fix with selectinload/joinedload; consider lazy='raise' on relationships to make accidental lazy loads fail in tests."
+
+- key: py.api.cards
+  type: revision_card
+  title: "Recall: Python backend essentials"
+  skills: [engineering.api_engineering]
+  minutes: 4
+  body:
+    cards:
+      - front: FastAPI status for a body validation error?
+        back: 422 with field-level details, before your function runs.
+      - front: Default timeout of requests? Of httpx?
+        back: requests none (waits forever); httpx 5 seconds.
+      - front: select_related vs prefetch_related?
+        back: select_related joins FK/one-to-one; prefetch_related runs a separate query for many relations.
+      - front: Blocking call inside an async def endpoint?
+        back: Stalls the event loop for every request on that worker.
+      - front: Race-free stock decrement in Django?
+        back: "filter(stock__gte=qty).update(stock=F(\"stock\") - qty) and check the row count."
+
+# ---------------------------------------------------------------------------------------------- packaging and environments
+- key: py.tooling.lesson
+  type: lesson
+  title: "Virtual environments, dependencies and packaging with pyproject.toml"
+  skills: [engineering.tooling]
+  minutes: 20
+  difficulty: EASY
+  body:
+    summary: Isolate each project in a virtual environment, declare direct dependencies with ranges in pyproject.toml, and pin the full resolved set in a lock file so every machine installs the same thing.
+    what: |-
+      - A **virtual environment** (`python -m venv .venv`) is a directory with its own `site-packages` and a `python` that uses it, isolating a project's packages from the system and from other projects.
+      - **pip** installs packages; **pip-tools**, **Poetry** and **uv** add dependency resolution into a **lock file** (exact versions of every direct and transitive dependency, often with hashes).
+      - **pyproject.toml** is the standard project file: `[build-system]` names the build backend (PEP 517/518), `[project]` holds metadata and dependencies (PEP 621), and `[tool.*]` sections configure tools like pytest, ruff and mypy.
+      - A **wheel** (`.whl`) is a built, ready-to-install package; an **sdist** is a source archive that must be built on install.
+    why: |-
+      "Works on my machine" failures are usually environment drift: a different transitive version in CI, a global package shadowing the project's, or a fresh install pulling a new major release that breaks an API. Reproducible installs make builds, Docker images and rollbacks predictable, and a clean `pyproject.toml` is what makes your project installable and testable by others.
+    when: |-
+      - One virtual environment per project, always; never `pip install` into the system Python (many Linux distributions now refuse with an "externally-managed-environment" error, PEP 668).
+      - Ranges for direct dependencies in `pyproject.toml` (`"httpx>=0.27,<1"`); exact pins in the lock file for applications and deployments.
+      - For a library you publish, keep ranges and do not ship a lock file to users; for a service, commit the lock file.
+      - `pipx` or `uv tool` for command-line tools you want globally without polluting projects.
+    how: |-
+      ```toml
+      [build-system]
+      requires = ["hatchling"]
+      build-backend = "hatchling.build"
+
+      [project]
+      name = "orders-service"
+      version = "1.4.0"
+      requires-python = ">=3.11"
+      dependencies = [
+          "fastapi>=0.110,<1",
+          "sqlalchemy>=2,<3",
+          "httpx>=0.27,<1",
+      ]
+
+      [project.optional-dependencies]
+      dev = ["pytest>=8", "ruff", "mypy"]
+
+      [project.scripts]
+      orders = "orders_service.cli:main"      # installs an "orders" command
+
+      [tool.pytest.ini_options]
+      testpaths = ["tests"]
+      ```
+
+      Typical workflows:
+
+      ```bash
+      # plain venv + pip
+      python -m venv .venv && . .venv/bin/activate
+      python -m pip install -e ".[dev]"          # editable install of the project plus dev extras
+
+      # uv (Astral): fast resolver, manages venv and uv.lock
+      uv add httpx                                # updates pyproject.toml and uv.lock
+      uv sync                                     # makes .venv match the lock file exactly
+      uv run pytest
+
+      # Poetry: poetry add httpx / poetry install, lock in poetry.lock
+      ```
+
+      In Docker, copy `pyproject.toml` and the lock file first, install dependencies, then copy the source, so code changes do not invalidate the dependency layer.
+    mental_model: |-
+      Two lists: what you **asked for** (direct dependencies with acceptable ranges, in pyproject.toml) and what you **got** (every package at an exact version, in the lock file). Humans edit the first; tools regenerate the second; deployments install only from the second.
+    tradeoffs: |-
+      Tight pins give reproducibility but need regular, deliberate upgrades (Dependabot or Renovate plus CI) or security fixes are missed. Loose ranges without a lock give automatic fixes and surprise breakages. Plain pip plus requirements files is universal but resolution and locking are manual; Poetry and uv give integrated locking with their own conventions; uv is very fast, which matters in CI. Editable installs are convenient in development but differ from how the package is installed in production.
+    mistakes:
+      - "Installing into the system interpreter or a global environment shared by several projects."
+      - "Running `pip` from a different interpreter than the project's; use `python -m pip` with the venv's python."
+      - "Committing the `.venv` directory instead of the lock file."
+      - "Pinning nothing (`fastapi`) in an application, so a new major release changes behaviour on the next build."
+      - "Using `pip freeze > requirements.txt` from a dirty environment, which locks in leftover packages."
+      - "Copying the whole source before installing dependencies in a Dockerfile, so every code change reinstalls everything."
+    interview: |-
+      Usually asked in project discussions: "how do you manage dependencies and environments?", "how do you make builds reproducible?", "what goes into your Docker image?", or "a deploy broke because of a dependency; what happened?". Good answers distinguish declared ranges from the lock file, mention CI installing from the lock, regular upgrade cadence, and Docker layer ordering.
+    explain_it:
+      - Explain what a virtual environment isolates and how you create it.
+      - Separate declared dependencies from the lock file and say who edits each.
+      - Show the pyproject.toml sections and what each is for.
+      - Describe how CI and Docker install exactly the locked set.
+    internals: |-
+      A venv contains a `pyvenv.cfg` pointing at the base interpreter, a `bin/` (or `Scripts\` on Windows) with a `python` link and scripts, and its own `site-packages`. Activation only prepends `bin/` to `PATH`; running `.venv/bin/python` directly has the same effect. Inside a venv `sys.prefix` differs from `sys.base_prefix`. The `~=` specifier means compatible release: `~=2.1` allows `>=2.1` and `<3`.
+    edge_cases:
+      - "Packages with C extensions need a matching wheel for your platform and Python version, or a compiler to build the sdist; slim Docker images often lack one."
+      - "Newer tools also support `[dependency-groups]` (PEP 735) for dev-only dependencies that are not published as extras."
+
+- key: py.tooling.check
+  type: concept_check
+  title: "Concept check: environments and dependencies"
+  skills: [engineering.tooling]
+  minutes: 8
+  difficulty: EASY
+  body:
+    intro: Think about what each file or command controls.
+    questions:
+      - id: q1
+        kind: single
+        prompt: A service's pyproject.toml lists `httpx>=0.27,<1`. CI installed a different httpx patch release from the developer's laptop and a test broke. What prevents this?
+        options:
+          - Removing the upper bound
+          - Installing from a committed lock file (uv.lock, poetry.lock or a compiled requirements file) in both places
+          - Using a newer pip
+          - Running tests twice
+        answer: [1]
+        explanation: "The range allows many versions; a lock file records the exact resolved versions (and usually hashes) of every dependency, so every install is identical. Removing the bound makes drift worse."
+      - id: q2
+        kind: single
+        prompt: "On Ubuntu 24.04, `pip install requests` with the system Python fails with \"externally-managed-environment\". Correct fix?"
+        options:
+          - "pip install --break-system-packages requests"
+          - "sudo pip install requests"
+          - Create a virtual environment (or use pipx/uv tool for CLI apps) and install there
+          - Delete the EXTERNALLY-MANAGED file
+        answer: [2]
+        explanation: "PEP 668 lets distributions protect the system Python, which the OS itself depends on. Installing into a venv keeps the project isolated; the override flag and sudo can break system tools."
+      - id: q3
+        kind: multi
+        prompt: Which belong in a service's repository?
+        options:
+          - pyproject.toml
+          - The lock file
+          - The .venv directory
+          - Tool configuration such as [tool.pytest.ini_options]
+        answer: [0, 1, 3]
+        explanation: "Declarations, the lock and tool config are source; the venv is a machine-specific build artefact that can be recreated from them and should be ignored."
+      - id: q4
+        kind: single
+        prompt: Why does `python -m pip install ...` beat a bare `pip install ...`?
+        options:
+          - It is faster
+          - It guarantees pip installs into the environment of that exact python interpreter
+          - It skips dependency resolution
+          - It installs packages globally
+        answer: [1]
+        explanation: "A bare `pip` on PATH may belong to a different interpreter than the one you run, so packages land in the wrong place. `python -m pip` ties the install to the interpreter you name."
+      - id: q5
+        kind: single
+        prompt: In a Dockerfile, which order keeps rebuilds fast when only application code changes?
+        options:
+          - Copy all source, then install dependencies
+          - Copy pyproject.toml and the lock file, install dependencies, then copy the source
+          - Install dependencies at container start
+          - Use a separate Dockerfile per dependency
+        answer: [1]
+        explanation: "Docker caches layers until an input changes. If dependency files are copied and installed before the source, code changes reuse the cached dependency layer. Installing at start makes every container start slow and non-reproducible."
+      - id: q6
+        kind: short
+        prompt: Explain the difference between the dependency list in pyproject.toml and a lock file, and which one a published library should constrain tightly.
+        model_answer: "pyproject.toml declares direct dependencies with acceptable version ranges, edited by humans; the lock file is generated by the resolver and pins every direct and transitive dependency to an exact version for reproducible installs. An application commits and deploys from the lock file. A library should keep reasonably wide ranges in pyproject.toml and not force pins on its users, because the user's application resolves everything together."
+        explanation: "Applications lock; libraries declare compatible ranges."
+
+- key: py.tooling.interview
+  type: interview_question
+  title: "Interview question: a deploy broke because of a dependency"
+  skills: [engineering.tooling]
+  minutes: 10
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 600}
+  body:
+    prompt: "Your Python service's Docker image was rebuilt for an unrelated config change and the new deploy started failing with an AttributeError deep inside a third-party library. Nothing in your code changed. Explain what probably happened, how you recover now, and how you prevent it."
+    key_points:
+      - "Diagnoses an unpinned or range-only dependency (often transitive) resolving to a new release during the rebuild."
+      - "Recovers by rolling back to the previous image, then compares installed versions (pip freeze or the lock diff) between the two images."
+      - "Prevents with a committed lock file used by Docker and CI, ideally with hashes."
+      - "Adds a controlled upgrade path: automated dependency PRs that run the test suite, and staged rollout."
+      - "Mentions keeping images immutable and tagged so rollback is a redeploy, not a rebuild."
+    model_answer: "The rebuild re-resolved dependencies. Some package, probably transitive, was not pinned, so it moved to a new release with a breaking change. First I roll back to the previous image tag, which still has the old versions. Then I diff pip freeze output from both images to find the package and version. The fix is to install from a lock file (uv.lock, poetry.lock, or pip-compile output with hashes) in the Dockerfile and CI so rebuilds are reproducible, and to upgrade deliberately through automated PRs that run tests. Images are immutable and tagged by commit so rollback never needs a rebuild."
+    pitfalls:
+      - Fixing it by pinning only the one package that broke, leaving every other transitive dependency floating.
+      - Rebuilding the old commit and expecting the old versions.
+    follow_ups:
+      - prompt: How do you keep up with security fixes if everything is pinned?
+        look_for: "Automated dependency update PRs (Dependabot or Renovate), vulnerability scanning (pip-audit), and a regular upgrade cadence with CI as the gate."
+      - prompt: What would you check if the error appeared only on ARM machines?
+        look_for: "Platform-specific wheels: a missing wheel built from source, or a different binary; lock files with per-platform hashes and building images per architecture."
+
+- key: py.tooling.cards
+  type: revision_card
+  title: "Recall: Python environments and packaging"
+  skills: [engineering.tooling]
+  minutes: 4
+  body:
+    cards:
+      - front: Create a virtual environment?
+        back: python -m venv .venv, then use .venv/bin/python (activation just edits PATH).
+      - front: pyproject.toml vs lock file?
+        back: Declared ranges for direct dependencies vs exact versions of everything resolved.
+      - front: Meaning of `~=2.1`?
+        back: Compatible release — at least 2.1 and below 3.
+      - front: "Error \"externally-managed-environment\"?"
+        back: The system Python is protected (PEP 668); install into a venv.

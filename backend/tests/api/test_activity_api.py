@@ -329,9 +329,9 @@ def test_seed_cannot_take_over_a_personal_problem(
     from tests.catalog_helpers import bump_version, copy_seed
 
     def add_same(raw: dict[str, Any]) -> None:
-        bump_version(raw, "seed-v2")
+        bump_version(raw, "seed-v3")
         problems = raw["problem_catalog"]["problems"]
-        problems.append({**problems[0], "id": 45, "platform_key": "valid-anagram", "title": "Valid Anagram"})
+        problems.append({**problems[0], "id": 900, "platform_key": "valid-anagram", "title": "Valid Anagram"})
 
     seed = copy_seed(tmp_path, mutate=add_same)
     lock_seed_dir(seed)

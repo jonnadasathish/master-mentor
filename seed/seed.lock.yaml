@@ -10,3 +10,13 @@ seed-v1:
     roadmap: a069985f744175ea92509618aa5305de75f371d30b2c13b943e93267ed214e2c
     role_profile:backend_fullstack_sde2: 5864dc27e467972849de309ede768f2fad0a0fdcd0cb181d4c5eaf0534c545bf
     skill_graph: ddf556eafa86c50cbce2d8317964da38a02da009f6b459cd91b1fdf6a987702d
+seed-v2:
+  catalog: f45499f384ae49fe86326f9342588aa5042a050cd3fd185d1ef91d2f802aa3e0
+  files:
+    learning:curriculum: 614b27605d1cae1ea33e2cec5ec2a8293142be99f4272c9f20812ee01c16c19b
+    learning:dsa_method: ce93167652b6e399ad276725c08288eb73a955de5e3aeda7945039521c954c7c
+    mission_templates: 6e8420bf588746dc67cfd2527ee72cbbe6843e195b65cdadc6449c8f47434551
+    problem_catalog: 1de9661cac3f52f29b1dcc8543fdbe9d31bd3aa9e41ca9dcf8f1a2cfa62e28af
+    roadmap: fa4261c7dd1436b3ffeb2823349d4851ce72c16b202137bd8c8ea2a20c50cfd6
+    role_profile:backend_fullstack_sde2: 1823bdfef48687b6e770121d54df035cead109aefa27ea788d5e07e24304884f
+    skill_graph: f9d2feb2568f8bb8400f8b81d2141bb0f42efbc8e4a069ed802638286473856e

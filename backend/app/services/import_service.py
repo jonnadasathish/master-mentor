@@ -45,6 +45,8 @@ IMPORT_ORDER: Final = (
     "daily_plans",
     "plan_items",
     "weekly_reviews",
+    "learning_sessions",
+    "learning_session_steps",
     "audit_log",
 )
 SKIPPED: Final = (
@@ -59,6 +61,7 @@ SKILL_FK: Final = {
     "story_competencies",
     "assessment_prompts",
     "plan_items",
+    "learning_sessions",
 }
 # Goals are configuration (kept by dev-reset); an export that carries goals replaces them.
 CONFIGURATION_TABLES: Final = ("app_settings", "starting_profile", "goals")

@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
 import type { HttpClient } from '../../api/client'
 import { ApiError } from '../../api/client'
-import type { Effects, PlanItem } from '../../api/types'
+import type { Effects, PlanItem, PlanLearning } from '../../api/types'
+import { openSession } from '../../learning/session'
 import { formatMinutes } from '../../presentation/format'
+import { CONTENT_TYPE_LABEL } from '../../presentation/learning'
 import { tidyCriteria } from '../../presentation/text'
 import { recordLabel, type MissionText } from '../../presentation/mission'
 import Icon from '../common/Icon.vue'
@@ -29,6 +31,8 @@ const props = defineProps<{
   /** Set when the mission cannot be started yet (e.g. a prerequisite comes first). */
   blockedReason?: string | null
   now?: () => number
+  /** The learning session that fills this mission, when the library has content for it (D-083). */
+  learning?: PlanLearning | null
 }>()
 const emit = defineEmits<{ changed: []; completed: [effects?: Effects] }>()
 
@@ -36,7 +40,24 @@ const SKIP_REASONS = [
   ['NO_TIME', 'No time today'], ['TOO_HARD', 'Too hard right now'], ['NOT_RELEVANT', 'Not relevant'], ['OTHER', 'Other'],
 ] as const
 
+const router = useRouter()
+const opening = ref(false)
 const clock = () => (props.now ? props.now() : Date.now())
+
+/** Open (or resume) the session for this mission; finishing it completes the mission. */
+async function openLearning(): Promise<void> {
+  if (!props.learning || !props.item.skill) return
+  opening.value = true
+  error.value = ''
+  try {
+    if (props.learning.session_id !== null) await router.push({ name: 'session', params: { id: props.learning.session_id } })
+    else await openSession(router, { skill: props.item.skill, stage: props.learning.stage, plan_item_id: props.item.id })
+  } catch (caught) {
+    error.value = caught instanceof ApiError ? caught.message : String(caught)
+  } finally {
+    opening.value = false
+  }
+}
 const localStart = ref<number | null>(null)
 const tick = ref(0)
 const logging = ref(false)
@@ -309,20 +330,53 @@ onBeforeUnmount(() => timer && clearInterval(timer))
       </p>
 
       <div
+        v-if="learning && (phase === 'not-started' || phase === 'in-progress')"
+        class="session-preview"
+        :data-testid="`session-preview-${item.position}`"
+      >
+        <p class="eyebrow">
+          This mission's session · {{ formatMinutes(learning.minutes) }}
+        </p>
+        <ol>
+          <li
+            v-for="s in learning.steps"
+            :key="s.position"
+          >
+            {{ s.title }}
+            <span class="muted">· {{ s.kind === 'REFLECTION' ? 'reflection' : s.kind === 'PROBLEM' ? 'problem' : CONTENT_TYPE_LABEL[s.content_type ?? 'lesson'].toLowerCase() }}, {{ formatMinutes(s.minutes) }}</span>
+          </li>
+        </ol>
+      </div>
+
+      <div
         v-if="phase !== 'blocked'"
         class="actions"
       >
         <button
-          v-if="phase === 'not-started'"
+          v-if="learning && (phase === 'not-started' || phase === 'in-progress')"
           type="button"
           class="btn btn-primary btn-lg"
+          :disabled="opening"
+          :data-testid="`open-session-${item.position}`"
+          @click="openLearning"
+        >
+          <Icon
+            name="book"
+            :size="14"
+          /> {{ learning.session_id !== null ? 'Continue the session' : 'Start the session' }}
+        </button>
+        <button
+          v-if="phase === 'not-started'"
+          type="button"
+          class="btn btn-lg"
+          :class="learning ? 'btn-ghost' : 'btn-primary'"
           :data-testid="`start-${item.position}`"
           @click="start"
         >
           <Icon
             name="play"
             :size="14"
-          /> Start
+          /> {{ learning ? 'Do it my way' : 'Start' }}
         </button>
         <template v-if="phase === 'in-progress'">
           <RouterLink
@@ -511,4 +565,6 @@ onBeforeUnmount(() => timer && clearInterval(timer))
   .index { min-width: 1.6rem; }
   .actions .btn-primary { flex: 1 1 100%; }
 }
+.session-preview { display: grid; gap: var(--s-1); padding: var(--s-3); border-radius: var(--r-md); background: var(--accent-soft); }
+.session-preview ol { list-style: decimal; padding-left: var(--s-5); display: grid; gap: 2px; font-size: var(--fs-sm); }
 </style>

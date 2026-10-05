@@ -16,14 +16,14 @@ def ok(client: TestClient, path: str, **params: Any) -> dict[str, Any]:
     assert response.status_code == 200, response.text
     body = response.json()
     assert set(body) == {"data", "meta"}
-    assert body["meta"]["seed_version"] == "seed-v1"
+    assert body["meta"]["seed_version"] == "seed-v2"
     return body
 
 
 def test_summary_exposes_versions_fingerprints_and_counts(seeded_client: TestClient) -> None:
     data = ok(seeded_client, "")["data"]
-    assert data["seed_version"] == "seed-v1" and len(data["catalog_fingerprint"]) == 64
-    assert data["versions"]["catalog_version"].startswith("seed-v1+")
+    assert data["seed_version"] == "seed-v2" and len(data["catalog_fingerprint"]) == 64
+    assert data["versions"]["catalog_version"].startswith("seed-v2+")
     assert set(data["versions"]) == {
         "catalog_version",
         "skill_graph_version",
@@ -181,4 +181,4 @@ def test_catalog_not_loaded_is_a_409(db_client_empty_catalog: TestClient) -> Non
 
 
 def test_health_reports_loaded_seed_version(seeded_client: TestClient) -> None:
-    assert seeded_client.get("/api/v1/health").json()["data"]["seed_version"] == "seed-v1"
+    assert seeded_client.get("/api/v1/health").json()["data"]["seed_version"] == "seed-v2"

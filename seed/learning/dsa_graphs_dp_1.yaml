@@ -1,0 +1,963 @@
+# Learning content: graph representation and traversal (BFS/DFS, components), grids and multi-source BFS, cycles and bipartite checks.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- graph traversal
+- key: dsa.graph_traversal.lesson
+  type: lesson
+  title: Graphs from representation to BFS, DFS and components
+  skills: [graph.traversal]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Store the graph as an adjacency list, then visit every reachable node exactly once with BFS (a queue) or DFS (a stack or recursion) in O(V + E).
+    what: |-
+      A graph is a set of **vertices** (V of them) joined by **edges** (E of them). Edges are **directed** (`u → v` only) or **undirected** (both ways), and may carry a **weight**. Trees, grids, word ladders, dependency lists and social networks are all graphs.
+
+      Three ways to store one:
+
+      - **Adjacency list** `dict[node, list[node]]`: space O(V + E), iterating a node's neighbours costs its degree. The default choice.
+      - **Adjacency matrix** `V × V` booleans: space O(V²), "is there an edge u–v?" in O(1), but listing neighbours costs O(V) per node.
+      - **Edge list** `[(u, v, w), ...]`: what inputs usually give you, and what Kruskal sorts. Convert it to an adjacency list before traversing.
+
+      **Traversal** means visiting every node reachable from a start. **BFS** (breadth-first) explores in rings of increasing distance using a FIFO queue. **DFS** (depth-first) follows one path as deep as possible before backtracking, using recursion or an explicit stack. A **connected component** is a maximal set of nodes that can all reach each other (in an undirected graph).
+    why: |-
+      Graphs model "things plus relationships", so a large share of interview problems reduce to "build the graph, then traverse it": counting islands, cloning a graph, checking whether two accounts are linked, finding the fewest transformations between two words. The two traversals are the base layer for almost every other graph algorithm: cycle detection, topological sort and bipartite checks are DFS or BFS with extra bookkeeping, and Dijkstra is BFS with a priority queue.
+    when: |-
+      - "Can A reach B?", "how many groups?", "visit everything connected to X": either traversal.
+      - "Fewest steps / moves / hops" when every edge costs the same: **BFS**, because it reaches nodes in order of distance.
+      - Exhaustive path exploration, post-order work (finishing times, subtree results), cycle detection with colours: **DFS**.
+      - The input is an edge list, a dependency list, a matrix of friendships or a grid: build or imply an adjacency list first.
+    how: |-
+      Build an adjacency list from an undirected edge list (add both directions):
+
+      ```python
+      from collections import defaultdict, deque
+
+      def build(n, edges):
+          adj = defaultdict(list)
+          for u, v in edges:
+              adj[u].append(v)
+              adj[v].append(u)        # omit this line for a directed graph
+          return adj
+      ```
+
+      **BFS** with a `deque`. Mark a node as seen **when it is enqueued**, not when it is dequeued, so it can never sit in the queue twice:
+
+      ```python
+      def bfs(adj, start):
+          dist = {start: 0}
+          queue = deque([start])
+          while queue:
+              u = queue.popleft()               # O(1); list.pop(0) would be O(n)
+              for v in adj[u]:
+                  if v not in dist:             # the dict doubles as the visited set
+                      dist[v] = dist[u] + 1
+                      queue.append(v)
+          return dist                           # fewest edges from start to each reachable node
+      ```
+
+      **DFS**, recursive and iterative:
+
+      ```python
+      def dfs(adj, u, seen):
+          seen.add(u)
+          for v in adj[u]:
+              if v not in seen:
+                  dfs(adj, v, seen)
+
+      def dfs_iterative(adj, start):
+          seen, stack = {start}, [start]
+          while stack:
+              u = stack.pop()
+              for v in adj[u]:
+                  if v not in seen:
+                      seen.add(v)
+                      stack.append(v)
+          return seen
+      ```
+
+      **Components**: loop over every node, and start a traversal from each node not yet seen. The number of starts is the number of components. Iterate over `range(n)`, not over the keys of `adj`, or isolated nodes with no edges are never counted.
+    mental_model: |-
+      BFS is a ripple in a pond: the start is ring 0, its neighbours ring 1, their unseen neighbours ring 2. Because the queue is first-in first-out, every ring-k node leaves before any ring-(k+1) node, which is why the first time BFS reaches a node is along a shortest path. DFS is a person in a maze with chalk: keep walking into unmarked corridors, and back up when every corridor from here is marked. The visited set is the chalk, and it is what makes both traversals finish on graphs with cycles.
+    tradeoffs: |-
+      BFS needs memory for the widest ring (O(V) in the worst case, e.g. a star graph) but gives shortest paths in unweighted graphs. DFS needs memory for the deepest path (O(V) on a long chain), and recursive DFS in CPython hits the default recursion limit of 1000 frames, so for inputs that may be deep (a 10⁵-node path, a 1000 × 1000 grid) use the iterative version. The iterative stack version visits nodes in a different order from the recursive one; that is fine for reachability and counting, but not when you need true DFS order (finishing times, topological order).
+
+      Adjacency list vs matrix: for sparse graphs (E close to V) the list wins on space and on traversal time, O(V + E) against O(V²). A matrix only pays off for dense graphs or when you mostly ask "is u connected to v?".
+    mistakes:
+      - Marking visited on dequeue instead of enqueue, so the same node is pushed many times and the queue grows towards O(E).
+      - Forgetting the visited set entirely on a graph with cycles, which loops forever.
+      - "Using `list.pop(0)` as a queue: each pop shifts the list, making BFS O(V²). Use `collections.deque`."
+      - Adding only one direction of an undirected edge, so some nodes become unreachable.
+      - Counting components by looping over the adjacency dict, which silently skips isolated nodes.
+      - Recursive DFS on a deep input, which raises RecursionError in CPython at the default limit of 1000.
+      - Using DFS to find a shortest path in an unweighted graph; the first path DFS finds is not necessarily the shortest.
+    interview: |-
+      Say the representation out loud ("I'll build an adjacency list; V nodes, E edges"), say which traversal and why ("BFS, because I need the fewest moves"), and give O(V + E) time and O(V) space before coding. Interviewers check that you mark visited at the right moment, that you handle disconnected graphs, and that you can reconstruct a path, not just its length. Common follow-ups: return the path itself, run bidirectional BFS, handle a graph too large to build up front (generate neighbours lazily, as in word ladder).
+    explain_it:
+      - Name V and E and the representation, with its space cost.
+      - Say which traversal fits and why (shortest unweighted path means BFS).
+      - Say when a node is marked visited and why that bounds the work.
+      - "Give the complexity: each node enters the queue or stack once and each adjacency list is scanned once, so O(V + E) time and O(V) extra space."
+    example:
+      language: python
+      code: |-
+        from collections import deque
+
+        def count_components(n: int, edges: list[tuple[int, int]]) -> int:
+            adj: list[list[int]] = [[] for _ in range(n)]
+            for u, v in edges:
+                adj[u].append(v)
+                adj[v].append(u)
+            seen = [False] * n
+            components = 0
+            for start in range(n):              # every node, including isolated ones
+                if seen[start]:
+                    continue
+                components += 1
+                seen[start] = True
+                queue = deque([start])
+                while queue:
+                    u = queue.popleft()
+                    for v in adj[u]:
+                        if not seen[v]:
+                            seen[v] = True
+                            queue.append(v)
+            return components
+      explanation: "count_components(5, [(0, 1), (1, 2), (3, 4)]) == 2. Every node is enqueued once and every edge is looked at twice (once from each end), so O(V + E) time and O(V + E) space for the lists."
+    complexity: O(V + E) time with an adjacency list, O(V²) with a matrix; O(V) extra space for the visited set and the queue or stack.
+    internals: |-
+      Why O(V + E): the visited check guarantees each vertex is pushed at most once, so the outer loop runs V times; when a vertex is popped, its adjacency list is scanned once, and the lengths of all lists add up to E (directed) or 2E (undirected). Why BFS gives shortest paths: by induction, when the first node at distance k is dequeued, every node at distance less than k has already been dequeued and every node at distance k is already queued or about to be, so a node is first discovered from a node one step closer to the start.
+    edge_cases:
+      - Start node with no edges, or a graph with zero edges.
+      - Self-loops and duplicate edges in the input.
+      - Disconnected graph where the target is unreachable (return -1 or an empty path, not a crash).
+      - Node labels that are strings or tuples rather than 0..n-1; use a dict for the adjacency list and the visited set.
+    misconceptions:
+      - DFS is not "faster" than BFS; both are O(V + E). They differ in order and in memory shape.
+      - A visited set is needed in any graph with cycles, including every undirected graph with more than one edge per node; only trees can skip it (by tracking the parent).
+- key: dsa.graph_traversal.visual
+  type: visual_explanation
+  title: "Visual: BFS discovers the graph ring by ring"
+  skills: [graph.traversal]
+  minutes: 6
+  body:
+    summary: BFS from node 0 on a six-node graph. The queue always holds the rest of the current ring followed by the start of the next ring, so distances come out in increasing order.
+    frames:
+      - caption: The graph and its adjacency list. Start at 0 with distance 0.
+        diagram: |-
+          0 ─── 1 ─── 3            adj = {0: [1, 2], 1: [0, 3, 4],
+          │     │     │                   2: [0, 4], 3: [1, 5],
+          2 ─── 4     5                   4: [1, 2], 5: [3]}
+
+          queue: [0]        dist: {0: 0}
+      - caption: Pop 0. Its unseen neighbours 1 and 2 join ring 1 and are marked on enqueue.
+        diagram: |-
+          ring 0:  0
+          ring 1:  1  2
+
+          queue: [1, 2]     dist: {0: 0, 1: 1, 2: 1}
+      - caption: Pop 1. Neighbour 0 is already seen; 3 and 4 join ring 2.
+        diagram: |-
+          ring 0:  0
+          ring 1:  1  2
+          ring 2:  3  4
+
+          queue: [2, 3, 4]  dist: {..., 3: 2, 4: 2}
+      - caption: Pop 2. Both neighbours (0 and 4) are seen, so nothing is added. Marking 4 on enqueue stopped it from being queued twice.
+        diagram: |-
+          pop 2 → neighbours 0 (seen), 4 (seen) → no change
+
+          queue: [3, 4]
+      - caption: Pop 3 adds 5 at distance 3. Popping 4 and 5 adds nothing. Every node was enqueued once and every adjacency list was read once.
+        diagram: |-
+          ring 0:  0
+          ring 1:  1  2
+          ring 2:  3  4
+          ring 3:  5
+
+          final dist: {0: 0, 1: 1, 2: 1, 3: 2, 4: 2, 5: 3}
+          visit order: 0 1 2 3 4 5       work: 6 pops + 12 neighbour checks = O(V + E)
+- key: dsa.graph_traversal.check
+  type: concept_check
+  title: "Concept check: graph representation and traversal"
+  skills: [graph.traversal]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: "Use this adjacency list for the tracing questions: `adj = {0: [1, 2], 1: [0, 3, 4], 2: [0, 4], 3: [1, 5], 4: [1, 2], 5: [3]}`."
+    questions:
+      - id: q1
+        kind: single
+        prompt: What does this recursive DFS print, starting from 0?
+        code:
+          language: python
+          code: |-
+            def dfs(u, seen):
+                seen.add(u)
+                print(u, end=" ")
+                for v in adj[u]:
+                    if v not in seen:
+                        dfs(v, seen)
+
+            dfs(0, set())
+        options: ["0 1 2 3 4 5", "0 1 3 5 4 2", "0 2 4 1 3 5", "0 1 3 4 5 2"]
+        answer: [1]
+        explanation: "DFS goes deep first: 0 → 1 → 3 → 5, backs up to 1 and takes 4, and from 4 reaches 2. `0 1 2 3 4 5` is the BFS order (ring by ring), and `0 2 4 1 3 5` is what an explicit-stack DFS produces because it pops the last-pushed neighbour first."
+      - id: q2
+        kind: single
+        prompt: What is the time complexity of BFS on a graph stored as a V × V adjacency matrix?
+        options: ["O(V + E)", "O(V²)", "O(E log V)", "O(V)"]
+        answer: [1]
+        explanation: "Finding the neighbours of one node means scanning its whole row, O(V), and that happens for each of the V nodes: O(V²) no matter how few edges exist. O(V + E) is the adjacency-list bound."
+      - id: q3
+        kind: single
+        prompt: This BFS marks nodes when they are dequeued. On a graph where many nodes point to the same node x, what goes wrong?
+        code:
+          language: python
+          code: |-
+            def bfs(adj, start):
+                seen, queue = set(), deque([start])
+                while queue:
+                    u = queue.popleft()
+                    seen.add(u)
+                    for v in adj[u]:
+                        if v not in seen:
+                            queue.append(v)
+        options:
+          - Nothing; it is equivalent to marking on enqueue
+          - x is appended once per already-dequeued neighbour, and each extra copy re-scans x's neighbours
+          - It misses x entirely
+          - It raises an exception when x is popped twice
+        answer: [1]
+        explanation: "Until x is dequeued it is not in `seen`, so every neighbour processed before then appends another copy, and each copy re-adds x and re-scans its list. The result is still reachability-correct, which is why the bug survives small tests, but the queue can grow to O(E) entries and the work multiplies. Marking on enqueue guarantees one entry per node."
+      - id: q4
+        kind: multi
+        prompt: In which situations does plain BFS give the minimum cost from the start?
+        options:
+          - Fewest moves in an unweighted graph
+          - Fewest steps in a grid where every move costs one
+          - Cheapest route when edges have different positive weights
+          - Fewest single-letter changes to turn one word into another, each change costing one
+        answer: [0, 1, 3]
+        explanation: "BFS minimises the number of edges, which equals the cost only when all edges cost the same. With different weights a path with more edges can be cheaper, so you need Dijkstra (or 0-1 BFS when weights are only 0 and 1)."
+      - id: q5
+        kind: single
+        prompt: "You run the recursive DFS above on a path graph 0 – 1 – 2 – … – 99999 in CPython with default settings. What happens?"
+        options:
+          - It finishes in O(V) time
+          - It raises RecursionError
+          - It runs in O(V²) time
+          - It visits only the first half of the nodes
+        answer: [1]
+        explanation: "The call depth equals the path length, 10⁵, and CPython's default recursion limit is 1000 frames, so it raises RecursionError. The algorithm is O(V); the runtime limit is the problem. Use an explicit stack, or BFS if order does not matter."
+      - id: q6
+        kind: short
+        prompt: "You are given n nodes labelled 0..n-1 and an undirected edge list. Describe how you count connected components, and the trap with nodes that have no edges."
+        model_answer: "Build an adjacency list of size n, keep a visited array, and loop start over range(n). Each time start is unvisited, increment the count and BFS or DFS from it, marking everything reached. Loop over range(n), not over the keys of the adjacency dict, because isolated nodes never appear as keys and would not be counted. O(V + E) time, O(V + E) space. Union-find is an equivalent alternative: start at n and decrement on every successful union."
+        explanation: The isolated-node trap is the most common wrong answer on component counting; the number of components is at least n minus the number of edges.
+- key: dsa.graph_traversal.exercise
+  type: coding_exercise
+  title: "Exercise: fewest hops with the path itself"
+  skills: [graph.traversal, queue.deque]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 1200}
+  body:
+    prompt: |-
+      A network has `n` routers labelled `0..n-1` and a list of undirected links. Write `fewest_hops(n, links, src, dst)` that returns one shortest route from `src` to `dst` as a list of routers (including both ends), or an empty list if `dst` is unreachable. Every link counts as one hop. State the time and space complexity.
+    examples:
+      - "fewest_hops(5, [(0, 1), (1, 2), (0, 3), (3, 2), (2, 4)], 0, 4) returns a 4-router route such as [0, 1, 2, 4]"
+      - "fewest_hops(3, [(0, 1)], 0, 2) == []"
+      - "fewest_hops(1, [], 0, 0) == [0]"
+    constraints:
+      - Up to 10⁵ routers and 2 × 10⁵ links.
+      - Links may repeat; there are no self-loops.
+    hints:
+      - Equal hop cost means BFS gives the shortest route.
+      - Store, for every discovered router, the router you discovered it from.
+      - Walk the parent links back from dst to src, then reverse.
+    solution:
+      language: python
+      code: |-
+        from collections import deque
+
+        def fewest_hops(n, links, src, dst):
+            adj = [[] for _ in range(n)]
+            for u, v in links:
+                adj[u].append(v)
+                adj[v].append(u)
+            parent = [-1] * n
+            seen = [False] * n
+            seen[src] = True
+            queue = deque([src])
+            while queue:
+                u = queue.popleft()
+                if u == dst:
+                    break                      # first time dst is dequeued its distance is final
+                for v in adj[u]:
+                    if not seen[v]:
+                        seen[v] = True
+                        parent[v] = u
+                        queue.append(v)
+            if not seen[dst]:
+                return []
+            path = [dst]
+            while path[-1] != src:
+                path.append(parent[path[-1]])
+            return path[::-1]
+      explanation: BFS discovers each router from a router one hop closer to src, so following parent pointers from dst gives a shortest route. O(V + E) time and O(V + E) space.
+    rubric:
+      - {key: bfs_choice, label: Chooses BFS and says why (equal edge cost), points: 2}
+      - {key: visited_on_enqueue, label: Marks routers as seen when enqueued so none is queued twice, points: 2}
+      - {key: parent_map, label: Records parents and reconstructs the route in the right order, points: 3}
+      - {key: unreachable, label: "Handles unreachable dst and src == dst", points: 2}
+      - {key: complexity, label: "States O(V + E) time and O(V + E) space", points: 1}
+    follow_ups:
+      - prompt: How would bidirectional BFS help, and when does it pay off?
+        look_for: "Search from both ends and stop when the frontiers meet; with branching factor b and distance d it explores about 2·b^(d/2) nodes instead of b^d. Expand the smaller frontier each step."
+      - prompt: What if each link had a latency and you wanted the fastest route?
+        look_for: Hop count no longer equals cost; switch to Dijkstra with a min-heap, O((V + E) log V), assuming non-negative latencies.
+- key: dsa.graph_traversal.interview
+  type: interview_question
+  title: "Interview question: degrees of separation in a social graph"
+  skills: [graph.traversal]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    prompt: "A social product stores friendships as undirected pairs of user ids. Explain how you would answer \"how many hops separate user A from user B, and through whom?\" Cover the representation, the traversal you choose and why, the complexity, and what you would do when the graph is very large. No full code needed."
+    key_points:
+      - Builds an adjacency list keyed by user id (a dict of lists or sets), O(V + E) space, and explains why not a matrix (sparse graph, V² is huge).
+      - Chooses BFS because every friendship is one hop and BFS reaches users in order of distance; rejects DFS for shortest paths.
+      - Marks users visited on enqueue and keeps a parent map to return the chain of intermediaries.
+      - "States O(V + E) time and O(V) extra space in the worst case, and stops early when B is dequeued."
+      - Proposes bidirectional BFS for large graphs, expanding the smaller frontier, and explains the reduction from about b^d to about 2·b^(d/2) nodes.
+    model_answer: |-
+      I would hold friendships as a dict from user id to a set of friend ids, which costs O(V + E) memory; a matrix would cost V² and almost all of it would be empty. Every friendship is one hop, so BFS from A finds the minimum number of hops: it reaches users ring by ring, and the first time B is dequeued its distance is final. I mark users when I enqueue them so nobody is processed twice, and I store each user's parent so I can walk back from B to A and return the chain. That is O(V + E) time in the worst case and O(V) extra space, and in practice it stops early.
+
+      On a very large graph a single BFS frontier explodes, because social graphs have a high branching factor. Bidirectional BFS runs one search from A and one from B, always expanding the smaller frontier, and stops when they meet. With branching factor b and distance d that explores about 2·b^(d/2) users instead of b^d. If friendships live in a database, I would fetch neighbours lazily per frontier, batching the lookups, and cap the depth because the answer only matters up to a few hops.
+    pitfalls:
+      - Proposing DFS and claiming it finds the shortest chain.
+      - Forgetting the parent map, so only the number of hops can be returned.
+      - Using a list as the queue, which makes each pop O(n).
+    follow_ups:
+      - prompt: How do you know where the two frontiers of bidirectional BFS meet, and is the first meeting point always on a shortest path?
+        look_for: "Check each newly discovered node against the other side's visited map; expand one complete level at a time, and when a meeting is found finish that level and take the minimum distA + distB, because a node discovered later in the same level can give a shorter total."
+      - prompt: Friendships change constantly. Would you precompute anything?
+        look_for: "Usually no full precomputation; per-query BFS with a depth cap. Caching neighbour sets or maintaining a small landmark-distance index are options, with staleness traded against cost."
+      - prompt: How would the answer change if the relationship were "follows" instead of "friends"?
+        look_for: The graph becomes directed; BFS follows out-edges from A, and the backward search in bidirectional BFS must follow in-edges from B, so both adjacency directions are needed.
+- key: dsa.graph_traversal.guided
+  type: guided_problem
+  title: "Guided practice: counting islands and components"
+  skills: [graph.traversal]
+  minutes: 30
+  difficulty: MEDIUM
+  problems: [27, 29]
+  body:
+    guidance:
+      - Before coding, say what a node is (a land cell, a numbered vertex) and what an edge is (a 4-directional neighbour, an input pair).
+      - Write the outer loop first, over every node, starting a traversal only from unseen ones; each start is one component.
+      - Mark a node visited the moment it is pushed, then fill in the BFS or DFS body.
+      - "State the complexity: O(rows × cols) for the grid, O(V + E) for the edge list."
+    hints:
+      - In the grid, you can mark land as visited by overwriting it with water, if mutating the input is allowed; otherwise keep a set.
+      - For the edge list, loop over range(n) so isolated nodes count as their own component.
+      - If recursion depth worries you, use a deque or an explicit stack.
+- key: dsa.graph_traversal.timed
+  type: timed_problem
+  title: "Timed practice: graph copying and shortest transformation"
+  skills: [graph.traversal]
+  minutes: 45
+  difficulty: HARD
+  problems: [28, 30]
+  body:
+    guidance:
+      - For the copy problem, say the invariant first ("the map holds the clone of every node I have discovered") and create the clone when a node is first seen, not when it is processed.
+      - For the word transformation, say "BFS, because each change costs one", then explain how you generate neighbours without comparing every pair of words.
+      - Give time and space before coding, then code under the timer without hints.
+- key: dsa.graph_traversal.cards
+  type: revision_card
+  title: "Recall: graph representation and traversal"
+  skills: [graph.traversal]
+  minutes: 5
+  body:
+    cards:
+      - front: Space of an adjacency list vs an adjacency matrix?
+        back: List O(V + E); matrix O(V²) regardless of how many edges exist.
+      - front: When must BFS mark a node visited?
+        back: When it is enqueued, so no node is ever in the queue twice.
+      - front: Why does BFS find shortest paths in unweighted graphs?
+        back: The FIFO queue processes nodes in non-decreasing distance, so first discovery is via a shortest path.
+      - front: Time complexity of BFS or DFS with an adjacency list?
+        back: O(V + E) — each node pushed once, each adjacency list scanned once.
+      - front: Risk of recursive DFS in CPython?
+        back: RecursionError beyond about 1000 frames by default; use an explicit stack for deep graphs.
+      - front: How do you count connected components?
+        back: Loop over all nodes, start a traversal from each unseen one, count the starts.
+
+# ---------------------------------------------------------------------------------------------- grids and multi-source BFS
+- key: dsa.grid_bfs.lesson
+  type: lesson
+  title: Grids as implicit graphs and multi-source BFS
+  skills: [graph.grid_multisource, graph.traversal]
+  minutes: 20
+  difficulty: MEDIUM
+  body:
+    summary: A grid is a graph whose edges you compute on the fly; starting BFS from every source at once gives each cell its distance to the nearest source in one pass.
+    what: |-
+      In a grid problem each cell `(r, c)` is a vertex and its neighbours are the cells one step up, down, left and right (sometimes also the four diagonals). You never build an adjacency list: you generate neighbours with a direction list and a bounds check. A grid with R rows and C columns has `V = R × C` vertices and at most `4 × R × C` directed edges, so a traversal is O(R × C).
+
+      **Multi-source BFS** puts *every* source cell in the queue at distance 0 before the loop starts. The BFS then grows from all of them simultaneously, and each cell is reached first from its nearest source.
+    why: |-
+      Grids appear constantly: islands, flood fill, rotting or spreading processes, distance to the nearest exit, water flowing to borders. The naive answer to "distance from every cell to the nearest X" is one BFS per X, which is O(K × R × C) for K sources and is too slow when K is large. Multi-source BFS gives the same answer in a single O(R × C) pass, because the nearest source is, by definition, the one whose ripple arrives first.
+    when: |-
+      - "Count regions" or "size of the largest region": flood fill (BFS or DFS) from each unvisited cell.
+      - "Minimum steps from S to T" in a grid with unit moves: single-source BFS.
+      - "Distance from every cell to the nearest X", "how many minutes until everything is infected", "spread from all fires at once": **multi-source BFS** seeded with all X cells.
+      - "Which cells can reach the border / both oceans?": reverse the question and search **from** the borders inward.
+    how: |-
+      ```python
+      from collections import deque
+
+      DIRS = ((1, 0), (-1, 0), (0, 1), (0, -1))
+
+      def nearest_source_distance(grid):
+          """grid[r][c] is 'S' (source), '#' (wall) or '.' (open). Returns a distance matrix, -1 if unreachable."""
+          rows, cols = len(grid), len(grid[0])
+          dist = [[-1] * cols for _ in range(rows)]
+          queue = deque()
+          for r in range(rows):
+              for c in range(cols):
+                  if grid[r][c] == 'S':
+                      dist[r][c] = 0               # every source starts at distance 0
+                      queue.append((r, c))
+          while queue:
+              r, c = queue.popleft()
+              for dr, dc in DIRS:
+                  nr, nc = r + dr, c + dc
+                  if 0 <= nr < rows and 0 <= nc < cols and grid[nr][nc] != '#' and dist[nr][nc] == -1:
+                      dist[nr][nc] = dist[r][c] + 1
+                      queue.append((nr, nc))
+          return dist
+      ```
+
+      When the question is "how many rounds (minutes) until done", process the queue **one level at a time** with `for _ in range(len(queue))`, and count only the levels that changed something. Afterwards check whether any target cell was never reached (answer -1).
+    mental_model: |-
+      Picture fires lit in every source cell at time 0, each spreading one cell per minute. A cell's distance is the minute the first fire reaches it. Multi-source BFS is literally that simulation; equivalently, it is a normal BFS from one imaginary "super-source" connected to every real source by a zero-length edge.
+    tradeoffs: |-
+      BFS vs DFS for flood fill: both are O(R × C); DFS is shorter to write recursively but a 1000 × 1000 grid can produce a 10⁶-deep recursion, which CPython's default limit of 1000 will not survive. BFS or an explicit stack is safe. Marking visited by mutating the grid (`grid[r][c] = '0'`) saves memory but destroys the input; say so and ask whether that is allowed. Multi-source BFS gives distances to the **nearest** source only; if you need, say, the distance to every source, you are back to per-source searches.
+    mistakes:
+      - Running one BFS per source, which is O(K × R × C).
+      - Swapping rows and columns in the bounds check (`nr < cols`), which only shows on non-square grids.
+      - Counting minutes wrong by one, for example incrementing after the final level that changed nothing.
+      - Forgetting to return -1 when some target cell was never reached.
+      - Including diagonals when the problem says 4-directional, or the reverse.
+      - Recursive flood fill on a large grid, hitting the recursion limit.
+    interview: |-
+      State the graph explicitly ("cells are nodes, 4-directional neighbours are edges, so O(R × C)"). When you hear "nearest" or "all at once", say "multi-source BFS: seed the queue with every source at distance 0". Interviewers look for the level-by-level loop when time steps matter, the unreachable check, and whether you think of reversing the direction (from borders or from targets) when searching from every cell would be quadratic.
+    explain_it:
+      - Define vertices and edges of the implicit graph, and the size V = R × C.
+      - Say why all sources are enqueued at distance 0 before the loop.
+      - Explain the level-by-level loop if the answer is a number of rounds.
+      - "Give O(R × C) time and O(R × C) space for the queue and distance matrix."
+    example:
+      language: python
+      code: |-
+        def minutes_until_all_reached(grid):
+            """1 = untouched, 2 = already reached, 0 = empty. Minutes until every 1 becomes 2, or -1."""
+            rows, cols = len(grid), len(grid[0])
+            queue = deque((r, c) for r in range(rows) for c in range(cols) if grid[r][c] == 2)
+            remaining = sum(row.count(1) for row in grid)
+            minutes = 0
+            while queue and remaining:
+                for _ in range(len(queue)):           # exactly one level = one minute
+                    r, c = queue.popleft()
+                    for dr, dc in DIRS:
+                        nr, nc = r + dr, c + dc
+                        if 0 <= nr < rows and 0 <= nc < cols and grid[nr][nc] == 1:
+                            grid[nr][nc] = 2
+                            remaining -= 1
+                            queue.append((nr, nc))
+                minutes += 1
+            return minutes if remaining == 0 else -1
+      explanation: "The loop stops as soon as nothing remains, so the last level is counted only if it changed something. Mutates the grid; copy it first if the caller needs it."
+    complexity: O(R × C) time and O(R × C) space for multi-source BFS, independent of the number of sources.
+    edge_cases:
+      - No sources at all (every distance stays -1, or the answer is -1 if any target exists).
+      - No targets at all (answer 0 minutes).
+      - A single row or a single column.
+      - Targets enclosed by walls.
+- key: dsa.grid_bfs.check
+  type: concept_check
+  title: "Concept check: grids and multi-source BFS"
+  skills: [graph.grid_multisource]
+  minutes: 9
+  difficulty: MEDIUM
+  body:
+    intro: Think of each cell as a vertex. Trace on paper where asked.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "A 1000 × 1000 grid has 5000 source cells. What does computing every cell's distance to the nearest source cost with one BFS per source, and with multi-source BFS?"
+        options:
+          - "Both about 10⁶ operations"
+          - "About 5 × 10⁹ with one BFS per source; about 10⁶ with multi-source BFS"
+          - "About 10⁶ per source either way, because BFS stops early"
+          - "Multi-source BFS is O((R × C) log K)"
+        answer: [1]
+        explanation: "Each BFS touches up to R × C = 10⁶ cells, so 5000 of them is about 5 × 10⁹. Seeding all sources together means every cell is enqueued once: O(R × C) total. There is no log factor because the queue is FIFO, not a heap."
+      - id: q2
+        kind: single
+        prompt: "Multi-source BFS on this row, where S is a source and . is open: `S . . . S`. What distances does it produce?"
+        options: ["0 1 2 3 0", "0 1 2 1 0", "0 1 1 1 0", "0 1 2 3 4"]
+        answer: [1]
+        explanation: "Both ripples start at distance 0 and meet in the middle: the centre cell is two steps from either source. `0 1 2 3 0` is what you get if only the left source were enqueued and the right one were treated as a plain cell."
+      - id: q3
+        kind: single
+        prompt: "In the minutes-until-all-reached example, the grid starts with no cell equal to 1 (nothing to reach) and one cell equal to 2. What is returned?"
+        options: ["0", "1", "-1", "It loops forever"]
+        answer: [0]
+        explanation: "`remaining` is 0, so the while loop never runs and minutes stays 0. A version that loops `while queue` and increments after every level would return 1 here, which is the classic off-by-one."
+      - id: q4
+        kind: multi
+        prompt: Which problems are naturally solved by starting the search from several cells at once or from the border inward?
+        options:
+          - Distance from each open cell to the nearest exit
+          - Cells from which water can flow to both the top-left and bottom-right borders
+          - Shortest path between one start and one target
+          - Time for a fire that starts in several places to burn the whole forest
+        answer: [0, 1, 3]
+        explanation: "Nearest-exit distances and multiple fires are multi-source BFS. For the two-borders question, searching from each cell is O((R × C)²); searching uphill from each border once and intersecting the two reachable sets is O(R × C). A single start and target is ordinary BFS."
+      - id: q5
+        kind: single
+        prompt: "This neighbour check runs on a grid with 3 rows and 5 columns. What is the bug?"
+        code:
+          language: python
+          code: |-
+            rows, cols = len(grid), len(grid[0])
+            for dr, dc in DIRS:
+                nr, nc = r + dr, c + dc
+                if 0 <= nr < cols and 0 <= nc < rows:
+                    ...
+        options:
+          - None, the check is symmetric
+          - Rows and columns are swapped, so valid cells are skipped and out-of-range rows are indexed
+          - It should use <= instead of <
+          - Negative indexes are allowed in Python, so the 0 <= check is unnecessary
+        answer: [1]
+        explanation: "nr indexes rows and must be compared with rows. On a 3 × 5 grid the swapped check allows nr up to 4 (IndexError) and rejects nc of 3 and 4. A square test grid hides it. Negative indexes are legal in Python but wrap around to the other side, which is wrong for a grid, so the 0 <= check is needed."
+      - id: q6
+        kind: short
+        prompt: Why does multi-source BFS give each cell the distance to its nearest source and not to some arbitrary source?
+        model_answer: "It is equivalent to a single BFS from a virtual super-source joined to every real source by a zero-length edge. BFS processes cells in non-decreasing distance from the super-source, so the first time a cell is discovered it is through the shortest possible route, which starts at the nearest real source. Once discovered a cell is never updated again."
+        explanation: The super-source argument reuses the ordinary BFS correctness proof; that is the cleanest way to justify the technique in an interview.
+- key: dsa.grid_bfs.exercise
+  type: coding_exercise
+  title: "Exercise: distance to the nearest charging station"
+  skills: [graph.grid_multisource, queue.deque]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 1200}
+  body:
+    prompt: |-
+      A warehouse floor is a grid of characters: `'C'` is a charging station, `'#'` is a shelf (impassable) and `'.'` is open floor. A robot moves one cell up, down, left or right per step. Return a grid of integers where each open cell holds the number of steps to the nearest charging station (stations hold 0, shelves and unreachable cells hold -1). State the complexity and why it does not depend on the number of stations.
+    examples:
+      - "[['C', '.', '.'], ['#', '#', '.'], ['C', '.', '.']] gives [[0, 1, 2], [-1, -1, 3], [0, 1, 2]]"
+      - "[['.', '#', 'C']] gives [[-1, -1, 0]]"
+    constraints:
+      - Up to 500 × 500 cells.
+      - There may be zero stations.
+    hints:
+      - Running a BFS from each station would repeat work. What if every station started at the same time?
+      - Seed the queue with every station at distance 0.
+      - Use the distance matrix itself as the visited marker (-1 means not yet reached).
+    starter:
+      language: python
+      code: |-
+        def station_distances(floor: list[list[str]]) -> list[list[int]]:
+            ...
+    solution:
+      language: python
+      code: |-
+        from collections import deque
+
+        def station_distances(floor):
+            rows, cols = len(floor), len(floor[0])
+            dist = [[-1] * cols for _ in range(rows)]
+            queue = deque()
+            for r in range(rows):
+                for c in range(cols):
+                    if floor[r][c] == 'C':
+                        dist[r][c] = 0
+                        queue.append((r, c))
+            while queue:
+                r, c = queue.popleft()
+                for dr, dc in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    nr, nc = r + dr, c + dc
+                    if (0 <= nr < rows and 0 <= nc < cols
+                            and floor[nr][nc] == '.' and dist[nr][nc] == -1):
+                        dist[nr][nc] = dist[r][c] + 1
+                        queue.append((nr, nc))
+            return dist
+      explanation: Every cell is enqueued at most once, so O(R × C) time and space regardless of how many stations exist.
+    rubric:
+      - {key: multi_source, label: Seeds the queue with all stations at distance 0 instead of one BFS per station, points: 4}
+      - {key: bounds_walls, label: "Bounds check uses rows for r and cols for c, and skips shelves", points: 2}
+      - {key: unreachable, label: Leaves unreachable cells and shelves at -1, points: 2}
+      - {key: complexity, label: "States O(R × C) and why the station count does not matter", points: 2}
+    follow_ups:
+      - prompt: Some floor cells are slow (cost 2 steps to enter). Does your approach still work?
+        look_for: "No; costs differ, so use Dijkstra seeded with all stations at 0, or 0-1 style BFS variants only when weights are 0 and 1. Splitting each slow cell into two unit steps also works."
+      - prompt: Also return which station is nearest to each cell.
+        look_for: Carry the source id with each queue entry and copy it to newly discovered cells; ties go to whichever station's ripple arrived first.
+- key: dsa.grid_bfs.guided
+  type: guided_problem
+  title: "Guided practice: spreading through a grid minute by minute"
+  skills: [graph.grid_multisource]
+  minutes: 30
+  difficulty: MEDIUM
+  problems: [31]
+  body:
+    guidance:
+      - Say why this is multi-source BFS before writing code (every already-affected cell spreads at the same time).
+      - Count the cells that still need to be reached before you start, so you can stop early and detect -1.
+      - Process the queue level by level with `for _ in range(len(queue))`; one level is one minute.
+      - Check the off-by-one on a grid with nothing to reach and on a grid where everything is reached in one minute.
+    hints:
+      - Enqueue all initially affected cells at minute 0.
+      - Decrement the remaining count as each cell is reached and stop when it hits zero.
+- key: dsa.grid_bfs.timed
+  type: timed_problem
+  title: "Timed practice: nearest-zero distances and two-border flow"
+  skills: [graph.grid_multisource]
+  minutes: 50
+  difficulty: MEDIUM
+  problems: [97, 96]
+  body:
+    guidance:
+      - For the distance matrix, say "multi-source BFS from every zero" in the first minute and give O(R × C).
+      - For the two-border flow problem, explain why you search from the borders inward (uphill) instead of from every cell, then intersect two reachable sets.
+      - Code each under the timer; test a single-row grid before you submit.
+- key: dsa.grid_bfs.cards
+  type: revision_card
+  title: "Recall: grids and multi-source BFS"
+  skills: [graph.grid_multisource]
+  minutes: 4
+  body:
+    cards:
+      - front: Vertices and edges of an R × C grid with 4-directional moves?
+        back: R × C vertices, up to 4 × R × C directed edges; traversal is O(R × C).
+      - front: Distance from every cell to the nearest source, efficiently?
+        back: Multi-source BFS — enqueue all sources at distance 0, then run one BFS.
+      - front: Why is multi-source BFS correct?
+        back: It is BFS from a virtual super-source joined to every source by a zero-length edge.
+      - front: How do you count minutes in a spreading simulation?
+        back: Process one queue level per minute and stop when nothing remains to reach.
+      - front: When should a grid search start from the border instead?
+        back: When the question is "which cells can reach the edge"; one reverse search beats one search per cell.
+
+# ---------------------------------------------------------------------------------------------- cycles and bipartite
+- key: dsa.graph_cycles.lesson
+  type: lesson
+  title: Detecting cycles and two-colouring graphs
+  skills: [graph.cycles_bipartite, graph.traversal]
+  minutes: 22
+  difficulty: MEDIUM
+  body:
+    summary: Undirected cycles are found with a parent check or union-find, directed cycles need three colours, and a graph is bipartite exactly when BFS two-colouring never finds a same-coloured edge.
+    what: |-
+      A **cycle** is a path that returns to its start without reusing an edge. How you detect one depends on direction:
+
+      - **Undirected graph**: during DFS, reaching an already-visited neighbour that is **not the node you came from** means a cycle. Equivalently with union-find: an edge whose two ends are already in the same set closes a cycle.
+      - **Directed graph**: a cycle exists exactly when DFS finds a **back edge**, an edge to a node that is still on the current recursion path. Track three states: **white** (unvisited), **grey** (on the current path), **black** (fully finished). An edge to a grey node is a cycle; an edge to a black node is not.
+
+      A graph is **bipartite** if its vertices can be split into two groups so that every edge goes between the groups. Equivalently, it can be coloured with two colours so that no edge joins two nodes of the same colour, and equivalently it has **no odd-length cycle**.
+    why: |-
+      Cycle detection answers "can these tasks be scheduled?" (a dependency cycle makes it impossible), "is this graph a tree?" (connected with V - 1 edges and no cycle), "is there a deadlock?" (a cycle in the wait-for graph) and "which nodes are safe?" (not able to reach a cycle). Bipartite checks answer "can these people be split into two teams with no conflicts?" and underlie matching problems.
+    when: |-
+      - Undirected, need "has a cycle?" or "is it a tree?": DFS with parent, or union-find while reading edges.
+      - Directed, need "has a cycle?", "can all courses be finished?", "eventual safe nodes": three-colour DFS, or Kahn's algorithm (if not every node gets removed, there is a cycle).
+      - "Split into two groups", "two-colour", "no edge inside a group": BFS or DFS colouring.
+    how: |-
+      Directed cycle detection with colours (iterative DFS avoids recursion limits, but the recursive form shows the idea most clearly):
+
+      ```python
+      WHITE, GREY, BLACK = 0, 1, 2
+
+      def has_directed_cycle(n, adj):
+          color = [WHITE] * n
+
+          def visit(u):
+              color[u] = GREY                  # u is on the current path
+              for v in adj[u]:
+                  if color[v] == GREY:
+                      return True              # back edge: v is an ancestor of u
+                  if color[v] == WHITE and visit(v):
+                      return True
+              color[u] = BLACK                 # every path from u is explored and cycle-free
+              return False
+
+          return any(color[u] == WHITE and visit(u) for u in range(n))
+      ```
+
+      Undirected cycle detection with union-find (no recursion at all):
+
+      ```python
+      def has_undirected_cycle(n, edges):
+          parent = list(range(n))
+          def find(x):
+              while parent[x] != x:
+                  parent[x] = parent[parent[x]]   # path halving
+                  x = parent[x]
+              return x
+          for u, v in edges:
+              ru, rv = find(u), find(v)
+              if ru == rv:
+                  return True                     # u and v were already connected
+              parent[ru] = rv
+          return False
+      ```
+
+      Bipartite check with BFS, run from every uncoloured node because the graph may be disconnected:
+
+      ```python
+      from collections import deque
+
+      def is_bipartite(n, adj):
+          color = [-1] * n
+          for start in range(n):
+              if color[start] != -1:
+                  continue
+              color[start] = 0
+              queue = deque([start])
+              while queue:
+                  u = queue.popleft()
+                  for v in adj[u]:
+                      if color[v] == -1:
+                          color[v] = 1 - color[u]
+                          queue.append(v)
+                      elif color[v] == color[u]:
+                          return False           # edge inside one group: odd cycle
+          return True
+      ```
+    mental_model: |-
+      Directed: grey nodes are the breadcrumbs of the walk you are on right now. Stepping onto your own breadcrumb means you walked in a circle. A black node is a corridor someone already fully explored and proved dead-end free, so entering it again is harmless. Undirected: every edge is a two-way street, so seeing your parent again is just the street you came in on; any other visited neighbour is a second route to the same place. Bipartite: alternate colours along every path; a contradiction can only happen when a cycle has odd length, because going around an odd cycle flips the colour an odd number of times.
+    tradeoffs: |-
+      Three-colour DFS finds a cycle and can also produce a topological order (reverse of finishing order) in the same pass; Kahn's algorithm gives the order and the cycle verdict iteratively with no recursion-depth risk, but it does not directly name the cycle's nodes. For undirected graphs union-find is the simplest when edges arrive as a list (and works online, edge by edge), while DFS with parent also gives you the cycle path. BFS and DFS colouring are both O(V + E); BFS avoids recursion depth.
+    mistakes:
+      - Using a single visited set for directed graphs. In the diamond A → B, A → C, B → D, C → D, the second visit to D is reported as a cycle, but there is none.
+      - In undirected DFS, treating the parent as a cycle, which flags every edge.
+      - "Parent check by node with parallel edges: two separate edges between u and v do form a cycle, and a node-based parent check misses it. Track the edge id instead when multi-edges are possible."
+      - Running the bipartite check only from node 0, so other components are never checked.
+      - Forgetting to set a node back from grey to black, so later traversals that reach it report false cycles.
+      - "Self-loop u → u: it is a cycle (directed) and makes a graph non-bipartite; make sure your code sees it."
+    interview: |-
+      Say which kind of graph you have before choosing a method: "directed, so I need three states, not just visited". Expect follow-ups such as returning the actual cycle (keep a parent array and walk back from the back edge), finding all nodes not on or leading to a cycle (black after a full colour DFS, or Kahn's on the reversed graph), and proving why the odd-cycle condition is equivalent to bipartiteness.
+    explain_it:
+      - State whether the graph is directed or undirected and why that changes the method.
+      - Explain grey vs black (on the current path vs finished) for directed graphs.
+      - Explain the parent exception (or the union-find same-root test) for undirected graphs.
+      - "For bipartite: colour alternately from every uncoloured node; a same-colour edge means an odd cycle."
+      - Give O(V + E) time and O(V) extra space for all three.
+    example:
+      language: python
+      code: |-
+        def is_tree(n: int, edges: list[tuple[int, int]]) -> bool:
+            # A tree on n nodes has exactly n - 1 edges, is connected and has no cycle.
+            # With exactly n - 1 edges, "no cycle" already implies "connected".
+            if len(edges) != n - 1:
+                return False
+            return not has_undirected_cycle(n, edges)
+      explanation: "The edge count rules out most non-trees in O(1); union-find then detects any cycle in near-linear time. With n - 1 edges and no cycle the graph cannot be disconnected, because a forest with k components has n - k edges."
+    complexity: O(V + E) time for colour DFS, BFS colouring and Kahn's; union-find cycle detection is O(E · α(V)), effectively linear. O(V) extra space.
+    edge_cases:
+      - Self-loops.
+      - Parallel edges between the same two nodes.
+      - Disconnected graphs (cycle or conflict in a component you did not start from).
+      - A graph with zero edges (acyclic and bipartite).
+    misconceptions:
+      - "\"Visited twice means cycle\" is true only for undirected graphs, and only when the neighbour is not the parent."
+      - A graph with an even cycle can still be bipartite; only odd cycles break it.
+- key: dsa.graph_cycles.check
+  type: concept_check
+  title: "Concept check: cycles and bipartite graphs"
+  skills: [graph.cycles_bipartite]
+  minutes: 9
+  difficulty: MEDIUM
+  body:
+    intro: Watch whether each graph is directed or undirected; it changes the right answer.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "Directed edges: A → B, A → C, B → D, C → D. This code is run from A. What does it return, and is it right?"
+        code:
+          language: python
+          code: |-
+            def has_cycle(u, seen):
+                if u in seen:
+                    return True
+                seen.add(u)
+                return any(has_cycle(v, seen) for v in adj[u])
+        options:
+          - False, which is correct
+          - True, which is wrong; D is reached twice through two paths, not through a cycle
+          - True, which is correct
+          - It raises RecursionError
+        answer: [1]
+        explanation: "The second path A → C → D finds D in `seen` and reports a cycle, but the graph is a DAG. A single visited set cannot tell \"on the current path\" (grey) from \"finished earlier\" (black). Only an edge to a grey node is a cycle."
+      - id: q2
+        kind: single
+        prompt: In three-colour DFS on a directed graph, you are at u and see an edge u → v where v is BLACK. What does that mean?
+        options:
+          - A cycle through u and v
+          - No cycle through this edge; v and everything reachable from it is already explored and cycle-free
+          - u must be re-coloured white
+          - The graph is not a DAG
+        answer: [1]
+        explanation: "Black means v's DFS finished, so v is not an ancestor of u and the edge is a forward or cross edge. A cycle needs a path back to u, and v's finished search would have found u grey if one existed. Only grey targets signal a cycle."
+      - id: q3
+        kind: multi
+        prompt: Which graphs are bipartite?
+        options:
+          - A cycle of 4 nodes
+          - A cycle of 5 nodes
+          - Any tree
+          - A triangle with one extra pendant node attached
+        answer: [0, 2]
+        explanation: "A graph is bipartite exactly when it has no odd cycle. A 4-cycle is even; trees have no cycles at all (colour by depth parity). The 5-cycle and the triangle are odd cycles, and attaching a pendant node does not remove the triangle."
+      - id: q4
+        kind: single
+        prompt: "Undirected edges are processed in order with union-find: (0, 1), (1, 2), (3, 4), (2, 0). Which edge is reported as closing a cycle?"
+        options: ["(1, 2)", "(3, 4)", "(2, 0)", "None"]
+        answer: [2]
+        explanation: "After the first two edges, 0, 1 and 2 share a root. (3, 4) joins a new pair. (2, 0) finds both ends with the same root, so it closes the cycle 0 – 1 – 2 – 0."
+      - id: q5
+        kind: single
+        prompt: A graph has two components; component 1 is bipartite and component 2 is a triangle. Your BFS colouring starts only from node 0, which is in component 1. What does it return?
+        options: ["False", "True, which is wrong", "True, which is right", "It raises an error on the triangle"]
+        answer: [1]
+        explanation: "The triangle is never visited, so no conflict is found and the function wrongly returns True. The outer loop over every uncoloured node is part of the algorithm, not an optimisation."
+      - id: q6
+        kind: short
+        prompt: Explain why a graph that contains an odd cycle cannot be two-coloured.
+        model_answer: "Walking along a cycle, adjacent nodes must have different colours, so the colour flips at every edge. After k edges you are back at the start, and the colour has flipped k times. If k is odd, the start node would need the opposite of its own colour, a contradiction. Conversely, BFS colouring only fails on an edge between two nodes at the same BFS depth parity, which closes an odd cycle."
+        explanation: Interviewers like this short proof because it explains why the algorithm's single check is sufficient.
+- key: dsa.graph_cycles.debug
+  type: debugging_exercise
+  title: "Debugging: the scheduler that rejects valid pipelines"
+  skills: [graph.cycles_bipartite, graph.topological_sort]
+  minutes: 18
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 1080}
+  body:
+    scenario: |-
+      A build tool rejects pipelines that contain a dependency cycle. Users report that several valid pipelines are rejected, while pipelines with real cycles are rejected correctly. Each step's dependencies are stored as a directed adjacency list `deps[step] = [steps it depends on]`.
+    symptoms:
+      - "A pipeline where both `test` and `lint` depend on `compile`, and `package` depends on both, is rejected as cyclic."
+      - Pipelines that form a simple chain are accepted.
+      - "A real cycle (`a` depends on `b`, `b` depends on `a`) is rejected, as it should be."
+    artifacts:
+      language: python
+      code: |-
+        def has_cycle(deps):
+            visited = set()
+
+            def visit(step):
+                if step in visited:
+                    return True
+                visited.add(step)
+                for d in deps.get(step, []):
+                    if visit(d):
+                        return True
+                return False
+
+            return any(visit(s) for s in deps)
+    tasks:
+      - Explain exactly why the diamond-shaped pipeline is reported as cyclic.
+      - Fix the function so it reports a cycle only when one exists.
+      - Name a second bug that appears on a pipeline with 5000 steps in a chain, and how you would avoid it.
+    hints:
+      - "Which step is reached twice in the diamond, and is it on the current path when it is reached the second time?"
+      - You need to tell "currently being explored" apart from "already finished".
+    reference: |-
+      `compile` is reached once via `test` and again via `lint`. The second time it is already in `visited`, but it is finished, not on the current path, so it is not a cycle. The fix is three states: mark a step grey when its visit starts and black when it ends, and report a cycle only when an edge reaches a grey step; skip black steps. The outer `any(...)` also restarts from steps that were already finished, which in the buggy version reports a "cycle" on the very first finished step; with colours, only white steps start a visit. A 5000-step chain recurses 5000 deep and exceeds CPython's default recursion limit of 1000, so use an iterative DFS with an explicit stack, or Kahn's algorithm (count steps with zero remaining dependencies; if fewer than all steps are removed, there is a cycle).
+    solution:
+      language: python
+      code: |-
+        from collections import deque
+
+        def has_cycle(deps):
+            steps = set(deps) | {d for ds in deps.values() for d in ds}
+            remaining = {s: 0 for s in steps}          # dependencies not yet satisfied
+            users = {s: [] for s in steps}             # who depends on s
+            for s, ds in deps.items():
+                for d in ds:
+                    remaining[s] += 1
+                    users[d].append(s)
+            ready = deque(s for s in steps if remaining[s] == 0)
+            done = 0
+            while ready:
+                d = ready.popleft()
+                done += 1
+                for s in users[d]:
+                    remaining[s] -= 1
+                    if remaining[s] == 0:
+                        ready.append(s)
+            return done < len(steps)                   # something never became ready: a cycle
+      explanation: Kahn's algorithm is iterative, so the chain length does not matter, and it is O(V + E). A three-colour DFS is an equally valid fix if written iteratively.
+    rubric:
+      - {key: diagnosis, label: Explains that a finished node reached by a second path is not a cycle, points: 3}
+      - {key: fix, label: "Fixes with three states (grey/black) or Kahn's algorithm, and the fix passes the diamond and the two-node cycle", points: 4}
+      - {key: depth, label: Identifies the recursion-depth limit on long chains and avoids it, points: 2}
+      - {key: complexity, label: "States O(V + E) for the fixed version", points: 1}
+    follow_ups:
+      - prompt: Users want the error message to name the steps in the cycle. How?
+        look_for: Keep a parent pointer (or the explicit DFS stack); when an edge reaches a grey step, walk the stack back to that step to list the cycle.
+      - prompt: Which steps can still run if part of the pipeline is cyclic?
+        look_for: Exactly the steps Kahn's algorithm removed; steps on a cycle or depending on one never become ready.
+- key: dsa.graph_cycles.guided
+  type: guided_problem
+  title: "Guided practice: two-colouring a graph"
+  skills: [graph.cycles_bipartite]
+  minutes: 25
+  difficulty: MEDIUM
+  problems: [104]
+  body:
+    guidance:
+      - Say the equivalence first ("bipartite means two-colourable means no odd cycle").
+      - Write the outer loop over every node so each component gets checked.
+      - Colour the start 0, give each new neighbour the opposite colour, and return False on a same-colour edge.
+      - Test a disconnected input whose second component is a triangle.
+    hints:
+      - The input is already an adjacency list; you do not need to build one.
+      - "Use `1 - color[u]` for the opposite colour."
+- key: dsa.graph_cycles.timed
+  type: timed_problem
+  title: "Timed practice: valid tree and safe states"
+  skills: [graph.cycles_bipartite]
+  minutes: 45
+  difficulty: MEDIUM
+  problems: [105, 106]
+  body:
+    guidance:
+      - For the tree check, state the edge-count condition (exactly n - 1 edges) and then detect a cycle with union-find; explain why connectivity follows.
+      - For the safe states, say "directed, so three colours", and explain why a node is safe exactly when its DFS finishes black.
+      - Give complexity before coding and keep each solution within the time limit.
+- key: dsa.graph_cycles.cards
+  type: revision_card
+  title: "Recall: cycles and bipartite checks"
+  skills: [graph.cycles_bipartite]
+  minutes: 4
+  body:
+    cards:
+      - front: Undirected cycle with DFS?
+        back: A visited neighbour that is not the parent closes a cycle.
+      - front: Undirected cycle with union-find?
+        back: An edge whose endpoints already share a root closes a cycle.
+      - front: Directed cycle with DFS?
+        back: An edge to a GREY node (still on the current path); BLACK targets are fine.
+      - front: Why is a single visited set wrong for directed graphs?
+        back: A node reached by two different paths (a diamond) looks like a cycle.
+      - front: Bipartite exactly when?
+        back: The graph has no odd-length cycle; BFS two-colouring finds no same-colour edge.

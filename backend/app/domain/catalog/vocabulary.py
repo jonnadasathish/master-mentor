@@ -107,4 +107,6 @@ SEED_FILES: Final = {
     "mission_templates": "mission_templates.yaml",
 }
 ROLE_PROFILE_DIR: Final = "role_profiles"
+LEARNING_DIR: Final = "learning"  # seed/learning/*.yaml: curriculum.yaml + content files (LEARNING_ENGINE)
+PROBLEM_RELEVANCE: Final = ("HIGH", "MEDIUM", "LOW")
 LOCK_FILE: Final = "seed.lock.yaml"

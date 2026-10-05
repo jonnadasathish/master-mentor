@@ -2,7 +2,7 @@
 # Targets/importance live in seed/role_profiles/*.yaml (skill_tiers). Validated by the seed validator:
 #   unique keys, known parents/prereqs, acyclic prerequisites, min_score in {30,45,60},
 #   min_score <= prerequisite target, no required (T1-T3) skill depending on an optional (T4) skill.
-seed_version: seed-v1
+seed_version: seed-v2
 groups:
 - key: lang.python
   name: Python (interview language)

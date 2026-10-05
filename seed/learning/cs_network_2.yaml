@@ -1,0 +1,635 @@
+# Learning content: HTTP semantics, caching and versions; TLS 1.3, certificates, HTTPS and HSTS.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- HTTP
+- key: net.http.lesson
+  type: lesson
+  title: "HTTP: methods, status codes, caching and versions"
+  skills: [network.http]
+  minutes: 30
+  difficulty: MEDIUM
+  body:
+    summary: HTTP is a stateless request/response protocol whose method semantics, status codes and caching headers let clients, proxies and CDNs act correctly without knowing your application.
+    what: |-
+      HTTP (semantics in RFC 9110, caching in RFC 9111) is a request/response protocol. A request has a **method**, a **target** (path and query), **headers** and an optional body; a response has a **status code**, headers and an optional body. The protocol is **stateless**: each request carries everything the server needs (cookies and tokens are how state is layered on top).
+
+      **Methods and their contract:**
+
+      - **Safe** methods do not request a change of server state: `GET`, `HEAD`, `OPTIONS`. Crawlers, prefetchers and caches may send them freely.
+      - **Idempotent** methods have the same intended effect whether sent once or many times: all safe methods plus `PUT` and `DELETE`. `DELETE /items/7` twice leaves the item deleted; the second response may be 404, which is fine, because idempotency is about server state, not identical responses.
+      - `POST` and `PATCH` are neither safe nor idempotent by definition. `PUT` replaces the whole resource at a known URL; `PATCH` applies a partial change; `POST` processes the body (often creating a resource with a server-chosen id).
+
+      **Status codes that matter:**
+
+      - `200 OK`, `201 Created` (with `Location`), `202 Accepted` (queued for async processing), `204 No Content`.
+      - `301`/`308` permanent and `302`/`307` temporary redirects; `307` and `308` guarantee the method and body are preserved. `303 See Other` sends the client to a different URL with `GET`, the standard answer after a form `POST`. `304 Not Modified` answers a conditional request.
+      - `400` malformed, `401` not authenticated (must include `WWW-Authenticate`), `403` authenticated but not allowed, `404`, `405` method not allowed (with `Allow`), `409` conflict with current state, `412` precondition failed, `415` unsupported media type, `422` well-formed but semantically invalid, `429` too many requests (with `Retry-After`).
+      - `500` server bug, `502` the gateway got an invalid response or a broken connection from upstream, `503` temporarily unavailable (overload, maintenance), `504` the gateway timed out waiting for upstream.
+    why: |-
+      Uniform semantics are what let generic infrastructure help you. A CDN can cache a `GET` because it is safe; a client library or proxy can retry a timed-out `PUT` because it is idempotent; a browser knows to prompt for credentials on `401` and to revalidate with `If-None-Match`. When an API violates the semantics (a `GET` that deletes, a `200` with an error body), every one of those intermediaries starts doing the wrong thing.
+    when: |-
+      Every API you design or debug: choosing methods and status codes, setting caching headers on static assets and API responses, deciding whether a client may retry, putting a CDN or reverse proxy in front of a service, and reasoning about latency (connection reuse, HTTP/2, HTTP/3).
+    how: |-
+      **Caching.** `Cache-Control` on the response decides who may store it and for how long:
+
+      - `max-age=N`: fresh for N seconds in any cache; `s-maxage=N` overrides it for shared caches (CDNs, proxies).
+      - `public` / `private`: `private` allows only the user's own browser cache to store it.
+      - `no-cache`: may be stored, but must be **revalidated** with the origin before every use. `no-store`: must not be stored at all.
+      - `immutable`: will never change during its freshness lifetime (for content-hashed asset URLs). `stale-while-revalidate=N` lets a cache serve a stale copy while it refreshes in the background.
+
+      **Validators and conditional requests.** The server sends `ETag: "v7"` (or `Last-Modified`). When the cached copy is stale, the client asks `If-None-Match: "v7"`; if nothing changed the server answers `304 Not Modified` with no body, saving the transfer. For writes, `If-Match: "v7"` means "only if it is still version v7", and the server answers `412` if someone else changed it: optimistic concurrency over HTTP.
+
+      **Vary.** A cache keys a response by URL unless `Vary` names request headers that change the response (`Vary: Accept-Encoding`). Responses that depend on the user must not land in a shared cache at all.
+
+      **Other headers you will use:** `Host` (mandatory in HTTP/1.1, lets one IP serve many sites), `Content-Type`, `Content-Length` or `Transfer-Encoding: chunked`, `Accept`, `Authorization`, `Cookie`/`Set-Cookie`, `Location`, `Retry-After`.
+
+      **Versions.**
+
+      - **HTTP/1.1** is text-based with persistent connections, but a connection carries one request at a time in practice (pipelining exists but is effectively unused), so browsers open about six connections per host.
+      - **HTTP/2** (RFC 9113) uses binary frames and **multiplexes** many concurrent streams over one TCP connection, with HPACK header compression. It removes HTTP-level head-of-line blocking but not TCP's: one lost packet stalls every stream.
+      - **HTTP/3** (RFC 9114) runs over **QUIC** on UDP. QUIC has per-stream ordering (a loss stalls only its stream), integrates TLS 1.3 so a new connection needs one RTT instead of TCP's plus TLS's two, and can survive a client changing networks because connections are identified by connection IDs rather than the 4-tuple.
+    mental_model: |-
+      A request is a letter with a standard envelope. The envelope (method, status, headers) is read by every post office on the way; the contents (body) only by the recipient. Write the envelope honestly and the post offices (browsers, proxies, CDNs, client libraries) will cache, retry and redirect for you; lie on it and they will do the wrong thing confidently.
+    tradeoffs: |-
+      - Long `max-age` means fewer requests and faster pages, but stale content until expiry; pair it with versioned URLs so changes get new URLs.
+      - `no-cache` with an ETag always costs a round trip, but the response is small (304) and always current.
+      - HTTP/2 gives one warm connection with multiplexing, but load balancing becomes per connection and TCP head-of-line blocking hurts on lossy networks. HTTP/3 fixes that, at the cost of UDP being blocked or throttled on some networks (clients fall back to HTTP/2) and more CPU in user-space QUIC stacks.
+    mistakes:
+      - Using `GET` for actions with side effects (`GET /delete?id=7`); prefetchers and crawlers will trigger them.
+      - Returning `200` with an error payload, which breaks monitoring, retries and caching.
+      - Treating `no-cache` as "do not cache"; that is `no-store`.
+      - Marking per-user responses `public` or leaving them cacheable by a CDN that ignores cookies.
+      - Using `401` for "logged in but not allowed"; that is `403` (or `404` to hide existence).
+      - Retrying `POST` automatically on timeout without an idempotency key.
+      - Long-caching an unversioned URL such as `/app.js`, so users keep the old file after a deploy.
+    interview: |-
+      HTTP appears directly ("what is idempotency?", "PUT vs PATCH vs POST", "401 vs 403", "how does caching work?", "HTTP/1.1 vs 2 vs 3") and inside "what happens when you type a URL". It also underpins API design and system-design caching questions. Strong answers name the RFC semantics precisely and connect them to infrastructure behaviour: which requests a proxy may retry, which responses a CDN may store.
+    explain_it:
+      - Define safe and idempotent and classify each method.
+      - Pick the right status code for create, async accept, validation error, auth failure and upstream failure.
+      - Walk through max-age, ETag and a 304 revalidation.
+      - Contrast HTTP/1.1, HTTP/2 and HTTP/3 by what blocks what.
+    example:
+      language: text
+      code: |-
+        GET /api/products/42 HTTP/1.1
+        Host: shop.example.com
+
+        HTTP/1.1 200 OK
+        Content-Type: application/json
+        Cache-Control: public, max-age=60
+        ETag: "p42-v7"
+
+        ... 60 seconds later, the cached copy is stale ...
+
+        GET /api/products/42 HTTP/1.1
+        Host: shop.example.com
+        If-None-Match: "p42-v7"
+
+        HTTP/1.1 304 Not Modified
+        Cache-Control: public, max-age=60
+        ETag: "p42-v7"
+      explanation: The second exchange transfers headers only. If the product had changed, the server would answer 200 with the new body and a new ETag.
+    internals: |-
+      In HTTP/2 every request and response is split into frames tagged with a stream id, and frames of different streams interleave on the connection. Flow control exists per stream and per connection. Server push was part of HTTP/2 but is effectively dead (Chrome removed support in 2022); preload hints and `103 Early Hints` replace it. HTTP/1.1 vs HTTP/2 is negotiated during the TLS handshake through ALPN; HTTP/3 is usually discovered through an `Alt-Svc` response header or DNS HTTPS records and then tried in parallel with TCP.
+    edge_cases:
+      - A shared cache must not reuse a response to a request with `Authorization` unless the response explicitly allows it (for example `public` or `s-maxage`).
+      - "`HEAD` returns the headers a `GET` would, without the body; useful for checking size or ETag."
+      - Redirecting a `POST` with `301` or `302` may turn it into a `GET` in browsers; use `307` or `308` to keep the method.
+    misconceptions:
+      - Idempotent means the response is always the same. It means the server state ends up the same.
+      - HTTP/2 removes all head-of-line blocking. It removes it at the HTTP layer only; TCP still delivers in order.
+- key: net.http.worked_caching
+  type: worked_example
+  title: "Worked example: caching a page and its API end to end"
+  skills: [network.http, sd.caching]
+  minutes: 12
+  difficulty: MEDIUM
+  body:
+    problem: A product page loads `index.html`, a content-hashed bundle `app.3f9a1c.js`, a shared product API and a per-user cart API. Choose the caching headers for each and trace what the browser and CDN do on the first visit, a revisit and a deploy.
+    steps:
+      - title: Content-hashed static assets
+        text: "The file name changes whenever the content changes, so the URL itself is the version. Cache it everywhere for a year and tell the browser not to revalidate even on reload."
+        code:
+          language: text
+          code: |-
+            GET /static/app.3f9a1c.js
+            Cache-Control: public, max-age=31536000, immutable
+      - title: The HTML entry point
+        text: "index.html references the hashed assets, so it must update promptly after a deploy. Store it but revalidate every time; an unchanged page costs a 304 with no body."
+        code:
+          language: text
+          code: |-
+            GET /index.html
+            Cache-Control: no-cache
+            ETag: "html-2024-17"
+      - title: The shared product API
+        text: "Every user sees the same product data and a minute of staleness is acceptable. Let browsers keep it for 60 seconds and the CDN for 5 minutes, serving stale for up to 30 seconds while it refreshes."
+        code:
+          language: text
+          code: |-
+            GET /api/products/42
+            Cache-Control: public, max-age=60, s-maxage=300, stale-while-revalidate=30
+            ETag: "p42-v7"
+      - title: The per-user cart API
+        text: "The response depends on the cookie. Keep it out of shared caches entirely; the browser may store it but must revalidate. For sensitive data (payment details) use no-store instead."
+        code:
+          language: text
+          code: |-
+            GET /api/cart
+            Cache-Control: private, no-cache
+            ETag: "cart-u81-v3"
+      - title: Revisit and deploy
+        text: "On a revisit within a minute the browser uses app.3f9a1c.js and the product JSON without any request, and revalidates index.html (304). After a deploy, index.html changes and now references app.7b20de.js, a new URL, so users get the new code on their next load while the old bundle simply ages out."
+    takeaways:
+      - Put the version in the URL for anything you cache for a long time.
+      - no-cache plus an ETag gives always-current content at the cost of a cheap round trip.
+      - Anything that depends on the user is private (or no-store), never public.
+      - s-maxage tunes the CDN separately from browsers.
+- key: net.http.visual_versions
+  type: visual_explanation
+  title: "Visual: HTTP/1.1 vs HTTP/2 vs HTTP/3 under packet loss"
+  skills: [network.http, network.tcp_ip_udp]
+  minutes: 6
+  body:
+    summary: Three responses A, B and C are in flight and one packet of A is lost. What each version can deliver while it waits for the retransmission.
+    frames:
+      - caption: "HTTP/1.1: one request at a time per connection, so the browser opens several connections. Loss on one connection stalls only that connection."
+        diagram: |-
+          conn 1:  [A1][A2][xx][A4]   A waits for retransmit
+          conn 2:  [B1][B2][B3]       B delivered
+          conn 3:  [C1][C2]           C delivered
+          cost: 3 handshakes, 3 slow starts, ~6 connections per host limit
+      - caption: "HTTP/2: all streams multiplexed on one TCP connection. TCP delivers bytes in order, so one lost packet stalls every stream."
+        diagram: |-
+          one TCP connection:
+          [A1][B1][C1][A2][xx][B2][C2][A4]
+                          ^ lost
+          B2, C2 and A4 have arrived but wait in the kernel buffer
+          -> A, B and C all stall for one retransmission (TCP head-of-line blocking)
+      - caption: "HTTP/3: streams multiplexed on QUIC over UDP. Ordering is per stream, so only the stream that lost data waits."
+        diagram: |-
+          one QUIC connection:
+          stream A: [A1][A2][xx][A4]   waits
+          stream B: [B1][B2]           delivered
+          stream C: [C1][C2]           delivered
+          new connection: 1 RTT (QUIC + TLS 1.3 together) vs 2 RTT for TCP + TLS 1.3
+- key: net.http.check
+  type: concept_check
+  title: "Concept check: HTTP semantics and caching"
+  skills: [network.http]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Answer with the RFC meaning, not the habit of a particular framework.
+    questions:
+      - id: q1
+        kind: multi
+        prompt: Which methods are idempotent by HTTP semantics?
+        options: ["GET", "PUT", "DELETE", "POST", "PATCH"]
+        answer: [0, 1, 2]
+        explanation: "Safe methods (GET) are idempotent, and PUT and DELETE are defined as idempotent: repeating them leaves the same state. POST and PATCH are not idempotent by definition; a PATCH can be written idempotently (set a field), but a client or proxy cannot assume it."
+      - id: q2
+        kind: single
+        prompt: "A client sends `If-None-Match: \"v7\"` and the resource still has ETag \"v7\". What should the server answer?"
+        options: ["200 OK with the full body", "304 Not Modified with no body", "412 Precondition Failed", "204 No Content"]
+        answer: [1]
+        explanation: "304 tells the client its cached copy is still valid, without resending the body. 412 is the answer to a failed If-Match (a write precondition), the mirror case. 204 means the request succeeded and there is no content, which would wrongly suggest the resource is empty."
+      - id: q3
+        kind: single
+        prompt: "What does `Cache-Control: no-cache` on a response mean?"
+        options:
+          - No cache may store the response
+          - Caches may store it but must revalidate with the origin before each use
+          - Only the browser may store it
+          - The response expires after the default heuristic lifetime
+        answer: [1]
+        explanation: "no-cache means 'do not reuse without checking'. The directive that forbids storing is no-store, the common confusion. 'Only the browser' describes private."
+      - id: q4
+        kind: single
+        prompt: A logged-in user requests an invoice that belongs to another customer. Which status code fits best?
+        options: ["401 Unauthorized", "403 Forbidden", "400 Bad Request", "405 Method Not Allowed"]
+        answer: [1]
+        explanation: "The user is authenticated, so 401 (which asks for credentials) is wrong despite its name. 403 says 'you are known but not allowed'. Many APIs return 404 instead so as not to reveal that the invoice exists; both are defensible, 401 is not."
+      - id: q5
+        kind: single
+        prompt: A page needs 60 small assets from one host. Which HTTP/2 feature lets them all be requested at once over a single connection?
+        options:
+          - HTTP/1.1-style pipelining
+          - Server push
+          - Multiplexed streams over binary framing
+          - Chunked transfer encoding
+        answer: [2]
+        explanation: "HTTP/2 interleaves frames from many streams on one connection, so responses do not wait for each other at the HTTP layer. Pipelining is an HTTP/1.1 feature that requires in-order responses and is effectively unused. Server push lets the server send unrequested resources and has been removed from major browsers."
+      - id: q6
+        kind: short
+        prompt: Your API sits behind nginx. Clients see some 502 and some 504 responses. What does each mean and where do you look first?
+        model_answer: "Both come from the proxy, not the application. 502 Bad Gateway means nginx got an invalid response or a broken connection from upstream: the app crashed, refused or reset the connection, or closed an idle keep-alive connection as nginx reused it; look at nginx's error log for 'connection refused', 'reset by peer' or 'upstream prematurely closed', and at app restarts. 504 Gateway Timeout means the upstream did not answer within the proxy's timeout (proxy_read_timeout, 60 seconds by default); look for slow handlers, slow database queries or exhausted worker pools, and compare the app's latency with the proxy's timeout."
+        explanation: Separating 'broken connection' (502) from 'too slow' (504) points the investigation at crashes and connection handling versus latency.
+- key: net.http.interview_url
+  type: interview_question
+  title: "Interview question: what happens when you type a URL and press Enter"
+  skills: [network.http, network.dns, network.tcp_ip_udp, network.tls_https]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    prompt: |-
+      A user types `https://shop.example.com/products/42` into a browser and presses Enter. Walk through what happens until the page is rendered, at the depth you would use in an interview: name each protocol step, what it costs in round trips, and what is cached along the way.
+    key_points:
+      - "URL parsing and pre-checks: scheme, host, path; the HSTS list forces HTTPS; browser caches may answer without any network request."
+      - "DNS: browser cache, OS stub resolver, recursive resolver, and (on a miss) root, TLD and authoritative servers; answers cached for their TTL; often a CNAME to a CDN or load balancer."
+      - "TCP three-way handshake to the resolved IP: one RTT, often to a nearby CDN edge."
+      - "TLS 1.3 handshake with SNI and ALPN (which negotiates HTTP/2): one more RTT; the browser validates the certificate chain and hostname."
+      - "HTTP request with method, Host, cookies and Accept headers; the server side passes through a load balancer or reverse proxy to the application, which may hit caches and a database."
+      - "Response with status, caching headers and HTML; the browser parses it and fetches CSS, JS and images, reusing the same multiplexed connection."
+      - "Rendering: DOM and CSSOM, layout and paint; blocking scripts delay it."
+      - "Quantifies: a cold load costs at least DNS + 1 RTT TCP + 1 RTT TLS + 1 RTT request before the first byte; reuse and caching remove most of it."
+    model_answer: |-
+      The browser parses the URL. If the host is on its HSTS list it uses HTTPS regardless of what was typed. It checks its HTTP cache; a fresh cached copy could be used without any network traffic. Otherwise it needs an IP: the browser and OS caches, then the recursive resolver, which on a miss walks the root, the .com servers and example.com's authoritative servers, often getting a CNAME to a CDN hostname and then A or AAAA records, all cached for their TTLs. The browser opens a TCP connection (one RTT), then a TLS 1.3 handshake (one more RTT) with SNI so the edge picks the right certificate and ALPN to agree on HTTP/2; it verifies the chain up to a trusted root, the hostname against the SAN and the validity dates. It sends GET /products/42 with Host, cookies and Accept headers. The CDN either serves from cache or forwards to the origin load balancer, which routes to an application instance that may read from a cache or database and returns 200 with HTML and caching headers. The browser parses the HTML, discovers CSS, JS and images and requests them over the same HTTP/2 connection in parallel, builds the DOM and CSSOM, runs scripts, lays out and paints. On a cold load that is DNS plus three RTTs before the first byte of HTML; a warm connection and cache hits remove nearly all of it.
+    pitfalls:
+      - Listing steps without saying what each costs or what is cached.
+      - Skipping certificate validation or describing TLS as "the server sends its public key and everything is encrypted with it".
+      - Forgetting that the request usually terminates at a CDN or load balancer, not the application server.
+    follow_ups:
+      - prompt: What changes if the browser negotiates HTTP/3?
+        look_for: QUIC over UDP combines transport and TLS 1.3 setup into one RTT, has per-stream loss recovery, and is usually discovered through Alt-Svc or a DNS HTTPS record, with fallback to TCP if UDP is blocked.
+      - prompt: You have one week to make the cold load faster. What do you change?
+        look_for: Concrete RTT reductions such as a CDN edge near users, preconnect or dns-prefetch, fewer origins, long-cached versioned assets, TLS session resumption, smaller critical path (defer scripts), and measuring with real-user timings.
+      - prompt: The user typed http:// and the site has HSTS but the user has never visited it before. What is the risk?
+        look_for: The first request goes over plain HTTP and can be intercepted (SSL stripping) before the redirect and HSTS header arrive; the HSTS preload list closes that gap.
+- key: net.http.interview_caching
+  type: interview_question
+  title: "Interview question: design the caching headers for a product site"
+  skills: [network.http, sd.caching]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: |-
+      A product site has: content-hashed JS and CSS bundles, an HTML shell that changes on each deploy, a public product-catalogue API whose data changes a few times an hour, a per-user order history API, and an endpoint that updates a product's price from an admin tool. Specify the response headers (and any request headers) for each, and explain how a deploy and a price change reach users.
+    key_points:
+      - "Hashed bundles: public, max-age of a year, immutable; a new build means new URLs."
+      - "HTML shell: no-cache with an ETag (or a very short max-age) so a deploy is visible on the next load."
+      - "Catalogue: public with a short max-age, a longer s-maxage for the CDN, optionally stale-while-revalidate, an ETag, and a CDN purge when data changes."
+      - "Order history: private (or no-store for sensitive data), never cacheable by the CDN; mentions Vary or cache-key implications of cookies or Authorization."
+      - "Price update: the admin client sends If-Match with the ETag it read and gets 412 if someone changed the product meanwhile (optimistic concurrency)."
+      - Uses conditional requests (If-None-Match, 304) to make revalidation cheap.
+    model_answer: "Bundles: Cache-Control public, max-age=31536000, immutable; the hash in the file name is the version. HTML: no-cache plus ETag, so every load revalidates with a cheap 304 and a deploy is seen immediately. Catalogue: public, max-age=60, s-maxage=600, stale-while-revalidate=30 plus an ETag; on a price change the backend purges the product's CDN entry (by URL or tag), and browsers converge within a minute. Order history: private, no-cache with an ETag, or no-store if it contains sensitive details; it must never be stored by the CDN, so the CDN must not cache responses to requests that carry the session cookie or Authorization. Price update: PUT or PATCH with If-Match: the ETag the admin read; the server returns 412 if the ETag changed, so two admins cannot silently overwrite each other."
+    pitfalls:
+      - Caching the HTML shell for a long time, so users run old JS after a deploy.
+      - Marking per-user data public, or relying on the CDN to understand cookies.
+      - Confusing no-cache with no-store.
+    follow_ups:
+      - prompt: The catalogue must reflect a price change within 5 seconds, but you still want the CDN. What are your options?
+        look_for: Purge or tag-based invalidation on write, or a very short s-maxage with stale-while-revalidate, or versioned URLs for price data; trade-off between origin load and freshness.
+      - prompt: Why is Vary on Cookie usually a bad idea for a CDN?
+        look_for: Every distinct cookie value becomes a separate cache entry, so the hit rate collapses; better to mark per-user responses private and keep cookies out of shared-cache keys.
+      - prompt: What is the difference between a strong and a weak ETag, and when does it matter?
+        look_for: Weak ETags (W/ prefix) mean semantically equivalent, not byte-identical; fine for If-None-Match revalidation, but If-Match and byte-range requests need strong comparison.
+- key: net.http.debugging_cdn
+  type: debugging_exercise
+  title: "Debugging: users see someone else's account page"
+  skills: [network.http, sd.caching, security.web_basics]
+  minutes: 15
+  difficulty: HARD
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    scenario: |-
+      To cut origin load, the team put a CDN in front of the whole site, including `/api/*`, and set a rule to cache responses that are "cacheable by their headers". The next morning support receives reports that some users see another person's name and recent orders on `/account`. The problem disappears for a user after a few minutes, then appears for someone else.
+    symptoms:
+      - Only the account and order-history pages are affected; product pages are fine.
+      - Affected responses carry a CDN header showing a cache hit.
+      - The account API is authenticated with a session cookie.
+      - The application framework adds Cache-Control public, max-age=300 to every JSON response by default.
+    artifacts: |-
+      $ curl -sI https://shop.example.com/api/account -H "Cookie: session=..."
+      HTTP/2 200
+      content-type: application/json
+      cache-control: public, max-age=300
+      x-cache: HIT
+      age: 112
+    tasks:
+      - Explain the mechanism precisely, including why it lasts a few minutes.
+      - Give the immediate mitigation and the permanent fix at the origin and at the CDN.
+      - Say what else must happen because this is a data exposure, not just a bug.
+    hints:
+      - What is the CDN's cache key, and does it include the cookie?
+      - What does public tell a shared cache?
+      - Read the age header against max-age.
+    reference: |-
+      **Mechanism.** The origin declares the per-user account response `public, max-age=300`, which explicitly allows shared caches to store it. The CDN keys the cache by URL (not by cookie), so the first user's account JSON is stored under `/api/account` and served to everyone who requests that URL for the next 300 seconds (`age: 112` shows a copy two minutes old). When it expires, the next requester's data is cached and leaked instead, which is why the victim changes every few minutes.
+
+      **Immediate mitigation.** Add a CDN rule to bypass caching for `/api/account`, `/api/orders` and any request with a session cookie or Authorization header, then purge the CDN cache.
+
+      **Permanent fix.** At the origin, send `Cache-Control: private, no-store` (or `private, no-cache`) on every per-user response and remove the framework's blanket `public` default; make caching opt-in per endpoint. At the CDN, cache only path patterns that are known to be public, and never cache responses to requests with credentials. Add a test that asserts the Cache-Control header for authenticated endpoints.
+
+      **Because it is a data exposure.** Treat it as a security incident: record the window and the affected endpoints, use CDN logs to estimate which users' data was served to whom, follow the organisation's disclosure and notification process, and write a post-incident review.
+    rubric:
+      - {key: mechanism, label: Explains that the public directive plus a URL-only cache key let the CDN serve one user's response to others, points: 4}
+      - {key: duration, label: Connects the few-minute rotation to max-age=300 and the age header, points: 1}
+      - {key: mitigation, label: "Bypasses the CDN for authenticated paths and purges the cache", points: 2}
+      - {key: origin_fix, label: "Sends private or no-store on per-user responses and makes caching opt-in", points: 2}
+      - {key: incident, label: Treats it as a data exposure with scoping and notification, points: 1}
+    follow_ups:
+      - prompt: Could the CDN safely cache the account page if it added the cookie to the cache key?
+        look_for: It would stop the leak but create one entry per session with almost no hits, and any mistake in the key leaks data again; per-user data belongs in private caches.
+      - prompt: What does RFC 9111 say about caching responses to requests with an Authorization header?
+        look_for: A shared cache must not reuse them unless the response explicitly allows it (public, s-maxage or must-revalidate), which is exactly what the framework default did.
+- key: net.http.cards
+  type: revision_card
+  title: "Recall: HTTP semantics and caching"
+  skills: [network.http]
+  minutes: 5
+  body:
+    cards:
+      - front: Safe vs idempotent methods?
+        back: Safe GET, HEAD, OPTIONS; idempotent adds PUT and DELETE; POST and PATCH are neither.
+      - front: no-cache vs no-store?
+        back: no-cache stores but revalidates before each use; no-store never stores.
+      - front: ETag revalidation exchange?
+        back: Client sends If-None-Match with the ETag; server replies 304 with no body if unchanged.
+      - front: 401 vs 403?
+        back: 401 not authenticated (with WWW-Authenticate); 403 authenticated but not allowed.
+      - front: Redirect after a successful form POST?
+        back: 303 See Other, so the browser follows with GET; 307 and 308 keep the method.
+      - front: Head-of-line blocking in HTTP/2 vs HTTP/3?
+        back: HTTP/2 inherits TCP's (one loss stalls all streams); QUIC orders per stream.
+
+# ---------------------------------------------------------------------------------------------- TLS / HTTPS
+- key: net.tls.lesson
+  type: lesson
+  title: TLS 1.3, certificates and HTTPS
+  skills: [network.tls_https]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: TLS gives a connection confidentiality, integrity and server authentication; the certificate chain is what turns "someone answered" into "example.com answered".
+    what: |-
+      TLS (Transport Layer Security; version 1.3 is RFC 8446) runs on top of TCP and provides:
+
+      - **Confidentiality**: an eavesdropper cannot read the data.
+      - **Integrity**: tampering is detected (AEAD ciphers such as AES-GCM and ChaCha20-Poly1305).
+      - **Authentication**: the server proves it holds the private key for a certificate that a trusted authority issued for the hostname. Mutual TLS (mTLS) additionally authenticates the client with its own certificate.
+
+      **HTTPS** is HTTP over TLS, on port 443 by default. QUIC (HTTP/3) embeds the TLS 1.3 handshake in its own transport.
+
+      A **certificate** (X.509) binds a public key to names listed in its Subject Alternative Name (SAN) extension, with a validity period and the issuer's signature. Trust works through a **chain**: the server's leaf certificate is signed by an intermediate CA, which is signed by a root CA whose certificate is in the client's trust store (the OS, the browser, or a bundle such as Python's `certifi`).
+    why: |-
+      Without TLS, anyone on the path (public Wi-Fi, an ISP, a compromised router) can read passwords and cookies and modify responses, for example injecting scripts. Encryption alone is not enough: without authentication you could be talking securely to an attacker. Certificates solve the "who is on the other end" problem; ephemeral key exchange makes recorded traffic useless even if the server's key leaks later.
+    when: |-
+      Everywhere: public sites, APIs, and increasingly internal service-to-service traffic (often mTLS through a service mesh). Your design decisions are where to terminate TLS (CDN, load balancer, or the application), whether to re-encrypt to the backend, how certificates are issued and rotated, and whether to require client certificates.
+    how: |-
+      **TLS 1.3 full handshake (one round trip):**
+
+      1. **ClientHello**: supported versions and cipher suites, a random value, a **key share** (an ephemeral Diffie-Hellman public key, usually X25519), **SNI** (the hostname, so one IP can serve many certificates) and **ALPN** (for example `h2` or `http/1.1`).
+      2. **ServerHello**: the chosen suite and the server's own key share. Both sides now compute the same shared secret and derive handshake keys; everything after this is encrypted.
+      3. The server sends **EncryptedExtensions**, its **Certificate** chain, **CertificateVerify** (a signature over the handshake transcript made with the certificate's private key, proving it holds that key) and **Finished** (a MAC over the transcript).
+      4. The client **validates** the chain to a trusted root, checks that the hostname matches a SAN entry, checks the validity dates (and revocation where applicable), verifies CertificateVerify and Finished, then sends its own **Finished**. It can send the HTTP request immediately after.
+
+      TLS 1.2 needed two round trips and allowed static RSA key exchange; TLS 1.3 removed that and other weak options, so every handshake has **forward secrecy**.
+
+      **Resumption and 0-RTT.** A returning client can use a pre-shared key from an earlier session to skip certificate work, and optionally send **early data** in its first flight (0-RTT). Early data can be **replayed** by an attacker, so servers should accept it only for idempotent requests.
+
+      **HSTS.** `Strict-Transport-Security: max-age=31536000; includeSubDomains` tells the browser to use only HTTPS for that host for the given time, converting `http://` links internally and refusing to let users click through certificate errors. It defeats SSL-stripping attacks after the first visit; the **preload list** built into browsers covers the very first visit. Browsers ignore the header when it arrives over plain HTTP.
+    mental_model: |-
+      A sealed-envelope conversation with a notarised ID check. The key exchange agrees on a lock only the two of you can open, without ever sending the key. The certificate is an ID card; the chain of signatures is the notary vouching for the issuer of the ID; CertificateVerify is the server signing in front of you to prove the ID is theirs.
+    tradeoffs: |-
+      - **Terminate at the edge** (CDN or load balancer): it can route, cache and inspect, and certificates live in one place, but traffic behind it is plaintext unless you re-encrypt, and the edge holds your private key.
+      - **TLS passthrough to the application**: end-to-end encryption, but no L7 routing, caching or WAF at the balancer.
+      - **mTLS between services**: strong identity for every caller, but certificate issuance and rotation for every workload; a service mesh or internal CA automates it.
+      - **Short-lived certificates** limit the damage of a leaked key and make revocation less critical, but require automated renewal (ACME); manual renewals are how certificates expire in production.
+      - The CPU cost of TLS is small on modern hardware with AES instructions; the handshake round trip is the cost that matters, which connection reuse and resumption reduce.
+    mistakes:
+      - Disabling verification (`verify=False`, `InsecureSkipVerify`) to make an error go away, which removes authentication and allows silent interception.
+      - Serving only the leaf certificate without its intermediates; some clients cope, others fail.
+      - Letting a certificate expire because renewal was manual or the renewal job failed silently; alert on expiry dates.
+      - Enabling HSTS with `includeSubDomains` (or preloading) before every subdomain serves HTTPS, locking users out of them for the max-age period.
+      - Accepting 0-RTT early data for non-idempotent requests.
+      - Assuming HTTPS hides which site a user visits; the IP address and usually the SNI hostname are visible.
+    interview: |-
+      Common forms: "how does HTTPS work?", "walk me through the TLS handshake", "what does a certificate prove?", "what is forward secrecy?", and debugging certificate errors. A strong answer separates the asymmetric parts (key exchange, signatures for authentication) from the symmetric bulk encryption, names the validation checks, and mentions where TLS terminates in a real architecture.
+    explain_it:
+      - State the three guarantees and which part of the handshake provides each.
+      - Walk the TLS 1.3 handshake and its single round trip.
+      - List what the client checks when validating a certificate.
+      - Explain forward secrecy, 0-RTT replay risk and what HSTS adds.
+    example:
+      language: text
+      code: |-
+        $ openssl s_client -connect api.example.com:443 -servername api.example.com -showcerts
+        ...
+        Certificate chain
+         0 s:CN = api.example.com
+           i:C = US, O = Example CA, CN = Example Intermediate R3
+         1 s:C = US, O = Example CA, CN = Example Intermediate R3
+           i:C = US, O = Example CA, CN = Example Root X1
+        ...
+        Protocol  : TLSv1.3
+        Cipher    : TLS_AES_128_GCM_SHA256
+        Verify return code: 0 (ok)
+      explanation: "`s:` is the subject and `i:` the issuer of each certificate the server sent. The leaf (0) is issued by the intermediate (1), which is issued by a root the client already trusts; the server does not need to send the root."
+    internals: |-
+      TLS 1.3 derives all keys from the (EC)DHE shared secret and the transcript hash using HKDF, with separate keys for handshake and application traffic in each direction. Revocation checking (CRLs, OCSP, OCSP stapling) is inconsistent across clients, which is one reason the industry is moving to shorter certificate lifetimes. The SNI is sent in clear text in the ClientHello unless Encrypted Client Hello (ECH) is used.
+    edge_cases:
+      - A client with an outdated trust store (an old container image) fails against certificates chaining to a newer root.
+      - Corporate networks that intercept TLS install their own root CA on managed machines; clients with their own bundles (Python certifi, Java) then fail.
+      - A wrong system clock makes valid certificates look expired or not yet valid.
+      - Certificate pinning in mobile apps breaks when the server's key or CA changes.
+    misconceptions:
+      - "The data is encrypted with the server's public key. In TLS 1.3 the public key in the certificate only signs; data is encrypted with symmetric keys derived from an ephemeral key exchange."
+      - The padlock means the site is trustworthy. It means the connection is to the named host and is private; phishing sites have valid certificates too.
+- key: net.tls.visual
+  type: visual_explanation
+  title: "Visual: the TLS 1.3 handshake and the chain of trust"
+  skills: [network.tls_https]
+  minutes: 6
+  body:
+    summary: One round trip to agree on keys and authenticate the server, then a chain of signatures from the leaf to a root the client already trusts.
+    frames:
+      - caption: The full TLS 1.3 handshake after the TCP handshake. Everything after ServerHello is encrypted.
+        diagram: |-
+          client                                              server
+            | ClientHello: versions, ciphers, key_share,        |
+            |              SNI=api.example.com, ALPN=h2  ---->  |
+            |                                                   |
+            |  <----  ServerHello: chosen cipher, key_share     |
+            |         {EncryptedExtensions}                     |
+            |         {Certificate: leaf + intermediate}        |
+            |         {CertificateVerify: signature}            |
+            |         {Finished}                                |
+            | {Finished}                                        |
+            | {GET /orders HTTP/2}                       ---->  |
+          { } = encrypted with keys derived from the two key shares
+          TCP 1 RTT + TLS 1 RTT before the request is sent
+      - caption: How the client decides to trust the leaf certificate.
+        diagram: |-
+          [ Root CA "Example Root X1" ]   in the client's trust store (not sent)
+                    | signs
+          [ Intermediate "Example R3" ]   sent by the server
+                    | signs
+          [ Leaf: SAN = api.example.com ] sent by the server
+          checks: every signature valid, every cert in its validity period,
+                  hostname matches a SAN entry, leaf allowed for server auth,
+                  server proved the leaf's private key (CertificateVerify)
+- key: net.tls.check
+  type: concept_check
+  title: "Concept check: TLS and HTTPS"
+  skills: [network.tls_https]
+  minutes: 8
+  difficulty: MEDIUM
+  body:
+    intro: Separate what is asymmetric from what is symmetric, and what is checked from what is merely sent.
+    questions:
+      - id: q1
+        kind: single
+        prompt: For a brand-new connection with TCP and TLS 1.3 (no resumption), how many round trips pass before the client can send its HTTP request?
+        options: ["One", "Two", "Three", "Zero"]
+        answer: [1]
+        explanation: "One RTT for the TCP handshake and one for the TLS 1.3 handshake. Three was the figure for TCP plus TLS 1.2. Zero RTT applies only to resumed sessions with early data, and even then TCP's handshake remains unless QUIC is used."
+      - id: q2
+        kind: multi
+        prompt: Which checks does a client perform when validating a server certificate?
+        options:
+          - The chain of signatures leads to a root in its trust store
+          - The requested hostname matches a Subject Alternative Name entry
+          - The current time is within each certificate's validity period
+          - The certificate is encrypted with the client's public key
+        answer: [0, 1, 2]
+        explanation: "Chain, hostname and validity are the core checks (plus key usage and, where supported, revocation). Certificates are public and signed, not encrypted; the client has no key involved in them."
+      - id: q3
+        kind: single
+        prompt: An attacker records months of HTTPS traffic and later steals the server's certificate private key. With TLS 1.3, what can they decrypt?
+        options:
+          - All the recorded traffic
+          - Only traffic from sessions that used resumption
+          - None of the recorded traffic, because session keys came from ephemeral key exchanges
+          - Only the HTTP headers
+        answer: [2]
+        explanation: "That is forward secrecy. The certificate key only signs the handshake; the session keys come from ephemeral Diffie-Hellman values that were discarded. With TLS 1.2 static RSA key exchange, the stolen key would have decrypted everything. Going forward, the attacker can impersonate the server, so the certificate must be revoked and replaced."
+      - id: q4
+        kind: single
+        prompt: What does HSTS protect against?
+        options:
+          - A forged certificate from a compromised CA
+          - Downgrading a user to plain HTTP on visits after the browser has seen the header
+          - Cross-site request forgery
+          - DNS spoofing of the IP address
+        answer: [1]
+        explanation: "HSTS makes the browser refuse plain HTTP for the host, defeating SSL stripping, but only once it has seen the header (or the host is preloaded). It does not validate certificates beyond the usual checks, so a mis-issued certificate is a different problem, and it has nothing to do with CSRF."
+      - id: q5
+        kind: single
+        prompt: Why should a server accept TLS 1.3 0-RTT early data only for idempotent requests?
+        options:
+          - Early data is not encrypted
+          - Early data can be replayed by an attacker who captured it
+          - Early data skips certificate validation
+          - Early data is limited to 512 bytes
+        answer: [1]
+        explanation: "Early data is encrypted with keys from a previous session, but the handshake has not yet produced fresh values that would detect a replay, so a captured first flight can be sent again. A replayed GET is harmless; a replayed payment is not."
+      - id: q6
+        kind: short
+        prompt: A user visits https://clinic.example.com/results/123?patient=88 over public Wi-Fi with plain DNS. What can the Wi-Fi operator learn, and what not?
+        model_answer: "They can see the DNS query for clinic.example.com (plain DNS), the server IP, the hostname in the TLS SNI (unless Encrypted Client Hello is used), and the timing and sizes of the encrypted traffic. They cannot see the path /results/123, the query string, headers, cookies or the response body, and cannot modify them without detection."
+        explanation: TLS protects the HTTP message, not the metadata needed to route the connection.
+- key: net.tls.interview
+  type: interview_question
+  title: "Interview question: how HTTPS protects a service call"
+  skills: [network.tls_https]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: Your service calls `https://payments.example.com`. Explain what TLS 1.3 does on that connection, what exactly the certificate proves and how the client checks it, and what would let an attacker in the middle succeed anyway.
+    key_points:
+      - "Names the three guarantees: confidentiality, integrity, server authentication."
+      - "Ephemeral key exchange in ClientHello and ServerHello gives shared keys and forward secrecy; bulk data uses symmetric AEAD encryption."
+      - "The certificate binds a public key to the hostname; CertificateVerify proves the server holds the matching private key."
+      - "Validation: chain to a trusted root, hostname matches SAN, validity period."
+      - "Attacks that still work: verification disabled, a rogue or compromised CA or an attacker-installed root in the trust store, a stolen private key, or the client talking plain HTTP first without HSTS."
+      - "Notes the round-trip cost (one RTT) and that reusing pooled connections avoids repeating it."
+    model_answer: "The ClientHello and ServerHello exchange ephemeral Diffie-Hellman key shares, so both sides derive symmetric keys nobody on the path can compute; everything after ServerHello is encrypted and integrity-protected with an AEAD cipher. The server sends its certificate chain and a CertificateVerify signature over the handshake transcript. The certificate says a CA vouches that this public key belongs to payments.example.com; the signature proves the server holds the private key. My client checks the chain up to a root in its trust store, that payments.example.com matches a SAN entry and that the certificates are within their validity periods. A man in the middle still wins if verification is disabled in my HTTP client, if they control a CA or a root installed in my trust store, if they stole the server's private key (then they can impersonate it going forward, though forward secrecy protects past traffic), or if the client ever talks plain HTTP first. The handshake costs one RTT, which is why the client should reuse pooled connections."
+    pitfalls:
+      - Saying the data is encrypted with the server's public key.
+      - Treating the certificate as secret, or forgetting the hostname check.
+      - Not mentioning disabled verification as the most common real-world failure.
+    follow_ups:
+      - prompt: The payments team asks you to use mutual TLS. What changes and what does it cost operationally?
+        look_for: The server requests a client certificate and the client proves its key with its own CertificateVerify, giving strong caller identity; costs are issuing, distributing and rotating client certificates, usually through an internal CA or a service mesh.
+      - prompt: The payments service's private key was leaked. What do you do, and what about traffic recorded last month?
+        look_for: Issue a new key and certificate, revoke the old one, investigate the leak; recorded TLS 1.3 traffic stays safe thanks to forward secrecy, but the attacker could impersonate the server until clients stop trusting the old certificate.
+      - prompt: TLS terminates at your load balancer. Is the call still end-to-end protected?
+        look_for: Only to the balancer; behind it traffic is plaintext unless re-encrypted, so rely on a private network plus re-encryption or mTLS to the backend, and pass X-Forwarded-Proto so the app knows the original scheme.
+- key: net.tls.debugging
+  type: debugging_exercise
+  title: "Debugging: certificate verify failed in Python, fine in the browser"
+  skills: [network.tls_https]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    scenario: |-
+      After the platform team renewed the certificate for `partner-api.example.com`, your Python integration started failing on every call. Opening the same URL in a desktop browser shows a valid padlock. A teammate proposes `verify=False` "until it is sorted out".
+    symptoms:
+      - Every request fails; nothing changed in your code or container image.
+      - The browser on a developer laptop shows the certificate as valid.
+      - curl from the same container fails with a similar message.
+    artifacts: |-
+      requests.exceptions.SSLError: HTTPSConnectionPool(host='partner-api.example.com', port=443):
+        ... [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate
+
+      $ openssl s_client -connect partner-api.example.com:443 -servername partner-api.example.com -showcerts
+      Certificate chain
+       0 s:CN = partner-api.example.com
+         i:C = US, O = Example CA, CN = Example Intermediate R3
+      ---
+      Verify return code: 20 (unable to get local issuer certificate)
+    tasks:
+      - Identify the most likely cause from the artifacts.
+      - Explain why the browser succeeds while Python and curl fail.
+      - Give the correct fix and who must apply it.
+      - Name two other causes you would rule out and how.
+      - Respond to the verify=False proposal.
+    hints:
+      - Count the certificates in the chain the server sent.
+      - Who issued certificate 0, and is that issuer in a root store?
+    reference: |-
+      **Cause.** The server sends only the leaf certificate. Its issuer, the intermediate "Example Intermediate R3", is not in the client's trust store (trust stores hold roots), so the client cannot build a chain to a root: "unable to get local issuer certificate". The renewal most likely deployed `cert.pem` instead of the full chain.
+
+      **Why the browser works.** Browsers can complete an incomplete chain from intermediates they have cached from other sites or fetch through the certificate's Authority Information Access URL. OpenSSL-based clients such as Python and curl do not, so they fail.
+
+      **Fix.** The server operator must configure the full chain (leaf followed by intermediates, often `fullchain.pem`). Verify with `openssl s_client -showcerts`, which should list the leaf and the intermediate and end with "Verify return code: 0 (ok)". Add a synthetic check that connects with a strict client and alerts on chain errors and on approaching expiry.
+
+      **Other causes to rule out.** An outdated CA bundle in the image (check the chain's root against `certifi` or the OS store), a TLS-intercepting proxy on the network (the issuer shown would be the proxy's CA), a hostname mismatch (a different error: "Hostname mismatch" or "doesn't match"), and a wrong system clock (errors mention "certificate has expired" or "not yet valid").
+
+      **verify=False.** Refuse it: it disables authentication, so any interceptor can read and alter the traffic, including credentials, and temporary workarounds tend to become permanent. If a stopgap is unavoidable, pass the intermediate explicitly through a custom CA bundle for this one host, while the server is fixed.
+    rubric:
+      - {key: cause, label: Identifies the missing intermediate from the one-certificate chain and the error text, points: 3}
+      - {key: browser_difference, label: Explains browser AIA fetching or intermediate caching vs OpenSSL clients, points: 2}
+      - {key: fix, label: Server serves the full chain and the fix is verified with openssl s_client, points: 2}
+      - {key: alternatives, label: Rules out at least two other causes with how to tell them apart, points: 2}
+      - {key: no_verify_false, label: Rejects verify=False and explains the risk, points: 1}
+    follow_ups:
+      - prompt: Your container image is three years old and a different partner's certificate fails with the same error even though they serve the full chain. Why?
+        look_for: The partner's chain ends at a root that is newer than the image's CA bundle (or an old cross-signed root expired); update ca-certificates or certifi.
+      - prompt: How do you stop certificate expiry from becoming an outage?
+        look_for: Automated issuance and renewal (ACME), monitoring of days to expiry from outside, alerting well before expiry, and short-lived certificates so renewal is routine.
+- key: net.tls.cards
+  type: revision_card
+  title: "Recall: TLS and HTTPS"
+  skills: [network.tls_https]
+  minutes: 5
+  body:
+    cards:
+      - front: Round trips for TCP plus a full TLS 1.3 handshake?
+        back: Two, one for each, before the HTTP request is sent.
+      - front: What does CertificateVerify prove?
+        back: That the server holds the private key matching the certificate's public key.
+      - front: Three checks when validating a certificate?
+        back: Chain to a trusted root, hostname matches a SAN entry, within the validity period.
+      - front: Forward secrecy in one line?
+        back: Ephemeral key exchange means a later key theft cannot decrypt recorded sessions.
+      - front: What does HSTS do, and what covers the first visit?
+        back: Forces HTTPS for the host after it is seen; the browser preload list covers the first visit.
+      - front: Browser OK, Python fails with "unable to get local issuer certificate"?
+        back: The server is not sending its intermediate certificate; serve the full chain.

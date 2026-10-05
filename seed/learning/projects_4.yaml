@@ -1,0 +1,515 @@
+# Learning content: flagship projects Payment/Order System and Social Feed.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- payment / order system
+- key: proj.payments.project
+  type: project
+  title: "Flagship project: Order and Payment System with a simulated provider"
+  skills:
+    - project.architecture_walkthrough
+    - project.tradeoffs_decisions
+    - project.incident_debugging_story
+    - sd.data_modeling
+    - db.modeling_normalization
+    - lld.class_design
+    - sd.idempotency_retries
+    - db.transactions_acid
+    - engineering.api_engineering
+    - sd.fault_tolerance
+    - security.web_basics
+    - sd.consistency_cap
+    - sd.queues_async
+    - db.locking_deadlocks
+    - testing.test_design
+    - sd.security_design
+    - sd.observability
+    - testing.unit_integration
+  minutes: 180
+  difficulty: HARD
+  body:
+    summary: |-
+      An order service that takes a cart to a paid, fulfilled order through a payment provider, with idempotent APIs, a state machine, webhooks, a double-entry ledger, refunds and reconciliation. The payment provider is a simulator you write yourself, configurable to be slow, fail, time out after charging, or send webhooks late, twice or out of order. No real card data is ever handled: the simulator issues opaque payment-method tokens the way real providers do.
+
+      This project is about correctness when money moves: no double charges, no lost payments, and books that always balance. The defense is mostly "what happens if…" questions.
+    stack:
+      - "Backend: Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2 with Alembic (Django with DRF is an acceptable alternative)"
+      - "Data: MySQL 8 (InnoDB) for orders, payments, idempotency records, the ledger and the outbox"
+      - "Async: Celery or the job queue project's worker for webhooks processing, reconciliation and reservation expiry"
+      - "Provider: a separate small FastAPI app simulating a payment provider (intents, captures, refunds, signed webhooks, a settlement report)"
+      - "Delivery: Docker, docker compose, GitHub Actions"
+    requirements:
+      functional:
+        - Create an order from cart lines with prices in integer minor units and a currency; stock is reserved for 15 minutes.
+        - Pay for an order with a payment-method token from the provider; the order becomes PAID only when the provider confirms the capture.
+        - Provider webhooks (payment succeeded, failed, refunded) update orders; duplicate and out-of-order webhooks are handled.
+        - Full and partial refunds, never exceeding the captured amount.
+        - Unpaid orders are cancelled and their reservation released when the reservation expires.
+        - A nightly reconciliation compares the provider's settlement report with internal records and lists mismatches.
+        - Customers can see only their own orders.
+      non_functional:
+        - A client retry, a double click or a network timeout never causes a second charge.
+        - Every money movement is recorded in a double-entry ledger whose entries sum to zero per transaction.
+        - Order status changes follow the state machine; invalid transitions are rejected and logged.
+        - No card numbers are stored, logged or passed through the service; only provider tokens.
+        - Webhooks are authenticated with an HMAC signature and a timestamp tolerance.
+        - Every state change is auditable (who or what changed it, when, from which event).
+    architecture: |-
+      **Order state machine.** `CREATED → PAYMENT_PENDING → PAID → FULFILLED`, with `CANCELLED` (from CREATED or PAYMENT_PENDING, including reservation expiry), `PAYMENT_FAILED` (back to retryable) and `REFUNDED` or `PARTIALLY_REFUNDED` after PAID. Transitions are a table in code, and every change is a conditional update: `UPDATE orders SET status = 'PAID' WHERE id = %s AND status = 'PAYMENT_PENDING'`. A zero row count means the transition was already made or is invalid.
+
+      **Idempotent API.** `POST /orders` and `POST /orders/{id}/payments` require an `Idempotency-Key`. The first request inserts an `idempotency_records` row (key, user, request hash, status IN_PROGRESS); the unique key makes concurrent duplicates fail the insert. When the work finishes, the response is stored on the row. A repeat with the same key and body returns the stored response; the same key with a different body is 422; a repeat while the first is IN_PROGRESS gets 409 and retries later.
+
+      **Talking to the provider.** The service creates a payment intent at the provider, passing its own payment id as the provider's idempotency key, so a retried call cannot create a second charge. A timeout is not a failure: the payment stays PENDING and the service asks the provider for the intent's status (or waits for the webhook). Only a definite answer moves the payment to SUCCEEDED or FAILED.
+
+      **Webhooks.** The endpoint verifies the HMAC-SHA256 signature over the timestamp and raw body with a constant-time comparison, rejects old timestamps, stores the event by provider event id (unique, so duplicates are no-ops) and returns 200 quickly. A worker applies events through the state machine, so an out-of-order "succeeded" after "refunded" cannot move an order backwards.
+
+      **Ledger and outbox.** Capturing a payment writes, in the same transaction as the status change, ledger entries that debit the provider-receivable account and credit the customer-payments account for the same amount, plus an outbox event `OrderPaid`. Fulfilment and email react to the outbox event, never to the HTTP request.
+
+      **Reconciliation.** A nightly job loads the simulator's settlement report and matches each line with payments and ledger entries by provider id and amount; mismatches (missing internally, missing at the provider, amount differs) are written to a table and alarmed.
+    schema:
+      language: sql
+      code: |-
+        -- MySQL 8.0 (InnoDB). Amounts are BIGINT minor units (paise, cents).
+        CREATE TABLE orders (
+          id           BIGINT PRIMARY KEY AUTO_INCREMENT,
+          customer_id  BIGINT NOT NULL,
+          status       ENUM('CREATED','PAYMENT_PENDING','PAYMENT_FAILED','PAID','FULFILLED',
+                            'CANCELLED','PARTIALLY_REFUNDED','REFUNDED') NOT NULL,
+          currency     CHAR(3) NOT NULL,
+          total_minor  BIGINT NOT NULL CHECK (total_minor > 0),
+          reserved_until DATETIME(6) NOT NULL,
+          created_at   DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+          KEY ix_orders_customer (customer_id, created_at, id),
+          KEY ix_orders_expiry (status, reserved_until)
+        );
+        CREATE TABLE order_lines (
+          order_id    BIGINT NOT NULL REFERENCES orders(id),
+          sku         VARCHAR(64) NOT NULL,
+          qty         INT NOT NULL CHECK (qty > 0),
+          price_minor BIGINT NOT NULL CHECK (price_minor >= 0),
+          PRIMARY KEY (order_id, sku)
+        );
+        CREATE TABLE payments (
+          id               BIGINT PRIMARY KEY AUTO_INCREMENT,
+          order_id         BIGINT NOT NULL REFERENCES orders(id),
+          provider_intent  VARCHAR(64) NULL UNIQUE,
+          status           ENUM('PENDING','SUCCEEDED','FAILED') NOT NULL,
+          amount_minor     BIGINT NOT NULL,
+          refunded_minor   BIGINT NOT NULL DEFAULT 0,
+          CHECK (refunded_minor >= 0 AND refunded_minor <= amount_minor),
+          KEY ix_payments_order (order_id)
+        );
+        CREATE TABLE refunds (
+          id              BIGINT PRIMARY KEY AUTO_INCREMENT,
+          payment_id      BIGINT NOT NULL REFERENCES payments(id),
+          amount_minor    BIGINT NOT NULL CHECK (amount_minor > 0),
+          provider_refund VARCHAR(64) NULL UNIQUE,
+          status          ENUM('PENDING','SUCCEEDED','FAILED') NOT NULL
+        );
+        CREATE TABLE idempotency_records (
+          user_id       BIGINT NOT NULL,
+          idem_key      VARCHAR(128) NOT NULL,
+          request_hash  CHAR(64) NOT NULL,
+          status        ENUM('IN_PROGRESS','DONE') NOT NULL,
+          response_code INT NULL,
+          response_body JSON NULL,
+          created_at    DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+          PRIMARY KEY (user_id, idem_key)
+        );
+        CREATE TABLE provider_events (
+          event_id    VARCHAR(64) PRIMARY KEY,               -- the provider's id: duplicates are rejected
+          event_type  VARCHAR(64) NOT NULL,
+          payload     JSON NOT NULL,
+          received_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+          applied_at  DATETIME(6) NULL
+        );
+        CREATE TABLE ledger_entries (
+          id           BIGINT PRIMARY KEY AUTO_INCREMENT,
+          txn_id       CHAR(36) NOT NULL,                    -- entries of one transaction sum to 0
+          account      VARCHAR(64) NOT NULL,                 -- e.g. provider_receivable, customer_payments, refunds
+          amount_minor BIGINT NOT NULL,                      -- positive debit, negative credit
+          currency     CHAR(3) NOT NULL,
+          order_id     BIGINT NOT NULL,
+          created_at   DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+          KEY ix_ledger_txn (txn_id),
+          KEY ix_ledger_account (account, created_at)
+        );
+        CREATE TABLE outbox_events (
+          id BIGINT PRIMARY KEY AUTO_INCREMENT, event_type VARCHAR(64) NOT NULL, payload JSON NOT NULL,
+          created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6), published_at DATETIME(6) NULL,
+          KEY ix_outbox_pending (published_at, id)
+        );
+      explanation: "The balance check is a query, run in tests and nightly: SELECT txn_id FROM ledger_entries GROUP BY txn_id HAVING SUM(amount_minor) <> 0 must return no rows."
+    apis:
+      - "POST /api/v1/orders — cart lines; requires Idempotency-Key; 201 with the order in CREATED and its reservation expiry; 409 when stock is short"
+      - "POST /api/v1/orders/{id}/payments — {payment_method_token}; requires Idempotency-Key; 202 with the payment in PENDING, or 200 with the final state if it is already known"
+      - "GET /api/v1/orders/{id} — the order with its payments and refunds; 404 (not 403) for another customer's order, to avoid revealing that it exists"
+      - "POST /api/v1/orders/{id}/refunds — {amount_minor}; requires Idempotency-Key; 422 when it would exceed the captured amount"
+      - "POST /api/v1/webhooks/provider — signature header with timestamp; 200 after storing the event, 400 on a bad signature or stale timestamp"
+      - "GET /api/v1/admin/reconciliation/{date} — mismatches found for a settlement date"
+    milestones:
+      - key: state_machine_and_model
+        title: Order model, money and the state machine
+        goal: Model orders, payments and refunds with integer money and a state machine that rejects invalid transitions.
+        deliverables:
+          - The schema with integer minor-unit amounts, currencies and the constraints that protect refunds.
+          - A transition table in code and conditional updates for every status change; invalid transitions raise and are logged.
+          - Unit tests for every allowed and a sample of forbidden transitions, including events arriving out of order.
+          - A short note on why floats are never used for money and how rounding is handled for percentages (one rounding rule, applied once).
+        skills: [sd.data_modeling, db.modeling_normalization, lld.class_design]
+        minutes: 150
+        rubric:
+          - {key: integer_money, label: "All amounts are integers in minor units with a currency", points: 2}
+          - {key: transitions, label: "Every status change goes through the transition table and a conditional update", points: 3}
+          - {key: out_of_order, label: "Late or out-of-order events cannot move an order backwards", points: 3}
+          - {key: transition_tests, label: "Allowed and forbidden transitions are tested", points: 2}
+      - key: idempotent_checkout
+        title: Idempotent order creation and payment requests
+        goal: Make order creation and payment safe to retry, including concurrent duplicates and changed request bodies.
+        deliverables:
+          - An idempotency_records table and middleware or dependency used by every money-moving endpoint.
+          - Handling for the four cases (new key, completed key with the same body, same key with a different body, key still in progress) with the documented status codes.
+          - Order creation that reserves stock and writes the order in one transaction.
+          - Tests that fire the same request concurrently ten times and assert one order, one payment intent and identical responses.
+        skills: [sd.idempotency_retries, db.transactions_acid, engineering.api_engineering]
+        minutes: 180
+        rubric:
+          - {key: four_cases, label: "All four idempotency cases behave as documented", points: 3}
+          - {key: concurrent_duplicates, label: "Concurrent duplicates are resolved by the unique key, not by a check-then-insert", points: 3}
+          - {key: atomic_order, label: "Reservation and order creation commit or roll back together", points: 2}
+          - {key: tests, label: "The concurrent-duplicate test passes repeatedly", points: 2}
+      - key: provider_and_webhooks
+        title: Provider integration, timeouts and signed webhooks
+        goal: Integrate with an unreliable provider so that timeouts never cause double charges or lost payments, and webhooks are authentic and idempotent.
+        deliverables:
+          - The provider simulator with switches for latency, failures, timeout-after-charge and duplicate or out-of-order webhooks.
+          - A provider client that sends the internal payment id as the provider idempotency key and treats a timeout as unknown, followed by a status query.
+          - A webhook endpoint that verifies the HMAC signature with hmac.compare_digest, enforces a timestamp tolerance, stores events by event id and returns quickly.
+          - A worker that applies stored events through the state machine.
+        skills: [sd.fault_tolerance, security.web_basics, sd.idempotency_retries]
+        minutes: 180
+        rubric:
+          - {key: timeout_unknown, label: "A timeout leaves the payment PENDING and is resolved by a status query or webhook, never marked failed blindly", points: 3}
+          - {key: provider_idempotency, label: "Retried provider calls reuse the same idempotency key", points: 2}
+          - {key: webhook_auth, label: "Signatures are verified over the raw body in constant time with replay protection", points: 3}
+          - {key: webhook_dedupe, label: "Duplicate webhooks are no-ops", points: 2}
+      - key: ledger_and_outbox
+        title: Double-entry ledger, outbox and reservation expiry
+        goal: Record every money movement as balanced ledger entries in the same transaction as the state change, and drive side effects from the outbox.
+        deliverables:
+          - Ledger entries for capture and refund written in the same transaction as the payment and order updates.
+          - The balance query in a test and as a nightly check.
+          - An outbox relay publishing OrderPaid and OrderRefunded events; fulfilment and email consume them idempotently.
+          - A scheduled job that cancels unpaid orders after reserved_until and releases stock, safe against a payment succeeding at the same moment.
+          - A note on which views are strongly consistent (order status, ledger) and which are eventually consistent (emails, fulfilment, analytics).
+        skills: [db.transactions_acid, sd.consistency_cap, sd.queues_async]
+        minutes: 180
+        rubric:
+          - {key: balanced, label: "Every ledger transaction sums to zero, checked by a test", points: 3}
+          - {key: same_txn, label: "Ledger, status change and outbox row commit atomically", points: 3}
+          - {key: expiry_race, label: "Expiry and a concurrent successful payment cannot both win; the rule is stated", points: 2}
+          - {key: consistency_map, label: "Strong and eventual consistency boundaries are named", points: 2}
+      - key: refunds_and_reconciliation
+        title: Refunds under concurrency and nightly reconciliation
+        goal: Make refunds safe under concurrent requests and detect any disagreement between your records and the provider's.
+        deliverables:
+          - Partial refunds that lock the payment row (SELECT … FOR UPDATE), check the remaining amount and update refunded_minor in one transaction.
+          - A test where two concurrent refunds would together exceed the captured amount; exactly one succeeds.
+          - A reconciliation job comparing the simulator's settlement report with payments and ledger entries, writing mismatches with a reason.
+          - Seeded mismatches (a missing webhook, a wrong amount, an unknown provider id) that the job finds.
+        skills: [db.locking_deadlocks, sd.fault_tolerance, testing.test_design]
+        minutes: 150
+        rubric:
+          - {key: refund_lock, label: "Concurrent refunds cannot exceed the captured amount", points: 3}
+          - {key: refund_test, label: "The concurrent-refund test demonstrates it", points: 2}
+          - {key: reconciliation, label: "Reconciliation finds every seeded mismatch with a correct reason", points: 3}
+          - {key: actionable, label: "Each mismatch type has a documented resolution", points: 2}
+      - key: security_tests_observability
+        title: Security, the test suite and money observability
+        goal: Keep card data out of scope, prevent access to other customers' orders and make payment health visible.
+        deliverables:
+          - A data-handling note showing that no card number reaches the service (tokens only), and log scrubbing for tokens and personal data.
+          - Ownership checks on every order endpoint with tests for access to another customer's order.
+          - An audit log of state changes with the actor or event that caused each.
+          - "Metrics: payment success rate, payments stuck in PENDING beyond 10 minutes, webhook signature failures, reconciliation mismatches, refund volume."
+        skills: [sd.security_design, sd.observability, testing.unit_integration]
+        minutes: 180
+        rubric:
+          - {key: pci_scope, label: "No card data is stored, logged or transmitted by the service", points: 3}
+          - {key: idor, label: "Object ownership is checked server-side and tested", points: 3}
+          - {key: audit, label: "Every status change has an audit entry with its cause", points: 2}
+          - {key: money_metrics, label: "Metrics catch stuck payments and reconciliation mismatches", points: 2}
+    testing:
+      - "Double charge: the client times out and retries POST /payments; the provider simulator records exactly one charge."
+      - "Timeout after charge: the simulator charges and then times out; the payment ends SUCCEEDED through the status query or webhook."
+      - "Webhooks: duplicated, delayed and out of order (refunded before succeeded); final state and ledger are correct."
+      - "Ledger: after any test, the balance query returns no unbalanced transactions."
+      - "Concurrency: ten identical order requests in parallel; two refunds racing for the remaining amount; payment success racing reservation expiry."
+      - "State machine: property-style test applying random event sequences and asserting no forbidden transition happens."
+      - "Security: tampered webhook body, stale timestamp, another customer's order id."
+    deployment:
+      - "API, webhook worker, outbox relay and scheduled jobs as separate services from one image."
+      - "The webhook endpoint is public and signature-verified; everything else requires authentication."
+      - "Provider secrets (API key, webhook signing secret) in the platform secret store, with a rotation procedure that accepts the old and new signing secret during the switch."
+      - "Backward-compatible migrations; money-moving code is released behind a flag and enabled for a small share of traffic first."
+    observability:
+      - "Payment funnel: intents created, succeeded, failed, pending older than 10 minutes."
+      - "Webhook health: received, signature failures, duplicates, apply lag."
+      - "Ledger and reconciliation: unbalanced transactions (expected 0), mismatches per day by reason."
+      - "Every log line for a payment carries the order id, payment id and provider intent id; no tokens or personal data in logs."
+      - "Alarms: any unbalanced ledger transaction, pending payments above a threshold, signature failures spiking."
+    failure_scenarios:
+      - "The provider charges the card but the response times out: the payment stays PENDING, the status query or webhook resolves it, and no second charge happens because the retry uses the same provider idempotency key."
+      - "The webhook for a successful payment never arrives: the status poll and nightly reconciliation catch it."
+      - "A refunded webhook arrives before the succeeded webhook: the state machine refuses to move backwards and the event is retried after the earlier one is applied."
+      - "The reservation expires while the customer is paying: the order is cancelled and the late successful payment is refunded automatically, or the expiry waits for pending payments, by a stated rule."
+      - "The database fails over between capture at the provider and the local commit: the payment stays PENDING and is reconciled from the provider."
+      - "An attacker posts a forged webhook: the signature check rejects it; a replayed genuine webhook is rejected by the timestamp tolerance or deduplicated by event id."
+    defense_questions:
+      - Walk me through a payment from the click on Pay to the order showing as paid, including every place it can fail.
+      - How do you guarantee a customer is never charged twice?
+      - What do you do when the provider call times out? Why not mark the payment failed and let the user retry?
+      - How do you authenticate webhooks, and how do you handle duplicates and out-of-order delivery?
+      - Why a double-entry ledger, and how do you know the books balance?
+      - Two partial refunds arrive at the same moment. What stops them exceeding the payment?
+      - Why the outbox pattern instead of sending the confirmation email in the request?
+      - What would you do differently before handling real money?
+# ---------------------------------------------------------------------------------------------- social feed
+- key: proj.feed.project
+  type: project
+  title: "Flagship project: Social Feed with follows, likes and media"
+  skills:
+    - project.architecture_walkthrough
+    - project.tradeoffs_decisions
+    - project.metrics_impact
+    - sd.data_modeling
+    - db.indexing
+    - sd.api_design
+    - db.query_optimization
+    - engineering.performance_profiling
+    - sd.queues_async
+    - sd.caching
+    - engineering.caching_practice
+    - sd.consistency_cap
+    - db.locking_deadlocks
+    - sd.idempotency_retries
+    - sd.storage_search
+    - sd.load_balancing_cdn
+    - security.web_basics
+    - sd.realtime_delivery
+    - sd.rate_limiting
+    - sd.observability
+  minutes: 180
+  difficulty: HARD
+  body:
+    summary: |-
+      A social feed where users post text and images, follow each other, like posts and read a home timeline of the people they follow. You build the timeline twice, first by fan-out on read (query at read time) and then by fan-out on write (precomputed timelines in Redis), measure both, and end with a hybrid that treats accounts with very many followers differently. The project makes the classic read-versus-write trade-off concrete with your own numbers.
+
+      Seed the database with synthetic users, follows and posts (for example 100,000 users and a skewed follower distribution) so measurements mean something.
+    stack:
+      - "Backend: Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2 with Alembic"
+      - "Data: MySQL 8 (InnoDB) for users, follows, posts and likes; Redis sorted sets for precomputed timelines and counters"
+      - "Async: Celery or the job queue project's worker for fan-out and thumbnails"
+      - "Media: S3 (or MinIO locally) with presigned uploads, served through a CDN"
+      - "Real time: Server-Sent Events for new-post indicators"
+      - "Delivery: Docker, docker compose, GitHub Actions; k6 or Locust for load tests"
+    requirements:
+      functional:
+        - Users create posts with text and up to four images, and delete their own posts.
+        - Users follow and unfollow others; follower and following lists are paginated.
+        - The home timeline shows posts from followed users, newest first, with cursor pagination.
+        - A profile timeline shows one user's posts.
+        - Users like and unlike posts; like counts are shown on posts.
+        - Connected users see a "new posts" indicator when someone they follow posts.
+      non_functional:
+        - Home timeline p95 under 150 ms at the test load for a user following 500 accounts, measured.
+        - A new post appears in followers' timelines within a few seconds (eventual consistency is acceptable and stated).
+        - Like and follow actions are idempotent; repeated requests do not double-count.
+        - Posting is rate-limited per user; uploads are size- and type-limited.
+        - Accounts with very large follower counts do not cause fan-out storms.
+    architecture: |-
+      **Writes.** `POST /posts` stores the post in MySQL and enqueues a fan-out job through an outbox row. Images are uploaded by the client directly to S3 with a presigned POST whose policy limits size and content type; the post references the object keys, and a worker generates thumbnails.
+
+      **Fan-out on read (version 1).** The home timeline query reads the IDs of followed users and fetches their latest posts: `WHERE author_id IN (…) ORDER BY created_at DESC, id DESC LIMIT 20` with an index on `(author_id, created_at, id)`. It is simple and always fresh, but its cost grows with the number of accounts followed, which you measure with EXPLAIN and a load test.
+
+      **Fan-out on write (version 2).** The fan-out worker reads the author's followers in batches and adds the post id to each follower's Redis sorted set (`ZADD timeline:{user} <score> <post_id>`, score from the post's time-ordered id), trimming each set to the newest 800 entries with `ZREMRANGEBYRANK timeline:{user} 0 -801`. Reading a timeline is one ZRANGE (with REV on Redis 6.2+, or ZREVRANGE) plus a batched lookup of post bodies, cached by post id. If a timeline is missing (cold user, evicted key), it is rebuilt from MySQL with the version 1 query.
+
+      **Hybrid.** Authors with more than a threshold of followers (set from measurement, for example 10,000) are not fanned out. Their recent posts are merged in at read time from a small cached list per celebrity, so one post never triggers a million writes.
+
+      **Likes and counters.** A like is a row with primary key `(user_id, post_id)`, so liking twice is a no-op. The displayed count is incremented in Redis and flushed to the post row periodically, avoiding a hot-row update for every like on a viral post; the count is therefore approximate for a few seconds and can be recomputed from the likes table.
+
+      **Real time.** When the fan-out worker adds a post to an online follower's timeline, it publishes on that user's Redis channel; the API instance holding the user's SSE connection sends a "new posts" event, and the client fetches the timeline.
+    schema:
+      language: sql
+      code: |-
+        -- MySQL 8.0 (InnoDB)
+        CREATE TABLE users (
+          id             BIGINT PRIMARY KEY AUTO_INCREMENT,
+          handle         VARCHAR(32) NOT NULL UNIQUE,
+          follower_count INT NOT NULL DEFAULT 0,
+          created_at     DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+        );
+        CREATE TABLE follows (
+          follower_id BIGINT NOT NULL REFERENCES users(id),
+          followee_id BIGINT NOT NULL REFERENCES users(id),
+          created_at  DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+          PRIMARY KEY (follower_id, followee_id),            -- whom do I follow
+          KEY ix_follows_followee (followee_id, follower_id) -- who follows me (fan-out)
+        );
+        CREATE TABLE posts (
+          id         BIGINT PRIMARY KEY,                     -- time-ordered id generated by the app
+          author_id  BIGINT NOT NULL REFERENCES users(id),
+          body       VARCHAR(2000) NOT NULL,
+          like_count INT NOT NULL DEFAULT 0,
+          deleted    BOOLEAN NOT NULL DEFAULT FALSE,
+          created_at DATETIME(6) NOT NULL,
+          KEY ix_posts_author (author_id, created_at, id)
+        );
+        CREATE TABLE post_media (
+          post_id   BIGINT NOT NULL REFERENCES posts(id),
+          position  TINYINT NOT NULL,
+          s3_key    VARCHAR(512) NOT NULL,
+          thumb_key VARCHAR(512) NULL,
+          PRIMARY KEY (post_id, position)
+        );
+        CREATE TABLE likes (
+          user_id    BIGINT NOT NULL REFERENCES users(id),
+          post_id    BIGINT NOT NULL REFERENCES posts(id),
+          created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+          PRIMARY KEY (user_id, post_id),
+          KEY ix_likes_post (post_id)
+        );
+      explanation: "The two indexes on follows serve opposite questions; the posts index serves both the profile timeline and the fan-out-on-read query. Keyset cursors use (created_at, id) so ties never skip or repeat rows."
+    apis:
+      - "POST /api/v1/media/uploads — returns a presigned S3 POST (key, URL, fields) limited by size and content type"
+      - "POST /api/v1/posts — {body, media_keys}; 201; rate-limited per user (429 with Retry-After)"
+      - "DELETE /api/v1/posts/{id} — author only; removes the post from timelines lazily (filtered at read time)"
+      - "GET /api/v1/timeline?cursor=&limit= — the home timeline, newest first"
+      - "GET /api/v1/users/{handle}/posts?cursor= — the profile timeline"
+      - "PUT /api/v1/users/{handle}/follow and DELETE /api/v1/users/{handle}/follow — idempotent follow and unfollow"
+      - "PUT /api/v1/posts/{id}/like and DELETE /api/v1/posts/{id}/like — idempotent like and unlike"
+      - "GET /api/v1/stream — SSE stream of new-post indicators for the current user"
+    milestones:
+      - key: model_and_posts
+        title: Data model, posts and profile timelines
+        goal: Model users, follows and posts with the indexes the main queries need, and serve profile timelines with keyset pagination.
+        deliverables:
+          - The schema with both follow indexes and the posts index, each justified by the query it serves.
+          - A seed script producing a skewed follower distribution (most users with few followers, a few with very many).
+          - Post creation, deletion and the profile timeline with an opaque (created_at, id) cursor.
+          - Idempotent follow and unfollow endpoints.
+        skills: [sd.data_modeling, db.indexing, sd.api_design]
+        minutes: 150
+        rubric:
+          - {key: index_per_query, label: "Each index names the query it serves and its column order is argued", points: 3}
+          - {key: keyset, label: "Pagination is keyset-based with a tie-breaker and never skips or repeats", points: 3}
+          - {key: realistic_seed, label: "Seed data has a skewed follower distribution at meaningful volume", points: 2}
+          - {key: idempotent_follow, label: "Repeated follow or unfollow requests leave one consistent state", points: 2}
+      - key: timeline_on_read
+        title: Home timeline by fan-out on read, measured
+        goal: Build the simplest correct home timeline and measure exactly how its cost grows.
+        deliverables:
+          - The home timeline query over followed authors with keyset pagination.
+          - EXPLAIN ANALYZE (MySQL 8.0.18+) output for users following 10, 500 and 5,000 accounts.
+          - Load-test results (p50, p95, p99) for those three users at a stated request rate.
+          - One query or index improvement with before-and-after numbers, and a statement of where this approach stops being acceptable.
+        skills: [db.query_optimization, db.indexing, engineering.performance_profiling]
+        minutes: 150
+        rubric:
+          - {key: explain_read, label: "Reads EXPLAIN output correctly (index used, rows examined, filesort or not)", points: 3}
+          - {key: growth_measured, label: "Shows with numbers how latency grows with accounts followed", points: 3}
+          - {key: improvement, label: "One optimisation is proven with before-and-after measurements", points: 2}
+          - {key: limit_stated, label: "States the point at which fan-out on read fails the latency target", points: 2}
+      - key: fanout_on_write
+        title: Fan-out on write with Redis timelines and the celebrity hybrid
+        goal: Precompute timelines in Redis through an asynchronous fan-out, and handle very large accounts with a hybrid.
+        deliverables:
+          - A fan-out worker fed by the outbox, adding post ids to followers' sorted sets in batches with pipelining and trimming each to 800 entries.
+          - Timeline reads from Redis with a batched post lookup, a post cache, and a rebuild from MySQL for missing timelines.
+          - The celebrity threshold, set from measured fan-out cost, with celebrity posts merged at read time.
+          - A comparison table of version 1 and version 2 (read p95, write cost, Redis memory per user, freshness).
+        skills: [sd.queues_async, sd.caching, engineering.caching_practice]
+        minutes: 180
+        rubric:
+          - {key: async_fanout, label: "Fan-out happens off the request path and survives a worker restart", points: 3}
+          - {key: hybrid, label: "Large accounts are excluded from fan-out and merged at read time correctly", points: 3}
+          - {key: rebuild, label: "A missing or evicted timeline is rebuilt transparently", points: 2}
+          - {key: comparison, label: "The two versions are compared with measured numbers, including memory", points: 2}
+      - key: likes_and_counters
+        title: Idempotent likes and scalable counters
+        goal: Make likes idempotent and keep counts fast on viral posts, with a stated consistency guarantee.
+        deliverables:
+          - Like and unlike based on the (user_id, post_id) primary key, with INSERT IGNORE or ON DUPLICATE KEY handling.
+          - "Two counter designs implemented and load-tested on one hot post: an UPDATE of like_count per like, and Redis INCR with a periodic flush."
+          - Lock-wait and throughput numbers for both designs, and the reason for the one you keep.
+          - A recompute job that corrects drift from the likes table.
+        skills: [sd.consistency_cap, db.locking_deadlocks, sd.idempotency_retries]
+        minutes: 150
+        rubric:
+          - {key: idempotent_like, label: "Repeated likes never double-count", points: 2}
+          - {key: hot_row, label: "Explains and measures row-lock contention on a hot counter", points: 3}
+          - {key: guarantee, label: "The counter's staleness and drift bound is stated and corrected by a job", points: 3}
+          - {key: choice, label: "The chosen design is justified with the measurements", points: 2}
+      - key: media_uploads
+        title: Direct-to-S3 media uploads, thumbnails and CDN delivery
+        goal: Accept images without passing bytes through the API, validate them and serve them efficiently.
+        deliverables:
+          - A presigned POST with a content-length-range condition and an allowed content type, expiring in minutes.
+          - A thumbnail worker that validates the actual file (decodes it as an image, rejects others) and writes thumbnails.
+          - Media served through a CDN with long cache lifetimes on immutable, content-addressed keys.
+          - A note on the threats (oversized files, disguised file types, hot-linking, private media) and the control for each.
+        skills: [sd.storage_search, sd.load_balancing_cdn, security.web_basics]
+        minutes: 150
+        rubric:
+          - {key: direct_upload, label: "Image bytes never pass through the API servers", points: 2}
+          - {key: validation, label: "Size and type are limited in the upload policy and verified after upload", points: 3}
+          - {key: cdn_caching, label: "Keys are immutable so CDN entries never need invalidation", points: 3}
+          - {key: threats, label: "Each named threat has a concrete control", points: 2}
+      - key: realtime_and_ops
+        title: New-post indicators, rate limits and operating the feed
+        goal: Add live indicators, protect the system from abusive posting and make fan-out health visible.
+        deliverables:
+          - An SSE endpoint fed by Redis pub/sub for online followers, with heartbeats and reconnect handling.
+          - A per-user posting rate limit in Redis returning 429 with Retry-After.
+          - "Metrics: fan-out lag (post created to last follower timeline updated), timeline p95, cache hit ratio, Redis memory, SSE connections."
+          - An alert list with thresholds and a runbook entry for fan-out lag.
+        skills: [sd.realtime_delivery, sd.rate_limiting, sd.observability]
+        minutes: 180
+        rubric:
+          - {key: live, label: "Online followers see the indicator within seconds across instances", points: 3}
+          - {key: rate_limit, label: "Posting limits are atomic and return correct 429 responses", points: 2}
+          - {key: fanout_lag, label: "Fan-out lag is measured and alarmed", points: 3}
+          - {key: runbook, label: "The runbook says what to check and do when lag grows", points: 2}
+    testing:
+      - "Timeline correctness: for random users, the Redis timeline (with celebrity merge) equals the fan-out-on-read result for the same moment."
+      - "Pagination: insert posts with identical timestamps; pages never skip or repeat a post."
+      - "Idempotency: repeated follow, like and unlike requests, sequential and concurrent."
+      - "Deletion: a deleted post disappears from every timeline read even if its id is still in a sorted set."
+      - "Fan-out failure: kill the worker mid-fan-out; on restart every follower receives the post once (ZADD of the same member is idempotent)."
+      - "Load: home timeline for users following 10, 500 and 5,000 accounts; posting by a celebrity and by a normal user."
+    deployment:
+      - "API, fan-out workers and thumbnail workers as separately scaled services from one image."
+      - "Redis sized from measured memory per timeline × active users, with an eviction policy that tolerates rebuilds (allkeys-lru for the timeline instance)."
+      - "Media bucket private; the CDN reads it with an origin access control; upload URLs expire in minutes."
+      - "Load balancer idle timeout above the SSE heartbeat interval."
+    observability:
+      - "Fan-out lag percentiles and fan-out jobs queued; per-post fan-out size."
+      - "Timeline latency p50, p95, p99 split by source (Redis hit, rebuild, celebrity merge)."
+      - "Redis memory, evictions and hit ratio; MySQL slow queries on posts and follows."
+      - "Counter drift found by the recompute job."
+      - "Alarms: fan-out lag above 30 seconds, timeline p95 above target, Redis memory above 80 percent."
+    failure_scenarios:
+      - "A user with two million followers posts: the hybrid skips fan-out; explain what would happen without it (millions of ZADDs, lag for everyone)."
+      - "Redis loses timelines after a restart: timelines are rebuilt from MySQL on read; explain the load spike and how to warm or rate-limit rebuilds."
+      - "The fan-out worker falls an hour behind: posts appear late; lag alarms fire and workers scale on queue age."
+      - "A viral post receives thousands of likes per second: per-like row updates would serialise on one row; the Redis counter absorbs it."
+      - "A post is deleted after fan-out: ids remain in sorted sets; reads filter deleted posts and a cleanup job removes them."
+      - "Someone uploads a 2 GB file renamed as .jpg: the upload policy rejects the size and the worker rejects the content."
+    defense_questions:
+      - Walk me through how a post gets from the author to a follower's home timeline.
+      - Fan-out on read or on write? Show the numbers that made you choose, and when the other one wins.
+      - How do you handle accounts with millions of followers?
+      - How fresh is the timeline, and how accurate are like counts? Why is that acceptable?
+      - How do you paginate a timeline without skipping or repeating posts?
+      - What happens if Redis loses all timelines?
+      - Why upload images directly to S3, and how do you stop abuse of the upload URL?
+      - What breaks first at 10x users, and what do you change?

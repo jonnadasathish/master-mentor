@@ -34,6 +34,15 @@ from app.models.derived import (
     SkillDailySnapshot,
     SkillState,
 )
+from app.models.learning import (
+    LearningContent,
+    LearningContentSkill,
+    LearningSession,
+    LearningSessionStep,
+    LearningTopic,
+    LearningTopicSkill,
+    LearningTrack,
+)
 from app.models.plan import DailyPlanRow, PlanItemRow, WeeklyReviewRow
 from app.models.profile import Goal, StartingProfile
 from app.models.system import AppSettings, AuditLog, MentorRun
@@ -59,6 +68,13 @@ __all__ = [
     "Evidence",
     "GapState",
     "Goal",
+    "LearningContent",
+    "LearningContentSkill",
+    "LearningSession",
+    "LearningSessionStep",
+    "LearningTopic",
+    "LearningTopicSkill",
+    "LearningTrack",
     "StartingProfile",
     "MentorRun",
     "MissionTemplate",

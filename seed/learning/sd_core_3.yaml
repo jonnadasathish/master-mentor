@@ -1,0 +1,877 @@
+# Learning content: scaling building blocks — caching, load balancing and CDNs, database replication and sharding, consistent hashing.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- caching
+- key: sd.caching.lesson
+  type: lesson
+  title: Caching strategies, invalidation, stampedes and hot keys
+  skills: [sd.caching]
+  minutes: 30
+  difficulty: MEDIUM
+  body:
+    summary: A cache trades freshness for speed; choose the read/write strategy, bound staleness with TTLs and invalidation, and protect the database from stampedes and hot keys.
+    what: |-
+      A cache is a fast, smaller copy of data whose source of truth lives elsewhere. In system design it usually means an in-memory store such as Redis or Memcached between services and the database, but caches exist at every layer: browser, CDN, reverse proxy, in-process memory, database buffer pool.
+
+      Strategies:
+
+      - **Cache-aside (lazy loading)**: the application reads the cache; on a miss it reads the database and populates the cache. On a write it updates the database and **deletes** the cache key. The most common pattern.
+      - **Read-through**: the cache layer itself loads from the database on a miss; the application only talks to the cache.
+      - **Write-through**: every write goes to the cache and synchronously to the database before acknowledging; the cache is always warm for written keys, writes are slower.
+      - **Write-back (write-behind)**: writes go to the cache and are flushed to the database later in batches; very fast writes, but acknowledged writes can be lost if the cache node dies before flushing.
+      - **Write-around**: writes go only to the database; the cache fills on later reads. Avoids polluting the cache with data that is rarely read.
+    why: |-
+      Memory reads take on the order of 100 ns and a cache round trip inside a data centre about a millisecond, while a database query under load can take tens of milliseconds and the database has limited throughput. With a 95% hit ratio only one request in twenty reaches the database, so a database that sustains 5,000 reads per second can sit behind a 100,000 reads-per-second read path.
+    when: |-
+      When reads greatly outnumber writes, the same keys are read repeatedly (skewed popularity), and the data can be slightly stale. Avoid or limit caching where every read must see the latest write (account balance during a transfer) unless the cache is updated in the same consistency domain, and where the key space is so large and uniform that the hit ratio will be low.
+    how: |-
+      **Cache-aside read and write**
+
+      ```python
+      def get_user(user_id):
+          key = f"user:{user_id}"
+          cached = cache.get(key)
+          if cached is not None:
+              return decode(cached)
+          row = db.fetch_user(user_id)              # miss: go to the source of truth
+          cache.set(key, encode(row), ex=600)       # TTL bounds staleness to 10 minutes
+          return row
+
+      def update_user(user_id, fields):
+          db.update_user(user_id, fields)           # 1. source of truth first
+          cache.delete(f"user:{user_id}")           # 2. delete, do not set
+      ```
+
+      Delete rather than set on write: two concurrent writers can update the database in one order and the cache in the other, leaving the older value cached indefinitely.
+
+      **TTL and invalidation.** A TTL is the upper bound on staleness when invalidation fails. Explicit invalidation (delete on write, or consume change events from the database) keeps staleness short. Add random jitter to TTLs (300 s ± 30 s) so keys loaded together do not expire together.
+
+      **Stampede (thundering herd).** When a hot key expires, thousands of concurrent misses hit the database at once. Defences: **request coalescing** (one loader per key, others wait for its result), a short **lock or lease** so only one caller recomputes, **serve stale while revalidating** (keep a soft expiry inside the value and a longer hard TTL), and **probabilistic early refresh** (recompute slightly before expiry with rising probability).
+
+      **Hot keys.** One key receiving a large share of traffic (a celebrity profile, a flash-sale product) overloads the single cache shard that owns it. Defences: a small **in-process cache** with a short TTL in each application server, **replicating the key** under several suffixed names (`product:42#0..7`) and reading a random copy, and coalescing.
+
+      **Eviction.** When memory is full the cache evicts: **LRU** (least recently used, a good default), **LFU** (least frequently used, better when popularity is stable), **TTL-based** or **random**. Redis exposes this as `maxmemory-policy` (for example `allkeys-lru`, `allkeys-lfu`, `volatile-ttl`); its default is `noeviction`, which rejects writes when memory is full, so set it deliberately for a cache. Redis implements LRU and LFU approximately, by sampling keys.
+    mental_model: |-
+      Every cached value is a bet that it will be read again before it changes. The TTL is how long you are willing to be wrong; invalidation is how you shorten that window; the hit ratio tells you whether the bet pays. Effective latency is `hit × cache_latency + miss × (cache_latency + db_latency)`: at 1 ms cache and 20 ms database, 90% hits gives about 3 ms, 99% hits about 1.2 ms.
+    tradeoffs: |-
+      Caching adds a second copy that can be stale or inconsistent, another system to operate, and failure modes of its own (cold start after a restart, stampedes, hot shards). Write-through keeps the cache fresh at the cost of write latency and caching data nobody reads; write-back gives the fastest writes and risks losing them; cache-aside is simple and resilient (a cache outage degrades to database load) but serves stale data for up to a TTL after a missed invalidation. Longer TTLs raise hit ratio and staleness together.
+    mistakes:
+      - Caching without a TTL, so a missed invalidation means stale data forever.
+      - Updating the cache (set) on write instead of deleting, creating ordering races.
+      - Identical TTLs for keys loaded at the same time, so they all expire together.
+      - "Treating the cache as durable storage (write-back for orders or payments)."
+      - Sizing the database for the cached load, so a cache restart (cold cache) takes the database down.
+      - Caching per-user data under a shared key, leaking one user's data to another.
+      - "Leaving Redis at the default `noeviction` policy for a cache, so writes start failing when memory fills."
+    interview: |-
+      State the strategy and why ("cache-aside, delete on write, 10-minute TTL with jitter"), estimate the working set and the hit ratio, and say what happens on a miss storm and on a cache outage. Expect follow-ups on invalidation races, hot keys during a sale, stampede on expiry, and whether a given piece of data can tolerate staleness at all.
+    explain_it:
+      - Name the strategy (cache-aside, read-through, write-through, write-back) and the reason.
+      - State the TTL, the invalidation path and the maximum staleness.
+      - Estimate working-set size and hit ratio, and the load that reaches the database.
+      - Explain stampede and hot-key protection.
+      - Say what happens when the cache is empty or down.
+    internals: |-
+      A distributed cache cluster spreads keys over nodes by hashing (often consistent hashing in the client, or fixed hash slots: Redis Cluster uses 16,384 slots assigned to nodes). Each key lives on one primary node, which is why a single hot key cannot be spread by adding nodes. Replicas of a cache node add read capacity and failover, but with asynchronous replication a failover can lose recent writes, which is acceptable only because the database is the source of truth.
+    edge_cases:
+      - "Negative caching: cache 'not found' briefly, or a flood of requests for a non-existent id bypasses the cache every time."
+      - "Cold start: after a deploy or cache flush the hit ratio is zero; warm the cache or ramp traffic."
+      - Large values (multi-MB) monopolise network and memory; cache smaller projections.
+    misconceptions:
+      - "\"Adding a cache makes the system consistent eventually\" — only if every write path invalidates; a TTL is what guarantees convergence."
+      - "A higher hit ratio is not always worth it: caching data that changes every second costs invalidation traffic for little benefit."
+- key: sd.caching.worked
+  type: worked_example
+  title: "Worked example: protecting the database when a hot key expires"
+  skills: [sd.caching]
+  minutes: 15
+  difficulty: MEDIUM
+  body:
+    problem: A product page key receives 20,000 reads per second during a sale. Each time its 60-second TTL expires, the database receives thousands of identical queries within a few milliseconds and p99 latency spikes. Fix it step by step.
+    steps:
+      - title: Diagnose the stampede
+        text: "All 20,000 requests per second miss in the same instant after expiry, and each issues the same query before the first loader has written the value back. If the query takes 50 ms, about 1,000 identical queries (20,000 × 0.05 s) hit the database per expiry."
+      - title: Keep a soft expiry inside the value
+        text: "Store the value with a hard TTL much longer than the freshness target, and a `fresh_until` timestamp inside the value. Readers that see a stale-but-present value return it immediately; only one of them refreshes."
+      - title: Let exactly one caller refresh
+        text: "Use a short-lived lock with `SET key value NX EX` (set only if absent, with an expiry). The winner reloads from the database and rewrites the value; everyone else keeps serving the stale copy. The lock's expiry guarantees progress if the winner crashes."
+        code:
+          language: python
+          code: |-
+            import json, random, time
+
+            FRESH_SECONDS, HARD_TTL = 60, 3600
+
+            def get_product(r, db, pid):
+                key = f"product:{pid}"
+                raw = r.get(key)
+                if raw is not None:
+                    entry = json.loads(raw)
+                    if entry["fresh_until"] > time.time():
+                        return entry["data"]                     # fresh hit
+                    if r.set(f"lock:{key}", "1", nx=True, ex=5): # one refresher
+                        _refresh(r, db, key, pid)
+                    return entry["data"]                         # others serve stale
+                return _refresh(r, db, key, pid)                 # true miss (cold)
+
+            def _refresh(r, db, key, pid):
+                data = db.load_product(pid)
+                jitter = random.randint(0, 10)
+                entry = {"data": data, "fresh_until": time.time() + FRESH_SECONDS + jitter}
+                r.set(key, json.dumps(entry), ex=HARD_TTL)
+                return data
+      - title: Handle the true cold miss
+        text: "When the key is absent entirely (first request, eviction), many callers can still miss together. Add request coalescing in each application process (one in-flight load per key, others await it) so the database sees at most one query per process instead of one per request."
+      - title: Spread the hot key itself
+        text: "20,000 reads per second on one key all land on one cache shard. Add a per-process in-memory cache with a one or two second TTL: with 50 application servers the shard sees about 50 reads per second for that key instead of 20,000."
+    takeaways:
+      - Separate freshness (soft expiry) from presence (hard TTL) so stale data can cover a refresh.
+      - Only one caller should rebuild a hot key; a lock with an expiry or coalescing achieves it.
+      - Jitter TTLs so related keys do not expire together.
+      - Hot keys need a local cache or replication, because one key lives on one shard.
+- key: sd.caching.check
+  type: concept_check
+  title: "Concept check: cache strategies and failure modes"
+  skills: [sd.caching]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Think about what happens under concurrency and failure, not on the happy path.
+    questions:
+      - id: q1
+        kind: single
+        prompt: With cache-aside, why delete the key on write instead of setting the new value?
+        options:
+          - Deleting is faster than setting
+          - Two concurrent writers can apply database updates and cache sets in different orders, leaving an older value cached; deleting lets the next read load the current value
+          - Setting the value is not supported by Redis
+          - Deleting guarantees strong consistency
+        answer: [1]
+        explanation: "Writer A updates the DB, writer B updates the DB, B sets the cache, A sets the cache: the cache now holds A's older value with no expiry in sight. Deletion narrows but does not fully remove races, so it is not strong consistency; a TTL still bounds the damage."
+      - id: q2
+        kind: single
+        prompt: "Which strategy risks losing acknowledged writes if a cache node crashes?"
+        options: ["Cache-aside", "Write-through", "Write-back", "Write-around"]
+        answer: [2]
+        explanation: "Write-back acknowledges once the cache has the write and flushes to the database later, so a crash before flushing loses it. Write-through writes the database before acknowledging; cache-aside and write-around always write the database."
+      - id: q3
+        kind: multi
+        prompt: Which techniques mitigate a cache stampede on a hot key's expiry?
+        options:
+          - Request coalescing so one loader fetches while others wait
+          - Serving the stale value while one caller refreshes
+          - Setting identical TTLs on all keys
+          - Probabilistic early refresh before expiry
+          - Removing the TTL and never invalidating
+        answer: [0, 1, 3]
+        explanation: "Coalescing, stale-while-revalidate and early refresh all ensure only one rebuild per key. Identical TTLs make things worse by synchronising expiries; no TTL trades the stampede for permanent staleness."
+      - id: q4
+        kind: single
+        prompt: "Cache latency is 1 ms, database latency 20 ms. With a 90% hit ratio (a miss pays both), what is the average read latency?"
+        options: ["About 1 ms", "About 3 ms", "About 10 ms", "About 20 ms"]
+        answer: [1]
+        explanation: "0.9 × 1 + 0.1 × 21 = 3 ms. Moving to 99% gives about 1.2 ms. The miss path dominates, which is why small hit-ratio gains matter at the high end."
+      - id: q5
+        kind: single
+        prompt: A celebrity's profile key gets 30% of all cache traffic and its shard is at 100% CPU while others idle. Adding more cache nodes…
+        options:
+          - Fixes it, because load is rebalanced
+          - Does not help, because one key lives on one shard; use a local in-process cache or replicate the key under several names
+          - Fixes it if the cluster uses consistent hashing
+          - Requires switching to LFU eviction
+        answer: [1]
+        explanation: "Hashing distributes keys, not requests for a single key. Consistent hashing changes which node owns the key, not how many. Eviction policy is about memory, not load."
+      - id: q6
+        kind: short
+        prompt: The cache cluster restarts and comes back empty at peak. What happens and how do you design for it?
+        model_answer: "Every read misses, the full read load (for example 20 times the usual database traffic at a 95% hit ratio) hits the database and it saturates or falls over, so the cache never warms. Design for it: size the database or a load-shedding layer for a degraded mode, rate-limit misses or coalesce them, warm critical keys before admitting full traffic, use replicas so a single node failure does not empty the cache, and serve stale or default responses for non-critical data."
+        explanation: A cache that the database cannot survive without is a hidden single point of failure.
+- key: sd.caching.case
+  type: architecture_case
+  title: "Drill: cache the product-detail read path"
+  skills: [sd.caching, sd.capacity_estimation]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: SD_DESIGN, time_limit_seconds: 1200}
+  body:
+    prompt: |-
+      A product-detail API serves 50,000 reads per second at peak over a catalog of 20 million products; 1% of products receive 80% of traffic. Prices and stock change a few hundred times per second in total. The database sustains 5,000 reads per second. Within 20 minutes design the caching layer: strategy, what is cached and at which layer, size, TTLs, invalidation path, stale-data tolerance per field, stampede and hot-key protection, and behaviour when the cache fails.
+    requirements:
+      functional:
+        - Return product details (title, images, description, price, stock status)
+        - Reflect price and stock changes
+      non_functional:
+        - p99 under 50 ms at 50,000 reads per second
+        - Price shown on the page may be stale by at most a few seconds; checkout must use the true price
+        - The database must never receive more than 5,000 reads per second
+    approach:
+      - "Cache-aside in Redis keyed `product:{id}` with a TTL of minutes plus jitter; delete on write driven by change events from the database (outbox or CDC)."
+      - "Split by volatility: static fields (title, description, images) cached long; price and stock cached for seconds or invalidated on change; checkout reads the database."
+      - "Working set: 1% of 20 million = 200,000 hot products × about 2 KB ≈ 400 MB; even the full catalog at 2 KB ≈ 40 GB fits a small cluster."
+      - "Required hit ratio: misses must stay under 5,000 of 50,000, so above 90%; with 80% of traffic on a 400 MB hot set, aim for 98–99%."
+      - "Stampede: soft expiry with serve-stale and a single refresher; jittered TTLs."
+      - "Hot keys during a sale: per-instance in-memory cache with a 1–2 second TTL in front of Redis."
+      - "Cache failure: replicas for each shard; on a full outage shed or rate-limit misses to protect the database and serve static fields from the CDN or a degraded page."
+    estimates: |-
+      400 MB hot set, 40 GB whole catalog; misses at a 98% hit ratio ≈ 1,000 reads per second against a 5,000 budget, leaving headroom for invalidation-triggered reloads (a few hundred per second).
+    rubric:
+      - {key: strategy, label: "Chooses cache-aside (or read-through) with delete-on-write and justifies it", points: 2}
+      - {key: sizing, label: "Estimates the working set and the hit ratio needed to stay under the database budget", points: 3}
+      - {key: volatility, label: "Treats price/stock differently from static fields and keeps checkout on the source of truth", points: 2}
+      - {key: invalidation, label: "Names the invalidation path (events from the DB) and the TTL as a staleness bound", points: 2}
+      - {key: stampede_hot, label: "Protects against stampedes and hot keys with concrete mechanisms", points: 2}
+      - {key: failure, label: "Describes behaviour when the cache is cold or down without overloading the database", points: 2}
+    follow_ups:
+      - prompt: Traffic grows ten times to 500,000 reads per second. What changes?
+        look_for: More shards and replicas for throughput, local caches carry the hot set, CDN or edge caching for anonymous product pages; the database budget now requires above 99% hit ratio.
+      - prompt: A cache node fails. What happens to its keys and to the database?
+        look_for: Its replica is promoted (some recent sets lost, acceptable); without replicas its keys miss and reload, a slice of extra load; with consistent hashing only that node's share moves.
+      - prompt: "Product now requires price to be exactly current on the product page. How does your design change?"
+        look_for: Read price from the source of truth (or a strongly consistent store) on each request, or invalidate synchronously in the write transaction with versioned values; cost in latency and database load; keep other fields cached.
+- key: sd.caching.interview
+  type: interview_question
+  title: "Interview question: why is my cache still stale after invalidation?"
+  skills: [sd.caching]
+  minutes: 12
+  difficulty: HARD
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: "A service uses cache-aside: reads populate the cache on miss; writes update the database and then delete the key. Users occasionally see an old profile for up to the full one-hour TTL after an update. Explain how this can happen and propose fixes with their costs."
+    key_points:
+      - "Describes the race: reader misses and reads the old row; writer updates the row and deletes the key; reader then sets the old value, which now lives until TTL."
+      - "Notes other causes: the delete fails or is skipped (exception, network), or a read replica returns the old row after the write (replication lag)."
+      - "Fix 1: shorter TTL bounds the damage, at the cost of hit ratio."
+      - "Fix 2: versioned writes or set-if-version-newer, or leases: the cache hands a lease token on miss and rejects a set whose lease was invalidated by a delete."
+      - "Fix 3: delayed second delete or invalidation driven by the database change stream (CDC) with retries, so invalidation is not lost."
+      - "Reads that populate the cache should not use a lagging replica right after a write, or should carry the version."
+    model_answer: "The classic race is: request A misses and reads version 1 from the database; request B writes version 2 and deletes the key; A, slow, then writes version 1 into the cache, where it stays for the hour. A lost delete or a populate from a lagging replica produce the same symptom. Fixes: bound the damage with a shorter TTL; make cache writes conditional on version (store a version and only set if newer) or use leases so a populate that started before a delete is rejected; drive invalidation from the database change stream with retries, optionally with a delayed second delete a second or two later; and populate from the primary or check the version when reading from replicas. Each fix costs some hit ratio, complexity or an extra component."
+    pitfalls:
+      - Blaming the TTL alone without identifying the race.
+      - Proposing to update the cache on write, which introduces a different ordering race.
+    follow_ups:
+      - prompt: Could write-through solve it?
+        look_for: Write-through narrows it if the cache write is in the same ordered path as the database write, but two writers can still interleave; it also caches data nobody reads; versioning is still needed for strictness.
+      - prompt: How would you detect this in production?
+        look_for: Sample reads and compare the cached version with the database version, emit a staleness metric, log cache sets that carry an older version than the current one.
+- key: sd.caching.cards
+  type: revision_card
+  title: "Recall: caching"
+  skills: [sd.caching]
+  minutes: 5
+  body:
+    cards:
+      - front: Cache-aside write path?
+        back: Update the database, then delete the cache key.
+      - front: Which strategy can lose acknowledged writes?
+        back: Write-back (write-behind).
+      - front: What is a cache stampede?
+        back: Many concurrent misses on an expired hot key all hitting the database at once.
+      - front: Two stampede defences?
+        back: One refresher (lock or coalescing) and serve-stale-while-revalidate.
+      - front: Why can't more cache nodes fix a hot key?
+        back: One key lives on one shard; use a local cache or replicate the key.
+      - front: Redis default maxmemory-policy?
+        back: noeviction — set allkeys-lru or allkeys-lfu for a cache.
+
+# ---------------------------------------------------------------------------------------------- load balancing and CDN
+- key: sd.load_balancing_cdn.lesson
+  type: lesson
+  title: Load balancers, health checks and CDNs
+  skills: [sd.load_balancing_cdn]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Load balancers spread requests over healthy instances at layer 4 or layer 7; CDNs serve cacheable content from the edge so most requests never reach your servers.
+    what: |-
+      A **load balancer** accepts client connections and forwards each request or connection to one of many backend instances. A **CDN** (content delivery network) is a globally distributed set of caching proxies (points of presence, PoPs) that serve content close to users and fetch from your origin on a miss.
+
+      - **Layer 4 (transport)**: balances TCP or UDP connections using addresses and ports, without parsing HTTP. Very fast, protocol-agnostic, cannot route by path or header.
+      - **Layer 7 (application)**: terminates HTTP (and usually TLS), so it can route by host, path, header or cookie, retry idempotent requests, add headers, compress and rate-limit. More CPU per request and more features.
+    why: |-
+      Horizontal scaling only works if traffic reaches every instance and avoids broken ones. The load balancer is also the natural place for TLS termination, connection reuse and gradual rollouts. CDNs exist because distance costs latency (a cross-continent round trip is around 100 ms, and TLS setup needs extra round trips) and because egress from origin is expensive: a 95% edge hit ratio cuts origin traffic twentyfold.
+    when: |-
+      A load balancer whenever more than one instance serves a request type. Layer 4 for raw throughput or non-HTTP protocols; layer 7 for HTTP routing, microservice ingress, canaries. A CDN for static assets, images and video, downloadable files, and cacheable API responses; also for TLS termination near users and absorbing traffic floods.
+    how: |-
+      **Algorithms**
+
+      - **Round robin / weighted round robin**: rotate through instances, weighted by capacity. Fine when requests cost about the same.
+      - **Least connections / least outstanding requests**: send to the instance with the fewest active requests. Better when request costs vary.
+      - **Power of two choices**: pick two instances at random and send to the less loaded. Close to least-loaded quality without global state, and avoids herding onto one 'best' instance.
+      - **Hash-based (by client IP, user id or key)**: the same key reaches the same instance, useful for session affinity or cache locality; use consistent hashing so adding an instance moves few keys.
+      - **Latency-aware (for example EWMA of response times)**: steer away from slow instances.
+
+      **Health checks.** *Active* checks probe an endpoint every few seconds and remove an instance after several consecutive failures, adding it back after several successes. *Passive* checks (outlier detection) eject instances that return errors on real traffic. Distinguish **liveness** (the process is alive; restart it if not) from **readiness** (it can serve now; stop routing if not). Keep health checks shallow: a check that fails when the shared database is slow marks every instance unhealthy at once and turns a slowdown into a full outage. **Connection draining** lets in-flight requests finish before an instance is removed during deploys.
+
+      **The load balancer itself** must not be a single point of failure: run it as a redundant pair or fleet behind a floating IP, anycast address or DNS with several records. **DNS-based global load balancing** (GeoDNS, latency-based routing) picks a region, but clients and resolvers cache answers for the record's TTL, so failover is slow.
+
+      **CDN mechanics.** Most CDNs *pull*: on a miss the edge fetches from origin and caches per the response headers. `Cache-Control: public, max-age=31536000, immutable` for fingerprinted assets (`app.3f9a1c.js`); `s-maxage` sets the TTL for shared caches only; `stale-while-revalidate` lets the edge serve a stale copy while refreshing; `private` or `no-store` for per-user data. The **cache key** is the URL plus any headers listed in `Vary`, so varying on a high-cardinality header destroys the hit ratio. Invalidate by changing the URL (content hash in the filename) rather than by purging, which is slower and not instantaneous everywhere. An **origin shield** (a mid-tier cache) collapses misses from many edges into one origin request. Private content uses signed URLs or cookies with expiry.
+    mental_model: |-
+      The load balancer is a traffic cop that must know who is healthy and how busy they are; its quality is measured by how evenly it spreads load and how fast it stops sending to a broken instance. The CDN is a cache with thousands of copies spread over the planet; everything about caching (TTLs, keys, invalidation, stampedes) applies, multiplied by the number of PoPs.
+    tradeoffs: |-
+      L4 is cheaper and faster but blind to HTTP; L7 enables smart routing and retries at the cost of CPU and an extra TLS termination point. Sticky sessions keep in-memory state usable but unbalance load and lose sessions on failure; prefer stateless services. Aggressive health checks remove bad instances quickly but can flap and eject healthy ones under load. Long CDN TTLs maximise hit ratio but make mistakes stick; versioned URLs give both long TTLs and instant change.
+    mistakes:
+      - Deep health checks that depend on shared downstreams, causing every instance to be ejected at once.
+      - Round robin with very uneven request costs, overloading instances stuck with slow requests.
+      - Retrying non-idempotent requests at the load balancer.
+      - Relying on DNS changes for fast failover despite resolver caching.
+      - "CDN-caching per-user responses with `public`, leaking one user's page to another."
+      - "`Vary: User-Agent` or `Vary: Cookie` on cacheable assets, fragmenting the cache."
+    interview: |-
+      In the high-level diagram, label the load balancer (L4 or L7, which algorithm), say how it learns health, and put a CDN in front of static and media content with a TTL strategy. Follow-ups: "an instance becomes slow but not dead", "how do you deploy without dropping requests?", "a file on the CDN is wrong, how do you fix it now?", "how does a user in another continent get low latency?".
+    explain_it:
+      - L4 versus L7 and which you choose here.
+      - The balancing algorithm and why it fits the request-cost profile.
+      - Health checks, liveness versus readiness, draining.
+      - What the CDN caches, the Cache-Control headers and the invalidation approach.
+      - How the load balancer tier itself stays available.
+    edge_cases:
+      - "Long-lived connections (WebSockets, gRPC streams) stick to the instance chosen at connect time; least-connections balancing and periodic reconnects keep load even."
+      - "A new instance with a cold cache or JIT warms slowly; slow-start ramps its weight up gradually."
+      - "A flood of requests for uncached URLs (random query strings) bypasses the CDN; normalise or ignore unknown query parameters in the cache key."
+- key: sd.load_balancing_cdn.check
+  type: concept_check
+  title: "Concept check: load balancing and CDNs"
+  skills: [sd.load_balancing_cdn]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Pick the mechanism that matches the traffic.
+    questions:
+      - id: q1
+        kind: single
+        prompt: You need to route `/api/*` to one service and `/images/*` to another, terminating TLS. Which load balancer?
+        options: ["Layer 4", "Layer 7", "DNS round robin", "Either L4 or L7"]
+        answer: [1]
+        explanation: "Path-based routing requires parsing HTTP, which only a layer 7 balancer does. A layer 4 balancer sees addresses and ports only; DNS cannot see paths at all."
+      - id: q2
+        kind: single
+        prompt: Request costs vary from 5 ms to 5 s. Which algorithm spreads load best?
+        options:
+          - Round robin
+          - Least outstanding requests (or power of two choices on active requests)
+          - Hash by client IP
+          - Random
+        answer: [1]
+        explanation: "Counting active requests reflects actual busyness, so slow requests stop attracting more. Round robin and random ignore load; IP hashing can pin heavy clients to one instance."
+      - id: q3
+        kind: single
+        prompt: Every instance's health check queries the shared database. The database slows down for 30 seconds. What happens?
+        options:
+          - Only the unhealthy instances are removed
+          - All instances fail their checks and are removed together, causing a full outage
+          - Nothing; health checks ignore the database
+          - The load balancer switches to round robin
+        answer: [1]
+        explanation: "A shared dependency in the health check makes every instance fail at once. Readiness should reflect the instance's own ability to serve; downstream problems are handled with timeouts and degraded responses."
+      - id: q4
+        kind: multi
+        prompt: Which responses are good candidates for CDN caching?
+        options:
+          - Fingerprinted JavaScript bundles
+          - A logged-in user's account page
+          - Product images
+          - A public, anonymous product listing that may be a minute stale
+          - The response to a payment POST
+        answer: [0, 2, 3]
+        explanation: "Static, public or tolerably stale public content caches well. Per-user pages must be private or uncached; POST responses are not cached by shared caches by default and payment results must never be."
+      - id: q5
+        kind: single
+        prompt: A buggy `app.js` was cached at the edge with a one-year TTL. What is the most reliable fix going forward?
+        options:
+          - Ask users to clear their browser cache
+          - Serve assets under content-hashed names (app.3f9a1c.js) and reference the new name from the HTML, which itself has a short TTL
+          - Lower the TTL of app.js to one second forever
+          - Disable the CDN
+        answer: [1]
+        explanation: "A new URL is a new cache key, so every cache layer fetches it immediately while long TTLs remain safe. A purge helps for the current incident, but browsers that already cached the file with a long max-age will not ask again until it expires."
+      - id: q6
+        kind: short
+        prompt: Why is DNS-based failover slow, and what complements it?
+        model_answer: "Resolvers and clients cache DNS answers for the record TTL (and some ignore low TTLs), so after you change the record, traffic keeps arriving at the old address for minutes. Complement it with health-checked load balancers in each region, anycast addresses whose routing changes at the network layer, and client-side retries against alternative endpoints."
+        explanation: DNS is good for coarse region selection, not for second-level failover.
+- key: sd.load_balancing_cdn.case
+  type: architecture_case
+  title: "Drill: design the edge for a global web application"
+  skills: [sd.load_balancing_cdn, sd.high_level_decomposition]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: SD_DESIGN, time_limit_seconds: 1200}
+  body:
+    prompt: |-
+      A web application serves users in Europe, Asia and North America from two regions. Traffic: 40,000 requests per second for static assets and images, 8,000 per second for API calls, plus long-lived WebSocket connections for notifications. Within 20 minutes design the edge: DNS, CDN, load balancer layers and algorithms, health checks, deploy without dropping requests, and what happens when a whole region fails.
+    requirements:
+      functional:
+        - Serve static assets, images and API responses
+        - Keep WebSocket connections for notifications
+      non_functional:
+        - Static content p95 under 100 ms worldwide
+        - Survive the loss of one instance without errors and one region within minutes
+        - Zero-downtime deploys
+    approach:
+      - "CDN in front of static assets and images with fingerprinted URLs and long TTLs; origin shield to protect origin; short-TTL or no caching for API."
+      - "Latency- or geo-based DNS (or anycast) chooses a region; each region has a redundant L7 load balancer tier terminating TLS."
+      - "API traffic: least outstanding requests or power of two choices; idempotent GETs may be retried once on another instance."
+      - "WebSockets: L7 (or L4) balancing at connect time with least-connections; servers ask clients to reconnect gradually during deploys."
+      - "Health: shallow readiness checks per instance, passive outlier ejection, connection draining and slow-start during rolling or blue-green deploys."
+      - "Region failure: health checks at the global layer remove the region; DNS TTL of tens of seconds or anycast; the surviving region must have capacity headroom or autoscale."
+    rubric:
+      - {key: cdn, label: "Puts static and media behind a CDN with a sound TTL and invalidation strategy", points: 2}
+      - {key: layers, label: "Chooses L4/L7 deliberately and explains TLS termination and routing", points: 2}
+      - {key: algorithm, label: "Picks a balancing algorithm suited to varying request costs and long-lived connections", points: 2}
+      - {key: health, label: "Uses shallow readiness checks, passive ejection and draining", points: 2}
+      - {key: region_failover, label: "Explains region failover including DNS caching limits and capacity headroom", points: 2}
+      - {key: deploys, label: "Describes zero-downtime deploys (draining, slow-start, gradual rollout)", points: 2}
+    follow_ups:
+      - prompt: Static traffic grows ten times during a launch. Which component is at risk?
+        look_for: Origin if the hit ratio drops (new assets, cache misses at every PoP); pre-warm or push assets, origin shield, versioned assets deployed before the launch.
+      - prompt: One API instance becomes slow but keeps passing health checks. What protects users?
+        look_for: Least-outstanding-requests routing, passive outlier detection on latency or errors, per-request timeouts and a single retry for idempotent calls.
+      - prompt: Which metrics would you watch at the edge?
+        look_for: CDN hit ratio and origin request rate, per-instance error rate and p99 latency, active connections, health-check ejections, TLS handshake errors.
+- key: sd.load_balancing_cdn.cards
+  type: revision_card
+  title: "Recall: load balancing and CDNs"
+  skills: [sd.load_balancing_cdn]
+  minutes: 5
+  body:
+    cards:
+      - front: L4 vs L7 load balancer?
+        back: L4 balances TCP/UDP connections blindly; L7 parses HTTP and routes by path, host or header.
+      - front: Power of two choices?
+        back: Pick two instances at random, send to the less loaded one.
+      - front: Liveness vs readiness?
+        back: Liveness means restart me if dead; readiness means route to me only when I can serve.
+      - front: Why keep health checks shallow?
+        back: A shared dependency in the check ejects every instance at once.
+      - front: Best way to change a cached static asset?
+        back: Publish it under a new content-hashed URL.
+      - front: What does an origin shield do?
+        back: Collapses misses from many edge PoPs into one request to origin.
+
+# ---------------------------------------------------------------------------------------------- database scaling
+- key: sd.database_scaling.lesson
+  type: lesson
+  title: Replication, read replicas, partitioning and sharding
+  skills: [sd.database_scaling]
+  minutes: 30
+  difficulty: HARD
+  body:
+    summary: Replicate to scale reads and survive failures; partition to scale writes and data size; choose the shard key by the dominant access pattern and plan resharding from day one.
+    what: |-
+      - **Replication** keeps copies of the same data on several nodes. **Leader-follower** (primary-replica): all writes go to one leader, which streams changes to followers that serve reads. **Multi-leader**: several nodes accept writes (often one per region) and exchange changes, so concurrent writes can conflict. **Leaderless** (Dynamo-style): clients write to and read from several replicas directly using quorums.
+      - **Partitioning (sharding)** splits the data so each node holds only a subset. Each row belongs to one shard, chosen by a **shard key**.
+
+      Replication answers "more reads and survive a node loss"; sharding answers "more writes and more data than one node holds". Large systems use both: each shard is itself a replicated group.
+    why: |-
+      A single primary has finite CPU, I/O and disk. Reads usually run out first, and replicas plus caches fix that cheaply. Writes and data size eventually exceed one machine, and replicas cannot help because every replica applies every write. Replication also gives durability and failover: losing the only copy of the database is a business-ending event.
+    when: |-
+      In order of cost: tune queries and indexes, scale vertically, add a cache, add read replicas, partition large tables inside one database (time-based partitions for logs), and only then shard across machines when estimates show sustained write rates or data size beyond one well-provisioned primary. Say this order aloud in an interview; jumping to sharding for 500 writes per second is a red flag.
+    how: |-
+      **Synchronous vs asynchronous replication.** Synchronous: the leader waits for a follower to confirm before acknowledging, so a failover loses nothing but every write pays a round trip and stalls if the follower is down. Asynchronous: the leader acknowledges immediately; followers lag, and a failover can lose the last writes. Semi-synchronous setups (MySQL semi-sync, PostgreSQL `synchronous_standby_names` with one standby) wait for one follower and stream to the rest asynchronously.
+
+      **Replication lag** breaks user expectations: a user updates their profile, reloads, and a replica returns the old value. Remedies: **read-your-writes** (read from the leader for that user for a few seconds after a write, or record the commit position — WAL LSN in PostgreSQL, GTID in MySQL — and read from a replica only once it has replayed past it); **monotonic reads** (pin a user to one replica so time does not go backwards between reads).
+
+      **Failover** promotes a follower when the leader dies. Risks: lost writes with async replication, and **split brain** if the old leader keeps accepting writes; prevent it with fencing (revoke the old leader's access, epoch numbers) and a coordinator that decides leadership.
+
+      **Multi-leader and leaderless.** Multi-leader gives low-latency local writes in every region, at the price of conflict resolution (last-writer-wins silently drops updates; CRDTs or application merges preserve them). Leaderless systems write to W of N replicas and read from R; when `R + W > N` (for example N = 3, W = 2, R = 2) every read set overlaps the latest write set, so a read sees at least one up-to-date copy. That overlap is intuition, not a full consistency guarantee: sloppy quorums, concurrent writes and failed partial writes still allow anomalies.
+
+      **Partitioning strategies**
+
+      - **Range** (by key ranges, for example user names A–F): efficient range scans; sequential keys (timestamps, auto-increment ids) send all new writes to the last shard, a hotspot.
+      - **Hash** (by `hash(key)`): even spread; range queries must hit every shard.
+      - **Directory / lookup**: a mapping service says which shard holds which key or tenant; flexible (move one big tenant) but the directory must be fast and highly available.
+      - **Geographic**: by region for latency and data residency.
+
+      **Choosing a shard key**: high cardinality; spreads *load*, not just data; present in the dominant queries so they hit one shard; keeps transactions inside one shard. For a chat app, `conversation_id` keeps a conversation's messages together; for a multi-tenant SaaS, `tenant_id`, with very large tenants split further.
+
+      **Costs of sharding**: cross-shard queries become scatter-gather, cross-shard transactions need sagas or two-phase commit, secondary indexes are either local (query every shard) or global (updated asynchronously), and unique constraints across shards need a different mechanism.
+
+      **Resharding.** `hash(key) mod N` moves almost every key when N changes. Instead create many **logical shards** up front (for example 1,024) mapped to a smaller number of physical nodes, and move whole logical shards; or use consistent hashing. An online move: copy a snapshot of the shard, stream changes from the source's log to catch up, verify, briefly pause or fence writes, switch routing, then clean up.
+    mental_model: |-
+      Replication is photocopying the whole book so more people can read at once; sharding is splitting the book into volumes so no shelf has to hold all of it. Photocopies do not help if everyone is writing; volumes do not help if your question needs every volume. The shard key is the rule for which volume a page goes into, and it should match the questions people ask most.
+    tradeoffs: |-
+      Read replicas are cheap and simple but serve stale reads and do nothing for writes. Synchronous replication protects data and costs write latency and availability. Sharding scales writes and storage almost linearly but costs cross-shard queries, transactions, operational complexity and painful resharding. Range partitioning helps scans and hurts with sequential keys; hash partitioning balances load and kills range scans. Multi-leader improves write latency across regions and introduces conflicts.
+    mistakes:
+      - Adding read replicas to fix a write bottleneck.
+      - Ignoring replication lag, so users do not see their own writes.
+      - "Sharding by a low-cardinality or skewed key (country, status) and creating a giant shard."
+      - "A time-ordered shard key with range partitioning, so all current writes hit one shard."
+      - "Using `hash mod N` and discovering that adding one shard moves nearly all data."
+      - Sharding before exhausting indexes, caching, replicas and vertical scaling.
+      - Assuming failover is lossless with asynchronous replication.
+    interview: |-
+      Expect "the database is the bottleneck, what do you do?" Answer in order: identify reads or writes, cache and replicas for reads, sharding for writes, and the shard key with its justification. Then handle the follow-ups: hot shard (celebrity, big tenant), cross-shard query, resharding plan, leader failure and the data-loss window, and read-your-writes under replication lag.
+    explain_it:
+      - Distinguish read scaling (replicas, caches) from write and size scaling (sharding).
+      - State sync versus async replication and the failover data-loss window.
+      - Handle replication lag with read-your-writes or monotonic reads.
+      - Choose a shard key by cardinality, load spread and query locality.
+      - Describe a resharding approach that avoids moving everything.
+    internals: |-
+      Leader-follower replication in PostgreSQL streams the write-ahead log (physical replication) to standbys that replay it; logical replication decodes changes into row-level events. MySQL replicates through the binary log, by statement or by row. Either way a replica is behind by however much log it has not replayed, which is why lag is measured in bytes or seconds of log and spikes during large transactions or heavy load on the replica.
+    edge_cases:
+      - "A long-running query on a replica can delay replay (or be cancelled by it), trading query completion against lag."
+      - "Celebrity or mega-tenant keys: a single key's load exceeds a shard; split it (key plus suffix bucket) and merge at read time."
+      - "Global uniqueness (emails) across shards: a separate lookup table sharded by the unique value, written first."
+    misconceptions:
+      - "\"R + W > N gives linearizability\" — it gives overlap of replica sets, which is necessary but not sufficient."
+      - "Partitioning a table inside one database (declarative partitions) improves maintenance and pruning but is not sharding; it does not add write capacity beyond one node."
+- key: sd.database_scaling.worked
+  type: worked_example
+  title: "Worked example: choosing a shard key for a multi-tenant order system"
+  skills: [sd.database_scaling, sd.data_modeling]
+  minutes: 15
+  difficulty: HARD
+  body:
+    problem: A B2B order platform has 20,000 tenants, 60,000 order writes per second at peak and 40 TB of order data. The largest tenant generates 8% of all traffic. Choose a shard key, a partitioning scheme and a resharding plan.
+    steps:
+      - title: Confirm sharding is needed
+        text: "60,000 writes per second at peak and 40 TB (120 TB with replicas) exceed what one primary sustains comfortably, and replicas cannot add write capacity. Caching and replicas still handle the read side."
+      - title: List the dominant queries
+        text: "Almost every query is scoped to a tenant (list a tenant's orders, get an order, tenant reports). Order placement touches one tenant's orders and inventory. Cross-tenant queries exist only in internal analytics, which can run on a warehouse fed by change events."
+      - title: Compare candidate keys
+        text: "`order_id` hash: perfectly even but every tenant query becomes scatter-gather over all shards. `created_at` range: all current writes hit one shard. `tenant_id`: tenant queries and transactions stay on one shard, cardinality 20,000 is plenty, but load is skewed by the big tenant."
+      - title: Choose tenant_id with logical shards and a directory
+        text: "Hash tenant_id into 4,096 logical shards mapped to, say, 32 physical clusters; keep a small directory for exceptions. The 8% tenant gets its own dedicated cluster via the directory, and if it outgrows that, its orders are sub-sharded by `(tenant_id, hash(order_id) mod 16)` with tenant-wide queries fanned out only within that tenant."
+        code:
+          language: python
+          code: |-
+            LOGICAL_SHARDS = 4096
+
+            def logical_shard(tenant_id: int) -> int:
+                return stable_hash(str(tenant_id)) % LOGICAL_SHARDS   # fixed forever
+
+            def physical_cluster(tenant_id: int) -> str:
+                override = directory.get(tenant_id)                   # big tenants pinned explicitly
+                if override:
+                    return override
+                return logical_to_physical[logical_shard(tenant_id)]  # table changes on rebalance
+      - title: Plan resharding
+        text: "Adding clusters moves whole logical shards: copy a snapshot, stream changes from the source log until caught up, fence writes for that logical shard for seconds, flip the mapping, verify, delete the source copy. The hash into 4,096 never changes, so no tenant's logical shard changes; only the mapping table does."
+    takeaways:
+      - Pick the key the dominant queries and transactions are scoped by.
+      - Check load skew, not just cardinality; isolate outliers with a directory.
+      - Logical shards decouple the hash from the number of machines and make resharding a data move per logical shard.
+- key: sd.database_scaling.check
+  type: concept_check
+  title: "Concept check: replication and sharding"
+  skills: [sd.database_scaling]
+  minutes: 12
+  difficulty: HARD
+  body:
+    intro: Separate read scaling from write scaling and correctness from performance.
+    questions:
+      - id: q1
+        kind: single
+        prompt: A primary is saturated by writes at 20,000 per second. Which change adds write capacity?
+        options:
+          - Add three read replicas
+          - Put a cache in front of the database
+          - Shard the data so writes are spread across several primaries
+          - Switch replication to synchronous
+        answer: [2]
+        explanation: "Every replica applies every write, so replicas add read capacity only, and caches only absorb reads. Synchronous replication makes writes slower. Sharding is what splits the write load."
+      - id: q2
+        kind: single
+        prompt: A user saves a profile change and immediately reloads; the page shows the old value. Reads go to asynchronous replicas. What is the fix that targets this exactly?
+        options:
+          - Make all replication synchronous
+          - Read-your-writes, for example route that user's reads to the leader for a short window or wait until the replica has replayed the write's commit position
+          - Increase the cache TTL
+          - Add more replicas
+        answer: [1]
+        explanation: "The user only needs to see their own writes; routing their reads (or waiting for the replica to catch up to their write's position) fixes it without slowing every write. More replicas or longer TTLs make staleness more likely, not less."
+      - id: q3
+        kind: single
+        prompt: "Data is placed with `hash(key) mod N`. You grow from 10 to 11 shards. Roughly what fraction of keys must move?"
+        options: ["About 1/11", "About half", "About 10/11 (nearly all)", "None"]
+        answer: [2]
+        explanation: "A key stays only when h mod 10 equals h mod 11, which happens for about 1 key in 11, so about 91% move. Consistent hashing or a fixed set of logical shards moves only about 1/11."
+      - id: q4
+        kind: multi
+        prompt: Which are good properties of a shard key for a chat service's messages?
+        options:
+          - Most queries (load messages of a conversation) include it
+          - It has few distinct values so routing tables stay small
+          - It spreads write load across shards
+          - It keeps the messages of one conversation together
+          - It is the message timestamp, so new data is easy to find
+        answer: [0, 2, 3]
+        explanation: "conversation_id satisfies locality, spread and query fit. Low cardinality causes giant shards; a timestamp key concentrates all current writes on one shard under range partitioning and scatters conversation reads under hashing."
+      - id: q5
+        kind: single
+        prompt: "A leaderless store uses N = 3 replicas. Which setting guarantees that a read set overlaps the most recent successful write set?"
+        options: ["W = 1, R = 1", "W = 1, R = 2", "W = 2, R = 2", "W = 3, R = 0"]
+        answer: [2]
+        explanation: "R + W = 4 > 3, so any 2 replicas read share at least one with any 2 written. W = 1, R = 2 sums to 3, not above N, so the read can miss the only updated replica. R = 0 reads nothing."
+      - id: q6
+        kind: short
+        prompt: The primary fails and an asynchronous replica is promoted. What can go wrong, and how do you limit it?
+        model_answer: "Writes acknowledged by the old primary but not yet replicated are lost; if the old primary comes back and still accepts writes you get split brain and divergent data. Limit it with semi-synchronous replication for critical data (at least one replica has every acknowledged write), fencing the old primary (revoke its access or use epoch numbers), automated but coordinated failover, and reconciliation against an external record (payments provider) for anything that may have been lost."
+        explanation: Failover with async replication trades a small data-loss window for availability; say so explicitly.
+- key: sd.database_scaling.shard_key_case
+  type: architecture_case
+  title: "Drill: choose a sharding key and resharding plan"
+  skills: [sd.database_scaling, sd.consistent_hashing]
+  minutes: 25
+  difficulty: HARD
+  observation: {kind: SD_DESIGN, time_limit_seconds: 1500}
+  body:
+    prompt: |-
+      A social app stores posts, comments and likes in one PostgreSQL primary with two replicas. Writes peak at 45,000 per second (mostly likes), data is 18 TB and growing 1 TB per month. The top 0.01% of posts receive a large share of likes during viral events. Within 25 minutes: show the numbers that justify sharding, choose shard keys per table, handle the viral-post hotspot, explain how feed and profile queries are served, and describe how you go from 8 to 16 shards without downtime.
+    requirements:
+      functional:
+        - Create posts, comment, like and unlike
+        - Show a post with its like count and recent comments
+        - Show a user's profile with their posts newest first
+      non_functional:
+        - Like writes up to 45,000 per second at peak, more during viral events
+        - Like counts may lag by a few seconds; a user's own like must show immediately
+        - No downtime during resharding
+    approach:
+      - "Justify: 45,000 writes per second and 18 TB growing 12 TB per year exceed one primary; replicas only help reads."
+      - "Posts and comments sharded by post_id (comments co-located with their post); a user's profile list served by a per-user index table sharded by user_id, or by sharding posts by author_id and co-locating comments by post's author."
+      - "Likes: the unique (post_id, user_id) row sharded by post_id; counts kept in a separate counter aggregated asynchronously."
+      - "Viral hotspot: split the counter for hot posts into K sub-counters (post_id, bucket) summed on read and cached; buffer like events through a queue and apply in batches."
+      - "Read-your-writes for the liker: return the updated state from the write and overlay it client-side or read the user's own like from the shard primary."
+      - "Routing via 1,024 logical shards mapped to physical nodes (or consistent hashing) so 8 → 16 moves only half the logical shards and none of the hashing changes."
+      - "Online move per logical shard: snapshot, stream changes, verify, fence briefly, flip routing, clean up."
+    estimates: |-
+      18 TB today, about 30 TB in a year; at 8 shards about 2–4 TB per shard and about 6,000 writes per second per shard on average, more for shards with viral posts, which is why the hot-key mitigation is needed even after sharding.
+    rubric:
+      - {key: justify, label: "Uses write rate and data growth to justify sharding over replicas", points: 2}
+      - {key: keys, label: "Chooses shard keys per table that keep dominant queries single-shard", points: 3}
+      - {key: cross_shard, label: "Explains how the profile or feed query avoids or handles scatter-gather", points: 2}
+      - {key: hotspot, label: "Mitigates the viral-post hotspot with split counters, batching or caching", points: 2}
+      - {key: resharding, label: "Uses logical shards or consistent hashing and an online migration sequence", points: 3}
+      - {key: consistency, label: "Handles read-your-writes for the user's own like despite async counts", points: 1}
+    follow_ups:
+      - prompt: Traffic grows ten times. Which part of your design breaks first?
+        look_for: The hottest shards and the like counter path; more logical-to-physical spread, more counter buckets, larger batches; the routing layer and migration tooling must handle frequent moves.
+      - prompt: A shard primary fails during a viral event. What happens to likes in flight?
+        look_for: Replica promotion with a small loss window under async replication; queued like events are replayed idempotently (unique (post_id, user_id) makes replays harmless); counters rebuilt from like rows if needed.
+      - prompt: "Product now wants exact like counts that never lag. What does that cost?"
+        look_for: Synchronous counter updates on the hot row, which serialises writes for viral posts; requires contention control (sharded counters summed synchronously) and higher latency; push back with the cost.
+- key: sd.database_scaling.interview
+  type: interview_question
+  title: "Interview question: the database is the bottleneck"
+  skills: [sd.database_scaling]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: "Your service's PostgreSQL primary is at 90% CPU at peak and p99 latency is climbing. Walk through how you would scale it, in order, and what each step costs."
+    key_points:
+      - "Measures first: which queries dominate, reads versus writes, CPU versus I/O versus locks."
+      - "Cheap fixes first: indexes and query rewrites, connection pooling, removing N+1 queries, vertical scaling."
+      - "Read scaling: cache hot reads and add read replicas, handling replication lag with read-your-writes."
+      - "Write or size scaling: partition large tables, then shard by a key matching the dominant queries."
+      - "States the costs of sharding: cross-shard queries and transactions, resharding, operational complexity."
+      - Mentions moving non-critical work (analytics, reports) off the primary to replicas or a warehouse.
+    model_answer: "First I find out what is burning CPU: pg_stat_statements for the top queries, the read/write mix, lock waits. Most of the time an index, a rewritten query or a connection pooler gives back a lot. Next, scale up the machine if it is cheap to do so. If reads dominate, cache hot objects and add read replicas, routing a user's reads to the primary briefly after their writes to avoid stale reads, and move reports to a replica or warehouse. If writes or data size are the problem, partition large tables by time, and if one primary still cannot keep up, shard by the key most queries filter on, using logical shards so I can rebalance later. Sharding is last because it makes cross-shard queries, transactions and operations harder."
+    pitfalls:
+      - Jumping straight to sharding or to a different database.
+      - Proposing replicas for a write-bound primary.
+    follow_ups:
+      - prompt: The replicas lag by 30 seconds during peak. Why might that happen and what do you do?
+        look_for: Replica under-provisioned or busy with heavy queries, large transactions, single-threaded replay; reduce heavy queries on replicas, scale them, monitor lag and route around lagging replicas.
+      - prompt: After sharding by user_id, the product wants a global 'top posts today' list. How?
+        look_for: Avoid scatter-gather on every request; aggregate asynchronously from change events into a separate store or cache refreshed periodically.
+- key: sd.database_scaling.cards
+  type: revision_card
+  title: "Recall: database scaling"
+  skills: [sd.database_scaling]
+  minutes: 5
+  body:
+    cards:
+      - front: Replicas scale what?
+        back: Reads and availability, never write throughput.
+      - front: Risk of failover with async replication?
+        back: Losing the last acknowledged writes, and split brain without fencing.
+      - front: Fix for 'I don't see my own update'?
+        back: Read-your-writes — read from the leader briefly or wait for the replica to pass the write's position.
+      - front: Quorum overlap condition?
+        back: R + W > N (for example N = 3, W = 2, R = 2).
+      - front: Range vs hash partitioning?
+        back: Range keeps scans cheap but hotspots on sequential keys; hash spreads load but scatters ranges.
+      - front: How to make resharding cheap?
+        back: Many fixed logical shards mapped to physical nodes, or consistent hashing.
+
+# ---------------------------------------------------------------------------------------------- consistent hashing
+- key: sd.consistent_hashing.lesson
+  type: lesson
+  title: Consistent hashing and virtual nodes
+  skills: [sd.consistent_hashing]
+  minutes: 20
+  difficulty: MEDIUM
+  body:
+    summary: Place nodes and keys on the same hash ring so adding or removing a node moves only about 1/N of the keys; virtual nodes even out the load.
+    what: |-
+      Consistent hashing maps keys to nodes so that a change in the set of nodes moves as few keys as possible. Hash every node (or many points per node) onto a circular space, for example 0 to 2⁶⁴ − 1. A key is hashed onto the same ring and belongs to the **first node clockwise** from its position.
+    why: |-
+      With `hash(key) mod N`, going from N to N + 1 nodes changes the owner of almost every key: about N/(N + 1) of them. For a cache cluster that means a near-total miss storm; for a storage cluster it means moving almost all data. With consistent hashing a new node takes over only the keys between it and its predecessor, about 1/(N + 1) of the total, and removing a node hands its keys to its successors only.
+    when: |-
+      Distributed caches where clients pick the node (memcached clients popularised it), partitioned key-value and wide-column stores (Cassandra and Dynamo-style systems use token rings), sticky load balancing by key, and sharding schemes that must add nodes often. If the shard count changes rarely and you control migration, a fixed number of logical shards with a mapping table is a simpler alternative with the same benefit.
+    how: |-
+      1. Hash each node to a position on the ring. Keep the positions in a sorted array.
+      2. To look up a key, hash it and binary-search for the first position greater than the key's hash, wrapping to the start of the array.
+      3. **Virtual nodes**: place each physical node at many positions (for example 100–200), hashing `node#0`, `node#1`, …. With a few positions per node the arcs are very uneven; with many, each node's share approaches 1/N, and when a node leaves its load is spread over many nodes instead of dumped on one neighbour. Give larger machines more virtual nodes to weight them.
+      4. **Replication**: store each key on the first R *distinct physical* nodes clockwise, skipping further virtual nodes of a node already chosen.
+
+      Lookup is `O(log(N × V))` for N nodes with V virtual nodes each, by binary search.
+    mental_model: |-
+      Picture a clock face. Nodes are pins at various times; each key walks clockwise to the next pin. Adding a pin only steals the keys from the arc just before it. Virtual nodes are many small pins per server scattered around the face, so every server ends up with many short arcs whose total length is about the same.
+    tradeoffs: |-
+      Consistent hashing minimises movement and needs no central mapping, but load balance depends on enough virtual nodes, membership changes must reach every client consistently, and range queries are impossible because keys are hashed. A directory or logical-shard table gives exact control (move one hot tenant) at the cost of a lookup service. Rendezvous (highest-random-weight) hashing achieves the same minimal movement without a ring by scoring every node per key, at O(N) per lookup.
+    mistakes:
+      - One position per node, giving badly uneven arcs.
+      - Placing replicas on consecutive virtual nodes that belong to the same physical machine.
+      - Clients with different membership views sending the same key to different nodes.
+      - Believing consistent hashing fixes a single hot key; it only decides who owns it.
+      - "Using a weak or language-randomised hash (Python's built-in `hash()` of a `str` changes between processes) for placement."
+    interview: |-
+      It comes up when you scale a cache or a key-value store: "what happens when you add a cache node?". Explain mod-N's problem with numbers, then the ring, virtual nodes and replication on distinct physical nodes. Follow-ups: hot keys, weighted nodes, how clients learn membership, and what moves when a node fails.
+    explain_it:
+      - Why mod N moves almost everything when N changes.
+      - The ring, clockwise ownership and binary-search lookup.
+      - Virtual nodes for balance and weighting.
+      - Replication on the next R distinct physical nodes.
+      - What consistent hashing does not solve (hot keys, range queries).
+    example:
+      language: python
+      code: |-
+        import bisect
+        import hashlib
+
+        def _h(value: str) -> int:
+            return int.from_bytes(hashlib.sha1(value.encode()).digest()[:8], "big")
+
+        class HashRing:
+            def __init__(self, vnodes: int = 128) -> None:
+                self.vnodes = vnodes
+                self._points: list[int] = []        # sorted ring positions
+                self._owner: dict[int, str] = {}    # position -> physical node
+
+            def add(self, node: str) -> None:
+                for i in range(self.vnodes):
+                    p = _h(f"{node}#{i}")
+                    bisect.insort(self._points, p)
+                    self._owner[p] = node
+
+            def remove(self, node: str) -> None:
+                for i in range(self.vnodes):
+                    p = _h(f"{node}#{i}")
+                    self._points.pop(bisect.bisect_left(self._points, p))
+                    del self._owner[p]
+
+            def nodes_for(self, key: str, replicas: int = 1) -> list[str]:
+                if not self._points:
+                    raise LookupError("empty ring")
+                i = bisect.bisect_right(self._points, _h(key))
+                chosen: list[str] = []
+                for step in range(len(self._points)):
+                    node = self._owner[self._points[(i + step) % len(self._points)]]
+                    if node not in chosen:
+                        chosen.append(node)
+                        if len(chosen) == replicas:
+                            break
+                return chosen
+      explanation: "A stable hash (not Python's per-process randomised hash()), sorted positions with binary search, and replica selection that skips virtual nodes of an already chosen machine. Position collisions are ignored for brevity."
+    complexity: "Lookup O(log(N·V)); adding or removing a node O(V log(N·V)) for the positions (insort into a Python list is O(N·V) per insert because of shifting); keys moved ≈ K/N."
+    edge_cases:
+      - "Removing a node without virtual nodes doubles its successor's load at once."
+      - "Heterogeneous hardware: weight by virtual-node count proportional to capacity."
+      - Membership churn (nodes flapping) causes repeated movement; add damping before removing a node.
+- key: sd.consistent_hashing.check
+  type: concept_check
+  title: "Concept check: consistent hashing"
+  skills: [sd.consistent_hashing]
+  minutes: 8
+  difficulty: MEDIUM
+  body:
+    intro: Reason about what moves when the ring changes.
+    questions:
+      - id: q1
+        kind: single
+        prompt: A consistent-hash ring has 9 equally loaded nodes. A 10th node joins. Roughly what fraction of keys move?
+        options: ["About 1/10", "About 1/2", "About 9/10", "All of them"]
+        answer: [0]
+        explanation: "The new node takes about its fair share, 1/10, from existing nodes, and no other key changes owner. About 9/10 is what hash mod N would move."
+      - id: q2
+        kind: single
+        prompt: Why use virtual nodes?
+        options:
+          - To make lookups O(1)
+          - To even out each node's share of the ring and spread a departing node's keys over many nodes
+          - To support range queries
+          - To avoid hashing keys
+        answer: [1]
+        explanation: "Many positions per node average out arc lengths, and when a node leaves its many small arcs go to many different successors. Lookups stay O(log) and range queries remain impossible because keys are hashed."
+      - id: q3
+        kind: single
+        prompt: "With replication factor 3, the next three ring positions clockwise from a key are A#17, A#52 and B#3. Where should the replicas go?"
+        options:
+          - A, A and B
+          - A, B and the next distinct physical node after B
+          - Only A
+          - B and two random nodes
+        answer: [1]
+        explanation: "Replicas must be on distinct physical machines, so skip A#52 and keep walking until a third distinct node appears. Two copies on A would not survive A's failure."
+      - id: q4
+        kind: multi
+        prompt: Which problems does consistent hashing NOT solve by itself?
+        options:
+          - A single key receiving 30% of all traffic
+          - Massive key movement when a node is added
+          - Range scans over keys in order
+          - Clients disagreeing about cluster membership
+        answer: [0, 2, 3]
+        explanation: "It minimises movement on membership change. A hot key still lives on one node, hashing destroys key order, and clients still need a consistent membership view (gossip or a coordination service)."
+      - id: q5
+        kind: short
+        prompt: "Why must the placement hash be stable across processes, and why is Python's built-in hash() a poor choice?"
+        model_answer: "Every client and server must map the same key to the same ring position, today and after restarts. Python randomises str and bytes hashing per process (PYTHONHASHSEED), so two processes would place the same key on different nodes. Use a stable function such as a truncated SHA-1, MD5, xxHash or MurmurHash."
+        explanation: Placement is a protocol between processes; it needs a deterministic hash.
+- key: sd.consistent_hashing.interview
+  type: interview_question
+  title: "Interview question: add a node to a cache cluster"
+  skills: [sd.consistent_hashing, sd.caching]
+  minutes: 10
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 600}
+  body:
+    prompt: "A cache cluster of 20 nodes uses `hash(key) % 20` in every client. During a traffic spike you add a 21st node and the database falls over. Explain why, and redesign key placement so adding or losing a node is safe."
+    key_points:
+      - "With mod N, about 20/21 of keys change owner, so almost the whole cache misses at once and the load lands on the database."
+      - Consistent hashing on a ring moves only about 1/21 of keys when a node is added.
+      - "Virtual nodes (on the order of a hundred per node) balance load and spread a failed node's keys across the cluster."
+      - Membership must be consistent across clients (configuration service or gossip) and changes rolled out deliberately.
+      - "Additionally protect the database during changes: coalesce misses, warm the new node, or add capacity off-peak."
+    model_answer: "With modulo placement the owner of a key changes unless h mod 20 equals h mod 21, which holds for about 1 key in 21, so about 95% of keys move and the cluster is effectively cold; every miss goes to the database at peak. I would place keys on a consistent-hash ring with about a hundred virtual nodes per server, so adding a node only moves its fair share, around 5% of keys, and a failed node's keys spread evenly over the others. Clients get membership from a single source of truth and switch atomically. I would still add nodes off-peak, warm them, and keep miss coalescing so the database never sees a full miss storm."
+    pitfalls:
+      - Saying consistent hashing makes the move free; about 1/N of keys still miss.
+      - Forgetting that all clients need the same view of the ring.
+    follow_ups:
+      - prompt: One node is twice as powerful as the others. How do you use it?
+        look_for: Give it twice as many virtual nodes so it owns about twice the key space.
+      - prompt: "A node fails. Which keys miss and where do they go?"
+        look_for: Only that node's keys miss; with virtual nodes they are spread over many successors; with replicas reads can fail over to the next distinct node.
+      - prompt: Would you choose a fixed set of hash slots instead (as Redis Cluster does)?
+        look_for: Fixed slots (16,384 in Redis Cluster) mapped to nodes give the same minimal movement with explicit control and a slot map clients cache; trade-off is maintaining the map.
+- key: sd.consistent_hashing.cards
+  type: revision_card
+  title: "Recall: consistent hashing"
+  skills: [sd.consistent_hashing]
+  minutes: 4
+  body:
+    cards:
+      - front: Keys moved when going from N to N+1 with mod N?
+        back: About N/(N+1) — nearly all.
+      - front: Keys moved with consistent hashing?
+        back: About 1/(N+1), only from the new node's predecessors' arcs.
+      - front: Why virtual nodes?
+        back: Even load, weighting, and spreading a lost node's keys over many nodes.
+      - front: Replica placement on the ring?
+        back: The next R distinct physical nodes clockwise.
+      - front: Lookup cost on the ring?
+        back: O(log(N·V)) binary search over sorted positions.

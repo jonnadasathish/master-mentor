@@ -1,0 +1,709 @@
+# Learning content, Python for interviews (3/4): classes, dataclasses, type hints, composition and protocols; iterators, generators and itertools.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- classes and dataclasses
+- key: py.oop.lesson
+  type: lesson
+  title: Classes, the object model and dataclasses
+  skills: [python.oop, oop.principles]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: A Python class is a namespace of functions plus a recipe for instances; dataclasses generate the boilerplate, and dunder methods decide how objects compare, hash and print.
+    what: |-
+      A **class** bundles data (attributes) and behaviour (methods). Calling the class creates an **instance** and runs `__init__` on it. Key pieces:
+
+      - **Instance attributes** live in each object (`self.x = ...`, stored in `obj.__dict__`); **class attributes** live on the class and are shared by every instance.
+      - **Methods**: ordinary methods receive the instance as `self`; `@classmethod` receives the class (`cls`) and is the idiom for alternative constructors; `@staticmethod` receives neither.
+      - `@property` exposes a computed or validated attribute with attribute syntax.
+      - **Dunder methods** plug objects into the language: `__repr__` (debug text), `__str__` (user text), `__eq__` and `__hash__` (equality and use as dict keys), `__lt__` (sorting), `__len__`, `__iter__`, `__contains__`, `__enter__`/`__exit__`.
+      - `@dataclass` (module `dataclasses`) generates `__init__`, `__repr__` and `__eq__` from annotated fields, and optionally ordering, immutability (`frozen=True`), `__slots__` (`slots=True`, 3.10+) and keyword-only fields (`kw_only=True`, 3.10+).
+    why: |-
+      Interviews, especially machine-coding and LLD rounds, expect clean domain objects: a `Money` value object, an `Order` entity, a `Parking Lot` with spots. Dataclasses let you write those in a few lines without hand-written `__init__` bugs. Understanding `__eq__`/`__hash__` prevents real bugs: objects that silently cannot be dict keys, or mutable keys that get "lost" in a set after a change.
+    when: |-
+      - Use a **dataclass** for objects that are mostly data: DTOs, value objects, events, config. Add `frozen=True` for value objects (money, coordinates, ids) and anything used as a dict key.
+      - Use a **plain class** when behaviour and invariants dominate and the constructor does real work.
+      - Use `@classmethod` constructors for parsing (`Order.from_row(row)`), `@property` for derived values (`order.total`), and `__post_init__` in a dataclass for validation.
+      - Use a `NamedTuple` when you want an immutable tuple with names (unpacking, very cheap), a `TypedDict` when the data must stay a dict (JSON payloads).
+    how: |-
+      ```python
+      from dataclasses import dataclass, field
+
+      @dataclass(frozen=True, slots=True)
+      class Money:
+          cents: int
+          currency: str = "INR"
+
+          def __post_init__(self) -> None:
+              if self.cents < 0:
+                  raise ValueError("amount cannot be negative")
+
+          def __add__(self, other: "Money") -> "Money":
+              if other.currency != self.currency:
+                  raise ValueError("currency mismatch")
+              return Money(self.cents + other.cents, self.currency)
+
+      @dataclass
+      class Order:
+          order_id: str
+          lines: list[Money] = field(default_factory=list)   # never `= []`
+          status: str = "NEW"
+
+          @property
+          def total(self) -> Money:
+              result = Money(0)
+              for line in self.lines:
+                  result = result + line
+              return result
+
+          @classmethod
+          def from_row(cls, row: dict) -> "Order":
+              return cls(order_id=row["id"], status=row["status"])
+      ```
+
+      Equality and hashing rules worth memorising:
+
+      - A plain class compares and hashes by **identity** by default.
+      - Defining `__eq__` without `__hash__` sets `__hash__` to `None`: instances become **unhashable**.
+      - `@dataclass` (default `eq=True`, `frozen=False`) generates `__eq__` and sets `__hash__` to `None`; with `frozen=True` it generates a field-based `__hash__`.
+      - Objects that are equal must have equal hashes, and a hash must not change while the object is in a set or dict, which is why only immutable objects should be hashable.
+    mental_model: |-
+      Attribute lookup on `obj.name` checks the instance's `__dict__`, then the class, then its base classes in **MRO** order (with data descriptors such as properties taking priority). A method is just a function stored on the class; `obj.method` binds `obj` as the first argument. Dataclasses are a code generator that writes the methods you would have written by hand.
+    tradeoffs: |-
+      Dataclasses are concise and readable but encourage anaemic data bags; put behaviour on them when it belongs to the data. `frozen=True` makes objects safe to share and hash but every change creates a new object (`dataclasses.replace(obj, status="PAID")`). `slots=True` saves memory and catches attribute typos (assigning `obj.stauts` raises `AttributeError`), but slotted classes need care with multiple inheritance. Properties keep a stable interface while you change the implementation, but hide cost: a property that runs a query looks like a cheap attribute.
+    mistakes:
+      - "A mutable class attribute used as per-instance state: `class Cart: items = []` is shared by every cart."
+      - "A dataclass field `items: list = []`; dataclasses reject it with ValueError. Use `field(default_factory=list)`."
+      - "Defining `__eq__` and then using instances in a set, which raises `TypeError: unhashable type`."
+      - "Hashing a mutable object by its fields, mutating it while it is in a set, and then failing to find it."
+      - Missing `__repr__` on plain classes, so logs and test failures show `<Order object at 0x...>`.
+      - Calling a parent method by name (`Base.__init__(self)`) in a diamond hierarchy instead of `super().__init__()`, which runs some initialisers twice.
+    interview: |-
+      In machine-coding rounds you are judged on how quickly you produce clean, correct domain classes: dataclasses with validation, value objects that are immutable, clear method names, and no shared mutable state. Code-reading questions cover class vs instance attributes, `__eq__`/`__hash__`, and `super()` with multiple inheritance. Expect "why is this frozen?" and "what happens if you put this object in a set?"
+    explain_it:
+      - Say which objects are values (immutable, compared by fields) and which are entities (identity, mutable state).
+      - Explain what the dataclass generates and which options you chose and why.
+      - State the `__eq__` and `__hash__` contract and how frozen dataclasses satisfy it.
+      - Point out where validation happens (`__post_init__` or the classmethod constructor).
+    example:
+      language: python
+      code: |-
+        from dataclasses import dataclass, replace
+
+        @dataclass(frozen=True, order=True)
+        class Version:
+            major: int
+            minor: int
+            patch: int = 0
+
+        v = Version(2, 10)
+        {v: "current"}                     # hashable because frozen
+        sorted([Version(2, 9), v])         # order=True compares (major, minor, patch)
+        replace(v, patch=1)                # Version(major=2, minor=10, patch=1); v unchanged
+        # v.patch = 1 would raise dataclasses.FrozenInstanceError
+      explanation: "`order=True` compares the fields as a tuple in definition order, so field order is part of the class's behaviour."
+    internals: |-
+      The **MRO** (method resolution order, `Class.__mro__`) is computed by C3 linearisation: every class appears before its bases, and the order of bases in the class statement is preserved. `super()` means "the next class in the MRO of the instance's type", not "my parent", which is what makes cooperative multiple inheritance work. Names starting with two underscores (`self.__secret`) are mangled to `_ClassName__secret` to avoid accidental clashes in subclasses; it is not access control. Type annotations on dataclass fields are what make them fields; annotations themselves are not enforced at runtime.
+    edge_cases:
+      - "A dataclass field without a default cannot follow one with a default, unless you use `kw_only=True` (3.10+)."
+      - "`frozen=True` does not freeze a list stored in a field; the object holding the list is immutable, the list is not."
+      - "Comparing a dataclass with an instance of a different class returns NotImplemented, so `==` is False rather than raising."
+
+- key: py.oop.lesson_2
+  type: lesson
+  title: Type hints, inheritance vs composition, and protocols
+  skills: [python.oop, oop.composition_solid]
+  minutes: 20
+  difficulty: MEDIUM
+  body:
+    summary: Prefer composing small objects behind a structural interface (a Protocol) over deep inheritance trees; type hints document and check those interfaces without runtime cost.
+    what: |-
+      - **Type hints** annotate parameters, returns and attributes: `def find(user_id: int) -> User | None`. Python ignores them at runtime; static checkers (mypy, pyright) and tools (FastAPI, Pydantic, dataclasses) read them.
+      - **Inheritance** (`class Admin(User)`) means "is a": the subclass inherits all behaviour and must honour the parent's contract (Liskov substitution).
+      - **Composition** means "has a": an object holds collaborators and delegates to them (`OrderService` has a `PaymentGateway`).
+      - An **abstract base class** (`abc.ABC` with `@abstractmethod`) is a **nominal** interface: implementations must inherit from it.
+      - A **Protocol** (`typing.Protocol`, 3.8+) is a **structural** interface: any class with matching methods satisfies it, no inheritance needed. This is static duck typing.
+    why: |-
+      Deep inheritance couples every subclass to its parents' internals; a change in the base breaks distant code, and combinations of features multiply classes (`CachedRetryingS3Storage`). Composition with small interfaces lets you swap implementations (a fake payment gateway in tests, S3 or local disk in production) and is how dependency injection works in FastAPI and in clean service layers. Protocols make that swap type-checked without forcing third-party or test classes to inherit from your base class.
+    when: |-
+      - Inherit when there is a genuine "is a" relationship and shared behaviour, especially framework extension points (`django.db.models.Model`, `Exception` subclasses).
+      - Compose when you want to vary behaviour independently (strategy objects, storage backends, notification channels) or reuse code without promising the full parent contract.
+      - Use a Protocol for dependencies you inject (`Clock`, `Repository`, `Notifier`), so tests can pass any object with the right methods.
+      - Use an ABC when you want runtime enforcement (instantiating an incomplete subclass raises `TypeError`) or shared helper methods in the base.
+    how: |-
+      ```python
+      from typing import Protocol
+      from datetime import date
+
+      class Clock(Protocol):
+          def today(self) -> date: ...
+
+      class Notifier(Protocol):
+          def send(self, to: str, message: str) -> None: ...
+
+      class RenewalService:
+          def __init__(self, clock: Clock, notifier: Notifier) -> None:   # composition + DI
+              self._clock = clock
+              self._notifier = notifier
+
+          def remind(self, email: str, expires: date) -> bool:
+              if (expires - self._clock.today()).days <= 7:
+                  self._notifier.send(email, "Your plan expires soon")
+                  return True
+              return False
+
+      class FixedClock:                         # satisfies Clock without inheriting from it
+          def __init__(self, day: date) -> None:
+              self.day = day
+          def today(self) -> date:
+              return self.day
+      ```
+
+      Type-hint vocabulary for Python 3.11: built-in generics `list[int]`, `dict[str, User]` (3.9+); unions `int | None` (3.10+); `collections.abc.Iterable`, `Callable`, `Mapping` for parameters; `typing.Self` (3.11) for methods returning their own class; `TypeVar` and `Generic` for generic classes (3.12 adds the shorter `class Box[T]:` syntax).
+    mental_model: |-
+      Inheritance shares **implementation** and promises the parent's whole interface; composition shares **only what you delegate**. Ask "would every caller of the parent be happy receiving this subclass?" If not, compose. A Protocol is a description of the shape a collaborator must have, checked by the type checker at the call site.
+    tradeoffs: |-
+      Composition adds a little wiring (constructor parameters, delegation methods) but keeps classes small and testable. Inheritance is less code for true specialisations and is required by many frameworks. Protocols need no registration, but `isinstance` checks against them work only with `@runtime_checkable` and then check method **names only**, not signatures. ABCs give runtime errors for missing methods but force a dependency on the base class. Type hints cost nothing at runtime but can drift from reality if no checker runs in CI.
+    mistakes:
+      - "Subclassing to reuse one helper method, inheriting a dozen methods that make no sense for the subclass."
+      - "Overriding a method with a narrower contract (raising NotImplementedError, accepting fewer inputs), which breaks callers that expect the parent (Liskov violation)."
+      - "Constructing dependencies inside the class (`self.gateway = StripeGateway()`), so tests must patch module globals instead of passing a fake."
+      - "Treating hints as runtime validation: `def f(x: int)` happily accepts a string unless something like Pydantic validates it."
+      - "Using `@runtime_checkable` Protocols with `isinstance` and assuming the method signatures were checked."
+    interview: |-
+      LLD and machine-coding rounds probe this directly: "how would you add a new payment method or notification channel without changing existing code?" The expected answer is an interface (Protocol or ABC) with one class per variant, injected via the constructor. Being able to explain why you did not use inheritance, and to show the test double you would pass, is strong evidence of design maturity.
+    explain_it:
+      - Name the "is a" vs "has a" test and apply it to the example.
+      - Show the interface (Protocol) and two implementations, one of them a test fake.
+      - Explain structural vs nominal typing and what runtime_checkable does and does not check.
+      - "Point out that hints are for tools; validation at boundaries needs code (Pydantic, `__post_init__`)."
+    example:
+      language: python
+      code: |-
+        from abc import ABC, abstractmethod
+
+        class Storage(ABC):
+            @abstractmethod
+            def put(self, key: str, data: bytes) -> None: ...
+
+        class Broken(Storage):
+            pass
+
+        Broken()   # TypeError: Can't instantiate abstract class Broken ... abstract method 'put'
+      explanation: "ABCs fail at instantiation time when an abstract method is missing; a Protocol mismatch is reported by the type checker at the call site instead, and not at runtime."
+    misconceptions:
+      - "\"Composition over inheritance means never inherit\": inherit for real specialisations and framework hooks; compose to vary behaviour."
+      - "\"Protocols are just ABCs\": ABCs are nominal (you must inherit or register), Protocols are structural (any matching class fits)."
+
+- key: py.oop.check
+  type: concept_check
+  title: "Concept check: classes, dataclasses and protocols"
+  skills: [python.oop]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Each snippet runs on Python 3.11 unless an option says it raises.
+    questions:
+      - id: q1
+        kind: single
+        prompt: What does this print?
+        code:
+          language: python
+          code: |-
+            class Cart:
+                items = []
+                def add(self, x):
+                    self.items.append(x)
+
+            a, b = Cart(), Cart()
+            a.add("pen")
+            print(b.items)
+        options: ["[]", "['pen']", "AttributeError", "None"]
+        answer: [1]
+        explanation: "`items` is a class attribute, a single list shared by every instance. `self.items.append` finds it on the class and mutates it. Assigning `self.items = []` in `__init__` gives each cart its own list."
+      - id: q2
+        kind: single
+        prompt: What happens on the last line?
+        code:
+          language: python
+          code: |-
+            from dataclasses import dataclass
+
+            @dataclass
+            class Point:
+                x: int
+                y: int
+
+            seen = {Point(1, 2)}
+        options:
+          - "A set with one Point"
+          - "TypeError: unhashable type: 'Point'"
+          - "The Point is hashed by id()"
+          - "ValueError from dataclasses"
+        answer: [1]
+        explanation: "With the default `eq=True` and `frozen=False`, the dataclass generates `__eq__` and sets `__hash__` to None, because a mutable object hashed by its fields could change hash while in the set. `@dataclass(frozen=True)` generates a field-based hash and makes this work."
+      - id: q3
+        kind: multi
+        prompt: Which statements about `typing.Protocol` are true?
+        options:
+          - A class satisfies a Protocol by having matching methods, without inheriting from it
+          - Type hints using a Protocol are enforced by the interpreter at call time
+          - "`isinstance(obj, P)` works only if P is decorated with `@runtime_checkable`"
+          - "A runtime_checkable isinstance check verifies method signatures"
+        answer: [0, 2]
+        explanation: "Protocols are structural and checked by static type checkers; the interpreter ignores hints. `@runtime_checkable` enables isinstance, but it only checks that the attributes exist, not their signatures or return types."
+      - id: q4
+        kind: single
+        prompt: "`class D(B, C)` where both B and C subclass A, and every `__init__` calls `super().__init__()`. In which order do the initialisers run?"
+        options: ["D, B, A, C", "D, B, C, A", "D, C, B, A", "D, B, A, C, A"]
+        answer: [1]
+        explanation: "The MRO is D, B, C, A (C3 linearisation: a class comes before its bases, base order is kept, A comes last because both B and C must precede it). `super()` follows that MRO, so each initialiser runs exactly once. Calling `A.__init__` explicitly from B and C would run A twice."
+      - id: q5
+        kind: single
+        prompt: A NotificationService must support email today and SMS and push later, and tests must not send anything. Which design fits best?
+        options:
+          - "A base NotificationService with EmailNotificationService and SmsNotificationService subclasses"
+          - "A Notifier Protocol with send(); EmailNotifier, SmsNotifier and a FakeNotifier implement it; the service receives a Notifier in its constructor"
+          - "An if/elif on a channel string inside NotificationService.send"
+          - "A module-level function that tests patch with unittest.mock"
+        answer: [1]
+        explanation: "Composition behind a small interface adds channels without touching the service, and the fake is just another implementation. Subclassing the service duplicates its logic per channel; the if/elif grows with every channel; patching module globals works but couples tests to import paths."
+      - id: q6
+        kind: short
+        prompt: What is the contract between `__eq__` and `__hash__`, and why does Python make instances unhashable when you define only `__eq__`?
+        model_answer: "Objects that compare equal must have the same hash, and an object's hash must not change while it is stored in a set or dict. If you define `__eq__` by value but keep the default identity-based hash, two equal objects would have different hashes and dict lookups would fail, so Python sets `__hash__` to None. Define `__hash__` from the same immutable fields used by `__eq__`, or use a frozen dataclass."
+        explanation: "The key word is consistency: equality and hashing must agree, and both must be stable for the object's lifetime in a container."
+
+- key: py.oop.pricing
+  type: coding_exercise
+  title: "Exercise: a cart with pluggable discount rules"
+  skills: [python.oop]
+  minutes: 25
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 1500}
+  body:
+    prompt: |-
+      Model a shopping cart in 25 minutes:
+
+      - `Money`: an immutable, hashable value object in integer minor units (paise or cents) with a currency; adding different currencies raises `ValueError`.
+      - `LineItem`: sku, unit price (`Money`) and a positive quantity.
+      - `Cart`: holds line items in a single currency and a list of discount rules; `subtotal()` and `total()` return `Money`; the total never goes below zero.
+      - Two discount rules: `PercentOff(percent)` on the subtotal (rounded down to the minor unit) and `BuyXGetOneFree(sku, x)` (every x + 1 units of that sku, one is free).
+      - Adding a third rule later must not require editing `Cart`.
+    examples:
+      - "A cart with 3 pens at 1000 and 1 book at 50000, with BuyXGetOneFree('pen', 2) and PercentOff(10): subtotal 53000; pen discount 1000; percent discount 5300; total 46700."
+      - "A cart with no items has subtotal and total of 0."
+    constraints:
+      - Use dataclasses and type hints; no floats for money.
+      - Discounts are each computed on the subtotal (not compounded).
+    hints:
+      - Which objects are values (frozen) and which hold changing state?
+      - "Define what a discount rule must look like as a Protocol with one method, for example `amount(cart) -> Money`."
+      - "The cart sums the rule amounts and clamps at zero; it never needs to know which rule it is calling."
+    solution:
+      language: python
+      code: |-
+        from dataclasses import dataclass, field
+        from typing import Protocol
+
+
+        @dataclass(frozen=True, slots=True)
+        class Money:
+            amount: int                     # minor units
+            currency: str = "INR"
+
+            def __add__(self, other: "Money") -> "Money":
+                if other.currency != self.currency:
+                    raise ValueError("currency mismatch")
+                return Money(self.amount + other.amount, self.currency)
+
+
+        @dataclass(frozen=True, slots=True)
+        class LineItem:
+            sku: str
+            unit_price: Money
+            quantity: int
+
+            def __post_init__(self) -> None:
+                if self.quantity <= 0:
+                    raise ValueError("quantity must be positive")
+
+            @property
+            def total(self) -> Money:
+                return Money(self.unit_price.amount * self.quantity, self.unit_price.currency)
+
+
+        class Discount(Protocol):
+            def amount(self, cart: "Cart") -> Money: ...
+
+
+        @dataclass(frozen=True)
+        class PercentOff:
+            percent: int
+
+            def amount(self, cart: "Cart") -> Money:
+                return Money(cart.subtotal().amount * self.percent // 100, cart.currency)
+
+
+        @dataclass(frozen=True)
+        class BuyXGetOneFree:
+            sku: str
+            x: int
+
+            def amount(self, cart: "Cart") -> Money:
+                free = sum(i.quantity // (self.x + 1) * i.unit_price.amount
+                           for i in cart.items if i.sku == self.sku)
+                return Money(free, cart.currency)
+
+
+        @dataclass
+        class Cart:
+            currency: str = "INR"
+            items: list[LineItem] = field(default_factory=list)
+            discounts: list[Discount] = field(default_factory=list)
+
+            def add(self, item: LineItem) -> None:
+                if item.unit_price.currency != self.currency:
+                    raise ValueError("currency mismatch")
+                self.items.append(item)
+
+            def subtotal(self) -> Money:
+                return Money(sum(i.total.amount for i in self.items), self.currency)
+
+            def total(self) -> Money:
+                off = sum(d.amount(self).amount for d in self.discounts)
+                return Money(max(self.subtotal().amount - off, 0), self.currency)
+      explanation: "`total()` is O(n · d) for n line items and d rules (each rule may scan the items), O(1) extra space. Money and LineItem are frozen values; Cart is the mutable entity. New rules only need an `amount` method."
+    rubric:
+      - {key: values, label: Money and LineItem are immutable dataclasses with validation; integer money, points: 3}
+      - {key: interface, label: Discount rules share one interface (Protocol or ABC) and Cart depends only on it, points: 3}
+      - {key: correct, label: Example totals are correct; the total is clamped at zero; currencies are checked, points: 2}
+      - {key: no_shared_state, label: Uses default_factory for list fields (no shared mutable defaults), points: 1}
+      - {key: complexity_stated, label: "States the cost of total() as O(items × rules) and why it is acceptable", points: 1}
+    follow_ups:
+      - prompt: Product wants discounts applied in sequence (the percentage applies after the buy-x rule). What changes?
+        look_for: "Rules receive the running amount (or a pricing context) and return a new amount; order becomes explicit in the list; tests per ordering."
+      - prompt: How would you round to the nearest minor unit, half up, instead of down?
+        look_for: "Use decimal.Decimal with quantize(ROUND_HALF_UP) or integer arithmetic (amount * percent + 50) // 100; never floats."
+      - prompt: How do you test BuyXGetOneFree in isolation?
+        look_for: "Build a small Cart directly (or a stub object with items and currency) and assert amount(); parametrise boundary quantities x, x + 1, 2x + 2."
+
+- key: py.oop.interview
+  type: interview_question
+  title: "Interview question: inheritance or composition?"
+  skills: [python.oop, oop.composition_solid]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: |-
+      A teammate proposes this hierarchy for file storage: `Storage` → `LocalStorage`, `S3Storage`; then `CachedS3Storage(S3Storage)`, `EncryptedS3Storage(S3Storage)` and now `CachedEncryptedS3Storage`. Review the design and propose an alternative in Python. How would you test it?
+    key_points:
+      - Identifies the combinatorial explosion of subclasses when features (caching, encryption) are mixed with backends.
+      - "Proposes a small `Storage` interface (Protocol or ABC) with get/put and backends implementing it."
+      - "Implements caching and encryption as wrappers that hold another Storage (composition / decorator pattern), stackable in any order."
+      - "Injects the composed storage into consumers via the constructor and tests with an in-memory fake implementing the same interface."
+      - Discusses order of wrappers (encrypt before cache or after) and its consequences.
+    model_answer: "Each new feature doubles the subclasses because inheritance fixes the combination at class-definition time. I would define a Storage Protocol with get(key) -> bytes and put(key, data). LocalStorage and S3Storage implement it. CachingStorage(inner, cache) and EncryptingStorage(inner, cipher) also implement it and delegate to inner, so any combination is built at wiring time: CachingStorage(EncryptingStorage(S3Storage(...))). Consumers accept a Storage. Tests use an InMemoryStorage and verify each wrapper alone, e.g. that EncryptingStorage never passes plaintext to inner. The wrapper order matters: caching outside encryption keeps plaintext in the cache, which may be unacceptable; caching inside keeps ciphertext but costs a decrypt per hit."
+    pitfalls:
+      - Proposing multiple inheritance mixins without discussing the MRO and initialisation order.
+      - Forgetting how the design is tested.
+    follow_ups:
+      - prompt: When would you keep inheritance here?
+        look_for: "Shared behaviour that every backend truly needs, e.g. an ABC with a concrete helper like `put_json` built on the abstract `put`; or a framework that requires subclassing."
+      - prompt: How does this map to SOLID?
+        look_for: "Open/closed (new wrapper without editing others), single responsibility per wrapper, Liskov (each wrapper is a full Storage), dependency inversion (consumers depend on the Protocol)."
+
+- key: py.oop.cards
+  type: revision_card
+  title: "Recall: Python classes"
+  skills: [python.oop]
+  minutes: 5
+  body:
+    cards:
+      - front: Mutable default for a dataclass field?
+        back: "field(default_factory=list), never = []."
+      - front: Is a default `@dataclass` hashable?
+        back: No — eq=True sets __hash__ to None; use frozen=True.
+      - front: What does `super()` call?
+        back: The next class in the instance type's MRO, not necessarily the direct parent.
+      - front: Protocol vs ABC?
+        back: Protocol is structural (matching methods); ABC is nominal (must inherit or register).
+      - front: Are type hints checked at runtime?
+        back: No — only by static checkers or libraries such as Pydantic.
+      - front: classmethod vs staticmethod?
+        back: classmethod receives cls (alternative constructors); staticmethod receives nothing.
+
+# ---------------------------------------------------------------------------------------------- iterators and generators
+- key: py.iterators_generators.lesson
+  type: lesson
+  title: Iterators, generators and itertools
+  skills: [python.iterators_generators]
+  minutes: 20
+  difficulty: MEDIUM
+  body:
+    summary: Iteration is a two-method protocol; generators implement it with a paused function, which lets you process unbounded data in constant memory.
+    what: |-
+      - An **iterable** is anything with `__iter__` that returns an iterator (lists, dicts, files, ranges, generators).
+      - An **iterator** has `__next__`, which returns the next item or raises `StopIteration`, and an `__iter__` that returns itself. Iterators are **single-pass**: once exhausted, they stay empty.
+      - A **generator function** contains `yield`. Calling it returns a generator object (an iterator) without running the body; each `next()` runs until the next `yield` and pauses there with all local state intact.
+      - A **generator expression** `(f(x) for x in xs)` is the lazy form of a list comprehension.
+      - `yield from sub` delegates to another iterable or generator.
+      - **itertools** provides building blocks: `islice`, `chain`, `groupby`, `accumulate`, `product`, `permutations`, `combinations`, `count`, `cycle`, `tee`, `zip_longest`, `pairwise` (3.10+) and `batched` (3.12+).
+    why: |-
+      Backend data is often bigger than memory or arrives as a stream: log files, paginated API results, database cursors, CSV exports. A list materialises everything; a generator holds one item at a time, so a pipeline over a 20 GB file uses kilobytes. Generators also separate "how to produce items" from "what to do with them", which makes pipelines composable and testable.
+    when: |-
+      - Reading files line by line, streaming query results, paginating an API (`while next_page: yield from page.items`).
+      - Building lazy pipelines: parse → filter → transform → aggregate.
+      - Producing potentially infinite sequences (ids, retries with backoff delays, a round-robin of servers).
+      - Use a list instead when you need random access, `len`, several passes, or the data is small and clarity wins.
+    how: |-
+      ```python
+      def read_events(path):
+          with open(path, encoding="utf-8") as f:     # file closed when the generator finishes or is closed
+              for line in f:                          # files are lazy iterators over lines
+                  if line.strip():
+                      yield parse(line)
+
+      def errors(events):
+          return (e for e in events if e.level == "ERROR")
+
+      def first_n(iterable, n):
+          from itertools import islice
+          return list(islice(iterable, n))
+
+      # Pipeline: nothing is read until first_n pulls items
+      first_n(errors(read_events("app.log")), 10)
+      ```
+
+      How a `for` loop works: `it = iter(obj)`, then `next(it)` repeatedly until `StopIteration`. A class-based iterator:
+
+      ```python
+      class Countdown:
+          def __init__(self, start: int) -> None:
+              self.current = start
+          def __iter__(self):
+              return self
+          def __next__(self) -> int:
+              if self.current <= 0:
+                  raise StopIteration
+              self.current -= 1
+              return self.current + 1
+      ```
+
+      The same as a generator, with the protocol written for you:
+
+      ```python
+      def countdown(n: int):
+          while n > 0:
+              yield n
+              n -= 1
+      ```
+
+      Useful itertools idioms: `chain.from_iterable(lists)` flattens one level lazily; `groupby(sorted(rows, key=k), key=k)` groups **consecutive** equal keys; `accumulate(xs)` gives running totals; `islice(gen, 10)` takes a prefix of an infinite generator; `zip(a, b, strict=True)` (3.10+) raises if the lengths differ.
+    mental_model: |-
+      A generator is a function with a bookmark. `next()` resumes from the bookmark and runs to the next `yield`, which hands out a value and moves the bookmark. Work happens only when someone pulls, and only as much as they pull.
+    tradeoffs: |-
+      Generators give O(1) memory and early exit but are single-pass, have no `len`, and hide errors until consumption (a bad path fails when the first item is pulled, not when the generator is created). Debugging lazy pipelines is harder because the stack trace shows the consumer. `tee` lets several consumers share one iterator but buffers the items one consumer has seen and the other has not, which can grow to O(n). Per-item overhead of a generator is slightly higher than a list comprehension, so for small data a list is as good and simpler.
+    mistakes:
+      - "Iterating an exhausted iterator a second time and silently getting nothing (e.g. calling `sum(gen)` after `max(gen)`)."
+      - "Using `groupby` on unsorted data and getting the same key in several groups."
+      - "Returning a generator from inside a `with open(...)` block in a regular function: the file is closed before the caller iterates."
+      - "Calling `len()` on a generator (TypeError) or converting to a list just to count, defeating the laziness."
+      - "Raising `StopIteration` inside a generator to stop it; since 3.7 that becomes `RuntimeError` (PEP 479). Use `return`."
+    interview: |-
+      Common prompts: implement an iterator class (a range, a flattening iterator for nested lists, a peeking iterator), write a generator for a sliding window or chunking, explain list comprehension vs generator expression memory, and process a file too large for memory. Interviewers check that you know the protocol (`__iter__`, `__next__`, `StopIteration`), that iterators are single-pass, and that you can state the memory cost.
+    explain_it:
+      - Distinguish iterable from iterator and name the two methods.
+      - Explain what happens when a generator function is called and when `next()` is called.
+      - State memory O(1) per pipeline stage versus O(n) for lists.
+      - Name the itertools function you would use and its precondition (groupby needs sorted input).
+    example:
+      language: python
+      code: |-
+        from collections import deque
+        from collections.abc import Iterable, Iterator
+
+        def sliding_window(items: Iterable[int], k: int) -> Iterator[tuple[int, ...]]:
+            """Yield every window of k consecutive items, lazily."""
+            window: deque[int] = deque(maxlen=k)
+            for x in items:
+                window.append(x)               # the oldest item falls off automatically
+                if len(window) == k:
+                    yield tuple(window)
+
+        list(sliding_window(range(5), 3))      # [(0, 1, 2), (1, 2, 3), (2, 3, 4)]
+      explanation: "Works on any iterable, including an infinite one; memory O(k); time O(n · k) because each yielded tuple copies k items."
+    complexity: "Each pipeline stage holds O(1) items (or O(k) for windows); total time is the sum of per-item work. Materialising with list() costs O(n) memory."
+    internals: |-
+      A generator object keeps its own frame (local variables and the instruction pointer) on the heap, which is how it survives between `next()` calls. `gen.send(value)` resumes it and makes the paused `yield` expression evaluate to `value`; `gen.close()` raises `GeneratorExit` at the paused point so `finally` blocks and `with` exits run. A `return x` inside a generator ends it with `StopIteration(x)`, and `result = yield from sub` receives that `x`.
+    edge_cases:
+      - "`zip` stops at the shortest input silently; use `strict=True` or `itertools.zip_longest` when lengths may differ."
+      - "Generator expressions evaluate the first `for` clause's iterable immediately, the rest lazily."
+      - "Modifying a list while a generator iterates over it changes what the generator sees."
+
+- key: py.iterators_generators.check
+  type: concept_check
+  title: "Concept check: iteration and laziness"
+  skills: [python.iterators_generators]
+  minutes: 8
+  difficulty: MEDIUM
+  body:
+    intro: Remember that nothing in a generator runs until something pulls from it.
+    questions:
+      - id: q1
+        kind: single
+        prompt: What does this print?
+        code:
+          language: python
+          code: |-
+            squares = (x * x for x in range(4))
+            print(sum(squares), sum(squares))
+        options: ["14 14", "14 0", "0 14", "TypeError"]
+        answer: [1]
+        explanation: "A generator is an iterator and can be consumed once. The first `sum` exhausts it; the second sees no items and returns 0. A list comprehension (square brackets) would give 14 14."
+      - id: q2
+        kind: single
+        prompt: What is printed when only the first line runs?
+        code:
+          language: python
+          code: |-
+            def numbers():
+                print("start")
+                yield 1
+                print("middle")
+                yield 2
+
+            gen = numbers()
+        options: ["start", "start middle", "Nothing", "1"]
+        answer: [2]
+        explanation: "Calling a generator function only creates the generator object; the body does not run until the first `next(gen)`, which would print start and return 1."
+      - id: q3
+        kind: single
+        prompt: "`[(k, len(list(g))) for k, g in groupby(\"aabaa\")]` returns…"
+        options:
+          - "[('a', 4), ('b', 1)]"
+          - "[('a', 2), ('b', 1), ('a', 2)]"
+          - "[('a', 2), ('b', 1)]"
+          - "TypeError, groupby needs a key function"
+        answer: [1]
+        explanation: "`itertools.groupby` groups consecutive equal elements, like the Unix `uniq` command. To group all equal elements, sort first; the key function is optional and defaults to identity."
+      - id: q4
+        kind: multi
+        prompt: Which statements are true?
+        options:
+          - Every iterator is iterable
+          - Every iterable is an iterator
+          - "A list's `__iter__` returns a new iterator each time, so a list can be looped over many times"
+          - "`len()` works on any generator"
+        answer: [0, 2]
+        explanation: "Iterators define `__iter__` returning themselves, so they are iterable. A list is iterable but not an iterator: it has no `__next__`, and each `iter(lst)` gives a fresh iterator. Generators have no length."
+      - id: q5
+        kind: single
+        prompt: A function opens a file with `with open(path) as f:` and returns `(line.upper() for line in f)` from inside the block. What happens when the caller iterates?
+        options:
+          - It works; the file stays open until the generator is exhausted
+          - "ValueError: I/O operation on closed file, because the with block closed the file when the function returned"
+          - It reads the whole file into memory first
+          - It works but leaks the file handle
+        answer: [1]
+        explanation: "The function returns as soon as the generator expression is created, which exits the with block and closes the file; the first pull then reads a closed file. Making the function itself a generator (`yield` inside the with) keeps the file open while iterating."
+      - id: q6
+        kind: short
+        prompt: You must count ERROR lines in a 30 GB log file on a machine with 4 GB of RAM. Write the core in one or two lines and state the memory cost.
+        model_answer: "with open(path, encoding='utf-8') as f: count = sum(1 for line in f if ' ERROR ' in line). The file object yields one line at a time and the generator expression feeds sum lazily, so memory is O(longest line), not O(file size). f.readlines() or list(f) would try to load 30 GB."
+        explanation: "The interviewer wants the lazy file iterator plus a lazy aggregation, and an explicit memory statement."
+
+- key: py.iterators_generators.chunked
+  type: coding_exercise
+  title: "Exercise: chunk any iterable lazily"
+  skills: [python.iterators_generators]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 900}
+  body:
+    prompt: |-
+      A bulk-insert job must send rows to the database in batches of `size`. The rows come from a generator over a huge export, so you cannot load them all. Write a generator `chunked(iterable, size)` that yields tuples of up to `size` consecutive items; the last tuple may be shorter. It must work on any iterable, including infinite ones, and raise `ValueError` if `size < 1` **when called**, not when first iterated.
+    examples:
+      - "list(chunked(range(7), 3)) == [(0, 1, 2), (3, 4, 5), (6,)]"
+      - "list(chunked([], 3)) == []"
+      - "next(chunked(itertools.count(), 2)) == (0, 1)"
+    constraints:
+      - Memory O(size) regardless of input length.
+      - "Do not use `itertools.batched` (3.12+); write it so it runs on 3.11."
+    hints:
+      - "`itertools.islice(it, size)` takes up to size items from an iterator, and returns fewer at the end."
+      - "Call `iter()` once on the input; slicing the iterable itself repeatedly would restart lists from the beginning."
+      - "A generator function's body runs only on the first `next()`, so eager validation needs a regular function that returns the generator."
+    solution:
+      language: python
+      code: |-
+        from collections.abc import Iterable, Iterator
+        from itertools import islice
+        from typing import TypeVar
+
+        T = TypeVar("T")
+
+
+        def chunked(iterable: Iterable[T], size: int) -> Iterator[tuple[T, ...]]:
+            if size < 1:
+                raise ValueError("size must be at least 1")    # raised at call time
+            return _chunks(iter(iterable), size)
+
+
+        def _chunks(it: Iterator[T], size: int) -> Iterator[tuple[T, ...]]:
+            while chunk := tuple(islice(it, size)):
+                yield chunk
+      explanation: "Time O(n) over all chunks, memory O(size). Splitting validation from the generator body makes the error eager; the walrus loop stops at the first empty chunk."
+    rubric:
+      - {key: lazy, label: Works on infinite and one-shot iterables with O(size) memory, points: 3}
+      - {key: correct, label: "Correct chunks including the short last chunk and the empty input", points: 3}
+      - {key: eager_validation, label: Raises ValueError at call time and explains why a plain generator cannot, points: 2}
+      - {key: complexity_stated, label: States O(n) time and O(size) memory, points: 2}
+    follow_ups:
+      - prompt: The database call can fail for one batch. How do you retry only that batch without re-reading the source?
+        look_for: "The chunk is a materialised tuple, so retry the insert with that tuple; never re-iterate the source generator, which is single-pass."
+      - prompt: How would you add a sliding window with step instead of disjoint chunks?
+        look_for: "deque(maxlen=size) and yield every step items; memory still O(size)."
+
+- key: py.iterators_generators.interview
+  type: interview_question
+  title: "Interview question: list comprehension or generator?"
+  skills: [python.iterators_generators, python.builtin_complexity]
+  minutes: 8
+  difficulty: EASY
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 480}
+  body:
+    prompt: "A service paginates through an external API (100 items per page, up to 10⁶ items) and computes three things: the total amount, the largest order, and the first 20 orders flagged as fraud. Would you collect a list or use generators? Sketch the code and state memory and time."
+    key_points:
+      - "Writes a generator that yields items page by page (`yield from page.items`) so memory is O(page size)."
+      - "Notes that one generator can be consumed only once, so the three aggregates need a single loop or `tee`/re-fetch."
+      - "Computes total and max in one pass and collects fraud items until 20, stopping only the fraud collection early."
+      - "States O(n) time, O(page + 20) memory versus O(n) memory for a list of 10⁶ orders."
+    model_answer: "A generator over pages keeps memory bounded: orders() loops while there is a next-page URL, fetches the page, does `yield from page.items` and moves to page.next. Because it is single-pass, I compute everything in one loop: total += o.amount, track the max, and append to fraud while len(fraud) < 20. Time is O(n) plus n / 100 HTTP calls; memory is O(100 + 20). If I only needed the fraud list I would use list(islice((o for o in orders() if o.fraud), 20)), which also stops fetching pages early."
+    pitfalls:
+      - Calling sum(gen) and then max(gen) on the same generator.
+      - Using tee for three consumers that advance at very different speeds, which buffers most of the data anyway.
+    follow_ups:
+      - prompt: The API is slow. How would you overlap fetching with processing?
+        look_for: "Prefetch the next page concurrently (a thread with a bounded queue, or asyncio with an async generator), keeping memory bounded by the queue size."
+      - prompt: What happens to an open HTTP session if the consumer stops early?
+        look_for: "The generator is paused; it is closed on garbage collection or explicit close(), which runs finally/with blocks; use contextlib.closing or a with around the consumer."
+
+- key: py.iterators_generators.cards
+  type: revision_card
+  title: "Recall: iterators and generators"
+  skills: [python.iterators_generators]
+  minutes: 4
+  body:
+    cards:
+      - front: The iterator protocol methods?
+        back: "__iter__ (returns self) and __next__ (raises StopIteration at the end)."
+      - front: What runs when you call a generator function?
+        back: Nothing in the body — it returns a generator; the body starts on the first next().
+      - front: Can you loop over a generator twice?
+        back: No — iterators are single-pass; the second loop sees nothing.
+      - front: What does itertools.groupby group?
+        back: Consecutive equal keys only — sort by the key first.
+      - front: Raising StopIteration inside a generator?
+        back: Becomes RuntimeError since 3.7 (PEP 479); use return.

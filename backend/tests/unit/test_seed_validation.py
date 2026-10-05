@@ -33,7 +33,7 @@ def test_real_seed_is_valid_with_expected_counts() -> None:
     assert result.errors == ()
     catalog = result.catalog
     assert catalog is not None
-    assert catalog.seed_version == "seed-v1"
+    assert catalog.seed_version == "seed-v2"
     assert (len(catalog.groups), len(catalog.skills)) == (22, 133)
     assert sum(len(s.prerequisites) for s in catalog.skills) == 134
     assert len(catalog.profiles) == 1 and len(catalog.profiles[0].targets) == 133
@@ -274,20 +274,20 @@ def test_unknown_template_component_and_lost_coverage() -> None:
 
 def test_seed_versions_must_match_across_files() -> None:
     assert "seed.version_mismatch" in error_codes(
-        mutated(lambda r: r["roadmap"].update(seed_version="seed-v2"))
+        mutated(lambda r: r["roadmap"].update(seed_version="seed-v3"))
     )
 
 
 def test_content_change_without_version_bump_fails() -> None:
     result = mutated(lambda r: r["problem_catalog"]["problems"][0].update(title="Two Sum (edited)"))
     lock_errors = [i for i in result.errors if i.code == "lock.changed_without_version_bump"]
-    assert [i.where for i in lock_errors] == ["seed.lock.yaml: seed-v1.files.problem_catalog"]
+    assert [i.where for i in lock_errors] == ["seed.lock.yaml: seed-v2.files.problem_catalog"]
 
 
 def test_new_version_must_be_locked() -> None:
     def mutate(r: dict[str, Any]) -> None:
         for data in r.values():
-            data["seed_version"] = "seed-v2"
+            data["seed_version"] = "seed-v3"
 
     assert error_codes(mutated(mutate)) == {"lock.unlocked_version"}
 

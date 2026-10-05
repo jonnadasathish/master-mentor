@@ -1,0 +1,520 @@
+# Learning content: REST resource design, idempotency keys and pagination; cookies, sessions, JWT and OAuth 2.0 with PKCE.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- REST semantics
+- key: net.rest.lesson
+  type: lesson
+  title: REST resources, status codes, idempotency keys and pagination
+  skills: [network.rest_semantics]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: A good REST API names resources with nouns, lets HTTP methods carry the verbs, returns honest status codes, and makes every write safe to retry.
+    what: |-
+      REST is an architectural style for HTTP APIs: clients manipulate **resources** identified by URLs through a uniform interface (the HTTP methods), and each request is self-contained (**stateless**). In practice "RESTful" means:
+
+      - **Resources as nouns, collections as plurals**: `/orders`, `/orders/{id}`, `/orders/{id}/items`. Verbs belong in the method, not the path (`POST /orders`, not `POST /createOrder`).
+      - **Methods with their HTTP meaning**: `GET` reads, `POST` to a collection creates (server picks the id), `PUT` replaces the resource at a known URL (idempotent, client knows the id), `PATCH` changes part of it, `DELETE` removes it.
+      - **Status codes that tell the truth**: `201 Created` with a `Location` header, `202 Accepted` with a status URL for async work, `204` for success with no body, `400`/`422` for invalid input, `404`, `409` for conflicts with current state, `412` for failed preconditions, `429` with `Retry-After`.
+      - **A consistent error body**, for example Problem Details (RFC 9457, `application/problem+json`) with `type`, `title`, `status` and `detail`.
+
+      **Idempotency keys** make non-idempotent operations safe to retry: the client generates a unique key per logical operation (a UUID) and sends it in a header such as `Idempotency-Key`; the server records the key with the result and, if the same key arrives again, returns the stored result instead of executing twice.
+    why: |-
+      Networks fail in the worst place: after the server committed the write but before the client saw the response. The client cannot tell "never happened" from "happened, reply lost", so it retries. Without idempotency a retried `POST /payments` charges twice. Predictable resource design and status codes also let generic tooling (gateways, SDK generators, caches, monitoring) work without special cases.
+    when: |-
+      Designing any public or internal HTTP API; deciding retry policy for clients and gateways; any operation with money, inventory, messages or other side effects that must happen once; listing endpoints that return more than a page of data.
+    how: |-
+      **Idempotent create with a key:**
+
+      1. The client generates `Idempotency-Key: 8f14e45f-...` once per user intent and reuses it on every retry.
+      2. The server, in one transaction, inserts the key (unique constraint, scoped to the caller) with a hash of the request body and status "in progress", performs the side effect, and stores the response status and body against the key.
+      3. A retry with the same key and the same body gets the stored response. The same key with a different body is a client bug: reject with `422` (or `409`). A retry while the first attempt is still running gets `409` and should back off.
+      4. Keys expire after a retention window (for example 24 hours), which bounds storage and the retry window.
+
+      **Pagination:**
+
+      - **Offset**: `?limit=50&offset=1000`. Simple, allows jumping to page N, but the database still reads and discards the skipped rows (slow on deep pages), and inserts or deletes between requests shift rows so clients see duplicates or miss items.
+      - **Cursor (keyset)**: `?limit=50&cursor=...` where the cursor encodes the last row's sort key, for example `(created_at, id)`. The query is `WHERE (created_at, id) < (:ts, :id) ORDER BY created_at DESC, id DESC LIMIT 50`, which uses an index and stays fast at any depth and is stable under inserts. It cannot jump to an arbitrary page. Make the cursor opaque (base64 of the values) so you can change its contents later, and always include a unique tiebreaker column.
+
+      **Concurrency control:** return an `ETag` on `GET`; require `If-Match` on `PUT`/`PATCH`; answer `412` when the resource changed, so two clients cannot overwrite each other silently.
+
+      **Versioning:** a major version in the path (`/v1/`) or a header; additive changes (new optional fields) need no new version, removals and meaning changes do.
+    mental_model: |-
+      Treat every write request as a letter that may be delivered twice. The idempotency key is the reference number on the letter; the server keeps a ledger of reference numbers it has already handled and answers duplicates from the ledger.
+    tradeoffs: |-
+      - Offset pagination: page numbers and simplicity versus deep-page cost and drift. Cursor pagination: speed and stability versus no random access and a fixed sort order.
+      - PUT with client-chosen ids is naturally idempotent but pushes id generation to clients; POST plus an idempotency key keeps server-chosen ids at the cost of a key store.
+      - Strict REST purity (hypermedia links everywhere) is rarely worth it; consistency and good docs matter more. Some operations are genuinely actions (`POST /orders/{id}/cancel`); modelling them as a sub-resource or action endpoint is acceptable when a state field update would be contrived.
+    mistakes:
+      - Verbs in paths (`/getUser`, `/deleteOrder`) and `GET` endpoints with side effects.
+      - Returning `200` for everything, with success or failure inside the body.
+      - Generating the idempotency key on the server, or a new key on each retry; it must be created by the client once per intent.
+      - Checking the key and performing the side effect in separate steps without a unique constraint, so two concurrent retries both run.
+      - Offset pagination on large, frequently changing tables, or cursors without a unique tiebreaker so rows with equal timestamps are skipped.
+      - Breaking clients by renaming or removing fields without a version change.
+    interview: |-
+      REST shows up as "design the API for X", "PUT vs PATCH vs POST", "how would you make this endpoint safe to retry?" and "how do you paginate a feed?". Interviewers listen for resource modelling, precise status codes, a concrete idempotency mechanism (where the key is stored, what happens on concurrent retries) and the offset-versus-cursor trade-off.
+    explain_it:
+      - Model the resources and the method for each operation.
+      - Pick status codes for success, validation failure, conflict and async acceptance.
+      - Explain the idempotency key lifecycle, including concurrent duplicates and mismatched bodies.
+      - Compare offset and cursor pagination with the query each one runs.
+    example:
+      language: python
+      code: |-
+        def create_payment(conn, caller_id: str, key: str, body: dict) -> tuple[int, dict]:
+            fingerprint = sha256_of_canonical_json(body)
+            with conn.transaction():
+                row = conn.execute(
+                    "INSERT INTO idempotency_keys (caller_id, key, fingerprint, status) "
+                    "VALUES (%s, %s, %s, 'in_progress') "
+                    "ON CONFLICT (caller_id, key) DO NOTHING RETURNING key",
+                    (caller_id, key, fingerprint),
+                ).fetchone()
+                if row is None:  # seen before
+                    prior = conn.execute(
+                        "SELECT fingerprint, status, response_code, response_body "
+                        "FROM idempotency_keys WHERE caller_id = %s AND key = %s",
+                        (caller_id, key),
+                    ).fetchone()
+                    if prior.fingerprint != fingerprint:
+                        return 422, {"title": "Idempotency key reused with a different request"}
+                    if prior.status == "in_progress":
+                        return 409, {"title": "Request with this key is still being processed"}
+                    return prior.response_code, prior.response_body
+                payment = insert_payment(conn, caller_id, body)       # the side effect, same transaction
+                response = {"id": payment.id, "status": payment.status}
+                conn.execute(
+                    "UPDATE idempotency_keys SET status = 'done', response_code = 201, response_body = %s "
+                    "WHERE caller_id = %s AND key = %s",
+                    (json_dumps(response), caller_id, key),
+                )
+            return 201, response
+      explanation: "The unique constraint on (caller_id, key) makes concurrent duplicates safe: only one INSERT wins. Because the key row and the payment commit together, a crash cannot leave a payment without its key. In PostgreSQL a concurrent duplicate blocks on the uncommitted key row until the first transaction ends, then sees the conflict. If the side effect is an external call (a card network), store the key first, call the provider with its own idempotency key, then record the result."
+    complexity: Key lookup is one indexed read or insert per request; cursor pagination is O(page size) per page through the index, while offset pagination costs O(offset + page size).
+    edge_cases:
+      - A retry arriving after the key expired is treated as a new request; choose retention longer than any client's retry window.
+      - The stored response should be replayed even if it was an error such as 400, so the client sees a consistent result.
+      - Cursor pagination over a sort key that can change (a score) can skip or repeat items; paginate on immutable keys or accept it.
+    misconceptions:
+      - "PUT is always safe to retry, so all updates should use PUT. PUT is idempotent only if it truly replaces state; a PUT that appends or increments is not."
+      - "An idempotency key is just a request id for logging. It is a deduplication contract with stored results."
+- key: net.rest.check
+  type: concept_check
+  title: "Concept check: REST semantics and idempotency"
+  skills: [network.rest_semantics]
+  minutes: 8
+  difficulty: MEDIUM
+  body:
+    intro: Each question is a small design decision; pick what a careful reviewer would accept.
+    questions:
+      - id: q1
+        kind: single
+        prompt: A client creates an order with POST /orders and the request times out. What should a well-designed client do?
+        options:
+          - Never retry a POST
+          - Retry with the same Idempotency-Key it sent the first time
+          - Retry with a new Idempotency-Key
+          - Send GET /orders and create the order again if it is not listed yet
+        answer: [1]
+        explanation: "The same key lets the server recognise the retry and return the original result whether or not the first attempt committed. A new key turns the retry into a second order. Listing and recreating has a race: the first attempt may commit after the check."
+      - id: q2
+        kind: single
+        prompt: Which response best fits a successful POST /orders that created order 981?
+        options:
+          - "200 OK with the order in the body"
+          - "201 Created with Location: /orders/981 and the order in the body"
+          - "202 Accepted with no body"
+          - "204 No Content"
+        answer: [1]
+        explanation: "201 with a Location header is the precise answer for a synchronous create. 202 is for work that has only been queued; it should return a status URL. 200 works in practice but loses information, and 204 hides the new id."
+      - id: q3
+        kind: multi
+        prompt: Which statements about offset vs cursor pagination are true?
+        options:
+          - Deep offset pages get slower because the database reads and discards the skipped rows
+          - Cursor pagination stays stable when new rows are inserted at the head of the list
+          - Cursor pagination makes it easy to jump directly to page 500
+          - A cursor on created_at alone can skip rows that share the same timestamp
+        answer: [0, 1, 3]
+        explanation: "OFFSET N still scans N rows. A keyset cursor continues after the last seen key, so inserts elsewhere do not shift pages. Jumping to page 500 needs offsets, which is the cursor's weakness. Without a unique tiebreaker such as id, rows with equal timestamps at a page boundary can be lost."
+      - id: q4
+        kind: single
+        prompt: Two admins load product 7 (ETag "v3") and both save edits with PUT. How should the API prevent the second save from silently overwriting the first?
+        options:
+          - Require If-Match with the ETag; the second PUT gets 412 Precondition Failed
+          - Return 409 Conflict on every PUT
+          - Lock the product row for as long as the edit form is open
+          - Use PATCH instead of PUT
+        answer: [0]
+        explanation: "Optimistic concurrency: the first PUT succeeds and changes the ETag to v4, so the second PUT's If-Match \"v3\" fails with 412 and the client must reload. Holding a database lock while a human edits does not scale, and PATCH still overwrites the fields it touches."
+      - id: q5
+        kind: single
+        prompt: A payment API receives the same Idempotency-Key twice, with different amounts. What is the correct behaviour?
+        options:
+          - Process the second request as a new payment
+          - Replay the first response silently
+          - Reject the second request (for example 422) because the key was reused for a different request
+          - Overwrite the stored result with the second request
+        answer: [2]
+        explanation: "The key identifies one intent; a different body under the same key is a client bug that must surface. Replaying the first response would hide it (the client believes the second amount was charged), and processing it defeats the key."
+      - id: q6
+        kind: short
+        prompt: Why must the idempotency key record and the side effect be committed in the same transaction (or the key reserved first with a unique constraint)? Describe the failure otherwise.
+        model_answer: "If the server checks 'key not seen', performs the payment, then writes the key separately, two concurrent retries can both pass the check and both charge. And if it crashes after charging but before recording the key, the retry finds no key and charges again. A unique constraint makes only one request win the insert, and committing the key with the payment makes them succeed or fail together."
+        explanation: The guarantee comes from atomicity and a uniqueness constraint, not from a read-then-write check.
+- key: net.rest.interview
+  type: interview_question
+  title: "Interview question: an order API that is safe to retry"
+  skills: [network.rest_semantics, sd.idempotency_retries]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    prompt: Design the HTTP API for creating, reading, listing and cancelling orders in a shop. Mobile clients on flaky networks retry aggressively. Cover resources and methods, status codes, how duplicate creates are prevented, how listing is paginated, and how cancellation interacts with concurrent updates.
+    key_points:
+      - "Resources: POST /orders, GET /orders/{id}, GET /orders?cursor=...&limit=..., and cancellation as POST /orders/{id}/cancel or PATCH status."
+      - "Status codes: 201 with Location, 404, 409 when cancelling an order that already shipped, 422 for invalid input, 429 with Retry-After."
+      - "Idempotency-Key generated by the client once per intent, stored with a request fingerprint and the response, unique per caller, committed with the order."
+      - "Handles concurrent duplicates (409 or wait) and mismatched bodies (422), plus key expiry."
+      - "Cursor pagination on (created_at, id) with an opaque cursor and a maximum limit."
+      - "Optimistic concurrency with ETag and If-Match, or a conditional state transition in SQL, so cancel and ship cannot both win."
+      - Client retry policy with exponential backoff and jitter, retrying only on timeouts, 5xx and 429.
+    model_answer: "POST /orders creates an order and returns 201 with Location: /orders/{id}. The client sends an Idempotency-Key UUID created when the user taps 'Place order' and reused on retries; the server inserts the key under a unique (customer, key) constraint in the same transaction as the order and stores the response, so a retry gets the same 201 and order id, a concurrent duplicate gets 409, and a reused key with a different body gets 422. Keys expire after 24 hours. GET /orders lists newest first with cursor pagination: the cursor is an opaque encoding of the last (created_at, id), and limit is capped at 100. Cancellation is POST /orders/{id}/cancel because it is a state transition with business rules; it executes UPDATE ... SET status = 'cancelled' WHERE id = ? AND status IN ('pending', 'paid'), returning 409 if the order already shipped, which makes cancel idempotent and race-free against shipping. PATCH endpoints require If-Match. Clients retry timeouts, 5xx and 429 with exponential backoff and jitter, honouring Retry-After."
+    pitfalls:
+      - Saying "make POST idempotent" without explaining where the key is stored and how races are prevented.
+      - Using offset pagination for an order history that grows forever, without discussing the cost.
+      - Letting cancel and ship race with a read-then-write check.
+    follow_ups:
+      - prompt: Payment happens through an external provider during order creation. How does idempotency extend across that call?
+        look_for: Reserve the key first, call the provider with its own idempotency key derived from yours, record the provider's result; on retry, resume from the recorded state instead of calling again; reconcile in-progress records with a background job.
+      - prompt: A partner wants to download all 3 million orders. Does your pagination still work?
+        look_for: Cursor pagination works at any depth; also offer an export job (202 plus a status resource and a file) and a stable snapshot or updated_since filter for incremental sync.
+- key: net.rest.interview_review
+  type: interview_question
+  title: "Interview question: review a REST API design"
+  skills: [network.rest_semantics, network.http]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: |-
+      A teammate proposes this API for a notes app. List the problems in order of impact and propose a corrected design.
+
+      ```text
+      GET  /getNotes?page=37             -> 200 [...]           (OFFSET 37*20)
+      POST /createNote                    -> 200 {"ok": true}
+      GET  /deleteNote?id=12              -> 200 {"ok": true}
+      POST /updateNote   {"id": 12, ...}  -> 200 {"ok": false, "error": "not found"}
+      POST /notes/12/share {"email": "..."} -> 200 {"ok": true}   (sends an email every call)
+      ```
+    key_points:
+      - "GET /deleteNote is the most dangerous: a GET with side effects can be triggered by crawlers, prefetchers or a link in an email, and is cacheable."
+      - "Errors returned as 200 with ok false break monitoring, retries and clients; use 404, 422 and so on with a consistent error body."
+      - "Verbs in paths; replace with /notes, /notes/{id} and proper methods (GET, POST, PATCH or PUT, DELETE)."
+      - "POST /createNote returns no id or Location; use 201 with Location and the created note."
+      - "Share sends an email on every retry; needs an idempotency key or a share resource that dedupes per note and recipient."
+      - "Offset pagination by page number drifts and slows down; propose cursor pagination."
+    model_answer: "Highest impact first: GET /deleteNote performs a deletion on a safe method, so any crawler, link preview or prefetch deletes notes; make it DELETE /notes/12 returning 204. Second, failures return 200 with ok false, so clients, proxies and dashboards treat errors as success; return 404 for a missing note and 422 for invalid input with an RFC 9457 problem body. Third, sharing sends an email on every retry; model it as POST /notes/12/shares with an Idempotency-Key, or make the share resource unique per note and recipient so a repeat returns the existing share. Then resource naming: GET /notes?cursor=...&limit=20, POST /notes returning 201 with Location, GET /notes/12, PATCH /notes/12 with If-Match for concurrent edits. Finally page-number offsets get slower and skip or repeat notes when notes are added; use a cursor on (updated_at, id)."
+    pitfalls:
+      - Spending the time on naming style and missing the GET with side effects.
+      - Proposing PUT for partial updates without saying it replaces the whole note.
+    follow_ups:
+      - prompt: The mobile client must work offline and sync edits later. What changes in the API?
+        look_for: Client-generated ids (PUT /notes/{uuid} becomes naturally idempotent), version numbers or ETags for conflict detection with 412, and an updated_since sync endpoint or change feed.
+      - prompt: Where should an expensive "export all notes as PDF" operation live?
+        look_for: POST /exports returns 202 with Location of a status resource; client polls or is notified; the result is a downloadable file; the request carries an idempotency key.
+- key: net.rest.cards
+  type: revision_card
+  title: "Recall: REST semantics"
+  skills: [network.rest_semantics]
+  minutes: 5
+  body:
+    cards:
+      - front: Response for a synchronous create?
+        back: 201 Created with a Location header pointing at the new resource.
+      - front: Who generates an idempotency key, and when?
+        back: The client, once per user intent, reused on every retry.
+      - front: What makes concurrent duplicate requests safe in a key store?
+        back: A unique constraint on (caller, key) committed with the side effect.
+      - front: Offset vs cursor pagination in one line?
+        back: Offset scans skipped rows and drifts; cursor seeks by the last key and stays stable.
+      - front: Prevent lost updates over HTTP?
+        back: ETag on read, If-Match on write, 412 if it changed.
+      - front: Same idempotency key, different body?
+        back: Reject it (422); never replay or reprocess silently.
+
+# ---------------------------------------------------------------------------------------------- sessions and auth
+- key: net.sessions.lesson
+  type: lesson
+  title: Cookies, sessions, JWT and OAuth 2.0 with PKCE
+  skills: [network.sessions_auth]
+  minutes: 30
+  difficulty: MEDIUM
+  body:
+    summary: HTTP is stateless, so login state rides on a cookie or a token; the choice between server sessions and JWTs is a choice about revocation, storage and blast radius.
+    what: |-
+      **Cookies** are small name-value pairs the server sets with `Set-Cookie` and the browser sends back automatically on matching requests. The attributes that matter:
+
+      - `Secure`: sent only over HTTPS.
+      - `HttpOnly`: not readable from JavaScript (`document.cookie`), so an XSS bug cannot simply read and exfiltrate it.
+      - `SameSite`: `Strict` (never sent on cross-site requests), `Lax` (sent on top-level cross-site navigations with safe methods such as following a link, not on cross-site POSTs or embedded requests), `None` (always sent; requires `Secure`). Chromium-based browsers treat a cookie without the attribute as `Lax`; set it explicitly anyway.
+      - `Domain`, `Path`, `Max-Age`/`Expires`. Without an expiry it is a session cookie, dropped when the browser session ends. The `__Host-` name prefix forces `Secure`, `Path=/` and no `Domain`, which stops subdomains from overriding it.
+
+      **Server-side sessions**: after login the server stores session state (user id, expiry) in a store such as Redis or a database and gives the browser only an opaque random session id (at least 128 bits of randomness) in a cookie.
+
+      **JWT** (RFC 7519): a self-contained token `header.payload.signature`, each part base64url-encoded. The payload holds claims (`sub`, `exp`, `iat`, `iss`, `aud`, custom roles). It is **signed, not encrypted**: anyone holding it can read the claims. HS256 uses a shared secret; RS256 and ES256 sign with a private key and verify with a published public key (a JWKS endpoint), so many services can verify without being able to mint tokens.
+
+      **OAuth 2.0** is a framework for **delegated authorization**: a user lets a client application access an API on their behalf without giving it their password. **OpenID Connect** adds authentication on top (an ID token saying who the user is).
+    why: |-
+      Every request must prove who sent it, and asking for a password each time is impossible. Sessions and tokens are the proof. OAuth exists because sharing passwords with third-party apps gives them full, unrevocable access; scoped, expiring tokens issued by an authorization server do not.
+    when: |-
+      - **Server sessions in an HttpOnly cookie**: the default for a browser-facing web app served from your own domain. Easy revocation, small cookie.
+      - **Short-lived JWT access tokens plus refresh tokens**: APIs called by many services or third parties, mobile apps, and architectures where verifying without a central lookup matters.
+      - **OAuth 2.0 authorization code flow with PKCE**: "log in with X", letting third-party apps call your API, and single-page or mobile apps authenticating against an identity provider.
+    how: |-
+      **Session lifecycle.** On login, verify the password, **create a new session id** (regenerating it prevents session fixation), store the session server-side and set `Set-Cookie: __Host-sid=...; Secure; HttpOnly; SameSite=Lax; Path=/`. Each request looks up the id; logout or a password change deletes the session, which takes effect immediately.
+
+      **JWT validation**, on every request: verify the signature with an algorithm from an allowlist (never trust the token's own `alg`; reject `none`), then check `exp` (with small clock-skew leeway), `nbf`, `iss` and `aud`. Revocation is the hard part: a valid JWT stays valid until it expires. The usual answer is short access tokens (5 to 15 minutes) plus a long-lived refresh token stored server-side, rotated on every use, with reuse detection (if an old refresh token is presented, revoke the whole family). A denylist of token ids (`jti`) works but reintroduces a lookup.
+
+      **Authorization code flow with PKCE** (RFC 7636):
+
+      1. The client generates a random `code_verifier` and derives `code_challenge = BASE64URL(SHA256(code_verifier))`, plus a random `state`.
+      2. It redirects the browser to the authorization server's `/authorize` with `response_type=code`, `client_id`, `redirect_uri`, `scope`, `state`, `code_challenge` and `code_challenge_method=S256`.
+      3. The user logs in there and consents. The authorization server redirects back to `redirect_uri` with a short-lived, one-time `code` and the same `state`.
+      4. The client checks `state` matches (this blocks login CSRF), then POSTs the `code` and the original `code_verifier` to the `/token` endpoint (with its client secret if it is a confidential server-side client).
+      5. The authorization server checks that the hash of the verifier equals the challenge it saw in step 2 and returns an access token, optionally a refresh token and, with OpenID Connect, an ID token.
+
+      PKCE means an attacker who intercepts the code (a malicious app registered for the same redirect scheme, a leaked log) cannot redeem it without the verifier, which never left the client. The older implicit flow, which returned tokens directly in the redirect URL, is discouraged by current OAuth security guidance.
+    mental_model: |-
+      A session id is a cloakroom ticket: worthless on its own, the coat (state) stays with the cloakroom, and the cloakroom can cancel the ticket at any time. A JWT is a signed visa in your passport: any border guard can check the signature without phoning home, which is fast, but nobody can take it back before its expiry date.
+    tradeoffs: |-
+      - **Sessions**: instant revocation, tiny cookie, no secret claims exposed; but a shared store on every request and a dependency on it being available and large enough.
+      - **JWT**: stateless verification across services and regions; but revocation is delayed until expiry, tokens grow with claims and travel on every request, and key management (rotation, `kid`, JWKS) becomes critical.
+      - **Token storage in the browser**: an HttpOnly cookie cannot be read by injected scripts, but is sent automatically and therefore needs CSRF protection (SameSite plus tokens or Origin checks). `localStorage` is immune to CSRF but readable by any script running on the page, so one XSS leaks the token. For browser apps, HttpOnly cookies are generally preferred; a backend-for-frontend can keep OAuth tokens off the browser entirely.
+    mistakes:
+      - Storing long-lived JWTs in `localStorage` and having no revocation story.
+      - Accepting the `alg` named in the token header (the `none` attack, or verifying an RS256 public key as an HS256 secret).
+      - Not checking `aud`, so a token issued for one service is accepted by another.
+      - Putting secrets or personal data in JWT claims, which anyone can decode.
+      - Keeping sessions in process memory behind a load balancer with several instances.
+      - Not regenerating the session id at login (session fixation) or not invalidating sessions on password change.
+      - Skipping the `state` check, or using the implicit flow for a new single-page app.
+      - Treating OAuth access tokens as proof of who the user is; that is the ID token's job in OpenID Connect.
+    interview: |-
+      Typical prompts: "sessions vs JWT?", "where do you store tokens in a browser?", "how do you log a user out everywhere?", "explain OAuth" and debugging random logouts. Strong answers frame it as revocation versus statelessness, name the cookie attributes and the attacks each one mitigates, and describe the code flow with PKCE step by step, including why the verifier and `state` exist.
+    explain_it:
+      - Describe what each cookie attribute prevents.
+      - Contrast sessions and JWTs on revocation, storage, size and infrastructure.
+      - List the JWT validation checks.
+      - Walk the authorization code flow with PKCE and say what PKCE and state each defend against.
+    example:
+      language: text
+      code: |-
+        HTTP/1.1 302 Found
+        Location: /dashboard
+        Set-Cookie: __Host-sid=Yk3v9QpZ...; Secure; HttpOnly; SameSite=Lax; Path=/; Max-Age=28800
+
+        JWT (decoded, not secret):
+        header  {"alg": "RS256", "kid": "2024-06"}
+        payload {"sub": "u_81", "iss": "https://id.example.com", "aud": "orders-api",
+                 "exp": 1718000900, "iat": 1718000000, "scope": "orders:read"}
+      explanation: The session cookie carries only a random id. The JWT carries readable claims and is valid for 15 minutes (exp minus iat = 900 seconds) no matter what happens on the server.
+    edge_cases:
+      - "SameSite is about sites, not origins: app.example.com and evil.example.com are the same site, so SameSite does not protect against a compromised sibling subdomain."
+      - Clock skew between issuer and verifier makes fresh tokens look expired or not yet valid; allow a small leeway.
+      - Two browser tabs refreshing at once can trip refresh-token reuse detection and log the user out; serialise refreshes or allow a short grace window.
+    misconceptions:
+      - "JWTs are encrypted. Standard JWTs (JWS) are only signed; encryption needs JWE."
+      - "HttpOnly prevents XSS. It only prevents scripts from reading that cookie; an XSS can still send requests as the user."
+      - "OAuth is a login protocol. It delegates authorization; login comes from OpenID Connect."
+- key: net.sessions.visual_pkce
+  type: visual_explanation
+  title: "Visual: authorization code flow with PKCE"
+  skills: [network.sessions_auth]
+  minutes: 6
+  body:
+    summary: The code travels through the browser, the tokens do not, and the verifier proves that whoever redeems the code is whoever started the flow.
+    frames:
+      - caption: The client starts the flow and keeps the verifier to itself.
+        diagram: |-
+          client app                    browser                  authorization server
+          verifier = random(43..128 chars)
+          challenge = BASE64URL(SHA256(verifier))
+          state = random
+              |---- redirect ----------->|
+                                         |-- GET /authorize?response_type=code
+                                         |     &client_id&redirect_uri&scope
+                                         |     &state&code_challenge&method=S256 -->|
+                                         |<---------- login + consent page ---------|
+      - caption: The code comes back through the browser; the client checks state and redeems the code with the verifier on a direct back-channel call.
+        diagram: |-
+          client app                    browser                  authorization server
+                                         |<-- 302 redirect_uri?code=abc&state=... --|
+              |<---- code, state --------|
+          check state == saved state
+              |-- POST /token  code=abc, code_verifier=verifier, redirect_uri ----->|
+              |                       server checks SHA256(verifier) == challenge   |
+              |<------------ access_token, refresh_token, (id_token) --------------|
+          intercepted code without the verifier -> /token rejects it
+- key: net.sessions.check
+  type: concept_check
+  title: "Concept check: cookies, sessions, JWT and OAuth"
+  skills: [network.sessions_auth]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: For each option, ask which attack or failure it addresses.
+    questions:
+      - id: q1
+        kind: multi
+        prompt: "A session cookie is set with `Secure; HttpOnly; SameSite=Lax`. Which statements are true?"
+        options:
+          - It is never sent over plain HTTP
+          - JavaScript on the page cannot read it through document.cookie
+          - It is not sent with a cross-site form POST to your site
+          - It makes the application immune to XSS
+        answer: [0, 1, 2]
+        explanation: "Secure restricts it to HTTPS, HttpOnly hides it from scripts, and Lax withholds it from cross-site POSTs (it is still sent on top-level GET navigations). XSS is still possible: injected script can act as the user from within the page; it just cannot steal the cookie value."
+      - id: q2
+        kind: single
+        prompt: An admin disables a compromised account. The API uses 24-hour JWT access tokens verified only by signature. What happens?
+        options:
+          - The account is locked out immediately
+          - The attacker's existing token keeps working until it expires, up to 24 hours
+          - The signature becomes invalid because the account changed
+          - The token is rejected because the aud claim no longer matches
+        answer: [1]
+        explanation: "Signature verification does not consult any account state, so a stateless JWT stays valid until exp. That is the core JWT trade-off; mitigations are short access tokens with server-side refresh tokens, or a denylist checked on each request."
+      - id: q3
+        kind: single
+        prompt: What does PKCE protect against in the authorization code flow?
+        options:
+          - Phishing of the user's password on a fake login page
+          - An attacker who intercepts the authorization code redeeming it for tokens
+          - Tokens being read by XSS after they are issued
+          - Brute-forcing of the client secret
+        answer: [1]
+        explanation: "Only the client knows the code_verifier, and the token endpoint checks it against the challenge sent at the start. A stolen code alone is useless. PKCE does nothing for phishing or for tokens already in the attacker's reach."
+      - id: q4
+        kind: single
+        prompt: "A JWT library accepts tokens whose header says `\"alg\": \"none\"`. Why is that critical?"
+        options:
+          - Such tokens are larger and slow down requests
+          - An attacker can write any claims and drop the signature, and the server accepts them
+          - The token expires immediately
+          - It only affects tokens without an exp claim
+        answer: [1]
+        explanation: "With alg none there is no signature to check, so anyone can mint a token claiming to be an admin. Servers must verify against an allowlist of expected algorithms and keys, never the algorithm named by the token."
+      - id: q5
+        kind: single
+        prompt: Why should the server create a new session id when a user logs in?
+        options:
+          - To make the cookie smaller
+          - To prevent session fixation, where an attacker plants a known session id before login
+          - Because SameSite requires it
+          - To spread sessions evenly across Redis shards
+        answer: [1]
+        explanation: "If the pre-login id survives login, an attacker who set it (through a link or a sibling subdomain) now shares an authenticated session. Regenerating at privilege changes breaks that link."
+      - id: q6
+        kind: short
+        prompt: A single-page app stores its access token in localStorage. A security reviewer suggests moving it to an HttpOnly cookie. What does each choice expose, and what extra protection does the cookie need?
+        model_answer: "localStorage is readable by any script on the origin, so a single XSS can exfiltrate the token and use it elsewhere until it expires; it is not sent automatically, so it is not exposed to CSRF. An HttpOnly cookie cannot be read by scripts, so XSS cannot steal it (though it can still make requests in the page), but the browser attaches it automatically, so state-changing endpoints need CSRF protection: SameSite=Lax or Strict, plus a CSRF token or an Origin header check. Either way keep access tokens short-lived."
+        explanation: The trade is XSS token theft versus CSRF; the cookie wins for browsers when CSRF defences are in place.
+- key: net.sessions.debugging
+  type: debugging_exercise
+  title: "Debugging: users get logged out at random"
+  skills: [network.sessions_auth, network.tcp_ip_udp]
+  minutes: 20
+  difficulty: HARD
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 1200}
+  body:
+    scenario: |-
+      A Flask web app was scaled from one instance to four behind a round-robin load balancer, and moved to a container platform that restarts instances during deploys. Since then users complain that they are logged out "randomly", sometimes on the next click after logging in. Sessions are Flask's default signed cookies. The same week, the mobile app (JWT access tokens of 15 minutes plus rotating refresh tokens) started logging some users out after a few hours.
+    symptoms:
+      - Web logouts happen far more often than the session lifetime and do not depend on idle time.
+      - A user who stays on one instance (the team tested with a single replica) is never logged out.
+      - Every deploy logs out every web user.
+      - Mobile logouts cluster around token refresh, mostly for users with the app open on two devices or tabs of the web client using the same refresh token.
+    artifacts: |-
+      # config.py
+      SECRET_KEY = os.urandom(32)     # "random secret, secure by default"
+
+      # auth-service log
+      12:00:00.120 refresh family=f81 token=r17 -> issued r18
+      12:00:00.135 refresh family=f81 token=r17 -> REUSE DETECTED, revoking family f81
+    tasks:
+      - Explain the web logouts, including why every deploy logs everyone out.
+      - Explain the mobile logouts from the log lines.
+      - Propose fixes for both and the configuration you would check next.
+      - Describe how you would confirm the diagnosis before changing anything.
+    hints:
+      - What key verifies a Flask signed session cookie, and where does it come from?
+      - What happens to os.urandom output across four processes and across restarts?
+      - Two refresh calls 15 ms apart with the same token.
+    reference: |-
+      **Web.** Flask signs the session cookie with `SECRET_KEY`. Generating it with `os.urandom` at startup gives each of the four instances a different key, and a new one after every restart. A cookie signed by instance A fails verification on instance B, so the request is treated as anonymous: a "random" logout on whichever request the balancer sends elsewhere. Every deploy restarts all instances with new keys, invalidating every session at once.
+
+      **Fix.** Load one stable secret from a secret manager or environment, shared by all instances, and support rotation by accepting the previous key during a transition (Flask 3.1 added `SECRET_KEY_FALLBACKS` for this). If sessions are moved server-side, keep them in a shared store such as Redis, not in process memory; sticky sessions would only hide the problem.
+
+      **Mobile.** Two clients holding the same refresh token refreshed within 15 ms. The first rotated r17 to r18; the second presented r17, which now looks like a stolen token being replayed, so reuse detection revoked the whole family and logged the user out everywhere. Fix by giving each device or client its own refresh-token family, serialising refreshes inside one client (a single in-flight refresh shared by all requests), and allowing a short grace period in which the immediately previous token returns the same new token.
+
+      **Check next.** Cookie `Domain` and `Path` (cookies set for the wrong host are not sent), `SameSite` for cross-site flows (an identity-provider POST back to the app drops a Lax cookie), session store eviction (Redis `maxmemory` with an evicting policy deletes sessions), cookie size over about 4 KB being rejected, and clock skew between services verifying `exp`.
+
+      **Confirm first.** Log the instance id and the signature-verification failure reason on requests that arrive with a session cookie but resolve to anonymous; correlate with the balancer's upstream. Reproduce with two replicas locally. For mobile, count reuse-detection events per family and check whether they come from concurrent requests.
+    rubric:
+      - {key: secret_mismatch, label: Identifies per-instance random SECRET_KEY as the cause of cross-instance and post-deploy logouts, points: 4}
+      - {key: refresh_race, label: Explains the concurrent refresh tripping reuse detection from the log lines, points: 2}
+      - {key: fixes, label: "Shared stable secret with rotation, and per-client refresh families with serialised refresh or a grace window", points: 2}
+      - {key: other_causes, label: Lists at least two other cookie or session-store causes to check, points: 1}
+      - {key: confirmation, label: Describes a concrete way to confirm before changing code, points: 1}
+    follow_ups:
+      - prompt: Why is turning on sticky sessions at the load balancer the wrong fix?
+        look_for: It hides the mismatch until an instance restarts or is removed, makes load uneven, and deploys still log everyone out because keys change on restart.
+      - prompt: How do you rotate the signing secret without logging everyone out?
+        look_for: Sign with the new key while still accepting the old key for at least one session lifetime, then retire the old key; for JWTs, publish both keys in the JWKS with distinct kid values.
+- key: net.sessions.interview
+  type: interview_question
+  title: "Interview question: authentication for a web app, a mobile app and partners"
+  skills: [network.sessions_auth, security.web_basics]
+  minutes: 15
+  difficulty: HARD
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    prompt: You are designing authentication for a product with a browser web app on your own domain, a mobile app, and partner companies whose servers call your API on behalf of shared customers. Choose a mechanism for each, say where tokens or sessions are stored, how logout and "log out all devices" work, and what attacks you are defending against.
+    key_points:
+      - "Web: server-side session (or a backend-for-frontend holding tokens) in a Secure, HttpOnly, SameSite cookie, with CSRF protection for state changes."
+      - "Mobile: authorization code flow with PKCE through the system browser; short-lived access tokens and rotating refresh tokens stored in the platform keystore."
+      - "Partners: OAuth 2.0 with user consent and scoped tokens (authorization code flow), with server-to-server client credentials only for partner-owned resources."
+      - "Logout everywhere: delete server sessions and revoke refresh-token families; access tokens die within their short lifetime or via a denylist."
+      - "JWT validation details: algorithm allowlist, iss, aud, exp, key rotation through JWKS and kid."
+      - "Names the threats: XSS token theft, CSRF, code interception, token replay across services, credential stuffing (rate limits, MFA)."
+    model_answer: "Web: a server-side session in a __Host- cookie with Secure, HttpOnly and SameSite=Lax, a new id at login, CSRF tokens or Origin checks on state-changing requests; revocation is deleting the session. Mobile: authorization code flow with PKCE through the system browser, 10-minute access tokens (JWT verified by the API gateway with an algorithm allowlist and iss, aud and exp checks) and refresh tokens stored in the Keychain or Keystore, rotated on use with reuse detection. Partners: OAuth authorization code flow so customers consent to specific scopes; the partner backend is a confidential client with a client secret or private-key JWT; tokens have an audience for our API only. 'Log out all devices' deletes the user's sessions and revokes all refresh-token families; outstanding access tokens expire within minutes, or a per-user 'tokens issued before' timestamp checked by the gateway cuts them off immediately. Login is protected by rate limiting, breached-password checks and optional MFA."
+    pitfalls:
+      - Picking JWT everywhere without a revocation plan.
+      - Storing tokens in localStorage for the web app without discussing XSS.
+      - Using embedded web views for mobile login, which exposes credentials to the app.
+    follow_ups:
+      - prompt: An access token is stolen from a partner's logs. What limits the damage?
+        look_for: Short lifetime, narrow scopes and audience, the ability to revoke the partner's grant or refresh tokens, and optionally sender-constrained tokens (mTLS or DPoP) so a stolen token cannot be used by someone else.
+      - prompt: Why use the system browser instead of a login form inside the mobile app?
+        look_for: The app never sees the user's password, single sign-on cookies are shared, and phishing-style embedded forms are avoided; current OAuth guidance for native apps recommends it.
+- key: net.sessions.cards
+  type: revision_card
+  title: "Recall: sessions and tokens"
+  skills: [network.sessions_auth]
+  minutes: 5
+  body:
+    cards:
+      - front: What does HttpOnly stop, and what not?
+        back: Scripts reading the cookie; it does not stop XSS acting as the user.
+      - front: SameSite=Lax sends the cookie when?
+        back: Same-site requests and top-level cross-site navigations with safe methods.
+      - front: Core JWT trade-off?
+        back: Stateless verification versus no revocation before exp.
+      - front: Four JWT checks besides the signature?
+        back: Algorithm allowlist, exp, iss and aud.
+      - front: What does PKCE add to the code flow?
+        back: A verifier only the client knows, so an intercepted code cannot be redeemed.
+      - front: What does the OAuth state parameter defend against?
+        back: CSRF on the redirect (an attacker's code injected into your session).

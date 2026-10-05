@@ -1,0 +1,890 @@
+# Learning content: OOP foundations — the four principles, cohesion and coupling, composition, SOLID and dependency injection.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- OOP principles
+- key: lld.oop_principles.lesson
+  type: lesson
+  title: Encapsulation, abstraction, inheritance and polymorphism as tools, not definitions
+  skills: [oop.principles]
+  minutes: 25
+  difficulty: EASY
+  body:
+    summary: Each OOP principle exists to protect an invariant or to let callers ignore a detail; judge a design by which invariants it protects.
+    what: |-
+      Object-oriented programming groups **state** with the **behaviour** that is allowed to change it. Four principles describe how:
+
+      - **Encapsulation**: the object owns its state and is the only code that changes it, so it can keep its invariants (a balance never goes negative, a cart total always equals the sum of its lines).
+      - **Abstraction**: callers depend on *what* an object does (its interface), not *how* it does it. `PaymentGateway.charge(amount)` hides retries, HTTP and vendor quirks.
+      - **Inheritance**: a subclass reuses and specialises a base class. It creates an **is-a** relationship and a subtype: anywhere the base is expected, the subclass must work.
+      - **Polymorphism**: one call site, many behaviours. `shape.area()` runs the right code for a circle or a rectangle without the caller checking the type.
+    why: |-
+      Large programs fail where many places change the same data with different assumptions. Encapsulation shrinks the number of places that can break an invariant to one class. Abstraction and polymorphism let you add a new variant (a new payment method, a new shape) by adding a class instead of editing every `if` that switches on a type. Inheritance is the oldest reuse mechanism, and also the most frequently misused one, which is why the next lesson is about composition.
+    when: |-
+      - Use encapsulation whenever a piece of state has a rule attached (a range, a relationship to other fields, a lifecycle).
+      - Use an abstraction when there are, or will very likely be, two implementations, or when you need to replace one in tests.
+      - Use inheritance only for a genuine is-a relationship where the subclass honours every promise of the base (see Liskov in the SOLID lesson).
+      - Use polymorphism to replace a type switch that appears in more than one place.
+    how: |-
+      In Python the mechanics are lighter than in Java, so the discipline has to come from you:
+
+      - Python has no `private`. A single leading underscore (`_balance`) means "internal, do not touch"; a double underscore (`__balance`) triggers **name mangling** to `_Account__balance`, which prevents accidental clashes in subclasses but is not security.
+      - Expose behaviour (`deposit`, `withdraw`) rather than setters. Use `@property` when a read needs to be computed or validated, without changing the call site.
+      - Declare an abstraction with `abc.ABC` and `@abstractmethod` (nominal: subclasses must inherit) or with `typing.Protocol` (structural: any class with matching methods qualifies, checked by mypy, not at runtime unless `@runtime_checkable`).
+      - Polymorphism in Python is mostly **duck typing**: anything with a `__len__` works with `len()`. Overriding a method in a subclass is the explicit form.
+      - Multiple inheritance resolves methods by the **MRO** (C3 linearisation); `super()` follows the MRO, not simply "the parent".
+    mental_model: |-
+      Picture each object as a small service with a counter window. Callers ask for things through the window (methods); they never reach behind the counter to move the stock (fields). Abstraction is the menu on the window; polymorphism is that different kitchens can serve the same menu; inheritance is opening a branch that must serve everything the original menu promised.
+    tradeoffs: |-
+      Encapsulation costs ceremony: more methods, sometimes copies of internal collections. Abstractions cost indirection: an interface with one implementation and no test double is noise. Inheritance is cheap to write and expensive to change, because every subclass depends on the base class's internal call patterns. Polymorphism spreads one behaviour across many classes, which is good when you add variants often and bad when you add operations often (then a function with a `match` can be clearer).
+    mistakes:
+      - Generating a getter and setter for every field. That is a struct with extra steps; the invariant still lives in every caller.
+      - Returning an internal mutable list from a getter, so callers can append to it and bypass validation.
+      - "Inheriting for reuse: `class Stack(list)` gives callers `insert(0, x)` and breaks LIFO."
+      - Chains of `isinstance` checks or `kind == 'card'` comparisons spread across the code instead of a polymorphic method.
+      - Mutable class attributes (`items = []` on the class) shared by every instance.
+      - Treating double-underscore name mangling as access control.
+    interview: |-
+      You will rarely be asked to recite the four pillars. You will be asked to use them: "where is the invariant of this class enforced?", "why is this an interface?", "what breaks if I subclass this?". In design rounds interviewers notice when state is mutated from outside its owner and when a type switch appears in a service. A strong answer names the invariant, points at the one method that enforces it, and shows how a new variant is added without editing existing callers.
+    explain_it:
+      - Name the invariant the class protects and the method that enforces it.
+      - Say which detail the abstraction hides and who benefits.
+      - Justify any inheritance as is-a plus substitutability, or replace it with composition.
+      - Show the call site that is polymorphic and how a new variant plugs in.
+    example:
+      language: python
+      code: |-
+        from abc import ABC, abstractmethod
+
+
+        class InsufficientFunds(Exception):
+            pass
+
+
+        class Account:
+            def __init__(self, owner: str, opening_cents: int = 0) -> None:
+                if opening_cents < 0:
+                    raise ValueError("opening balance cannot be negative")
+                self._owner = owner
+                self._balance_cents = opening_cents      # invariant: never negative
+
+            @property
+            def balance_cents(self) -> int:              # read-only view, no setter
+                return self._balance_cents
+
+            def deposit(self, cents: int) -> None:
+                if cents <= 0:
+                    raise ValueError("deposit must be positive")
+                self._balance_cents += cents
+
+            def withdraw(self, cents: int) -> None:
+                if cents <= 0:
+                    raise ValueError("withdrawal must be positive")
+                if cents > self._balance_cents:
+                    raise InsufficientFunds(self._owner)
+                self._balance_cents -= cents
+
+
+        class FeePolicy(ABC):                            # abstraction: callers see only fee_for
+            @abstractmethod
+            def fee_for(self, cents: int) -> int: ...
+
+
+        class FlatFee(FeePolicy):
+            def __init__(self, fee_cents: int) -> None:
+                self._fee = fee_cents
+
+            def fee_for(self, cents: int) -> int:
+                return self._fee
+
+
+        class PercentFee(FeePolicy):
+            def __init__(self, basis_points: int) -> None:
+                self._bp = basis_points
+
+            def fee_for(self, cents: int) -> int:
+                return cents * self._bp // 10_000
+
+
+        def transfer(src: Account, dst: Account, cents: int, policy: FeePolicy) -> None:
+            src.withdraw(cents + policy.fee_for(cents))  # polymorphic call, no type switch
+            dst.deposit(cents)
+      explanation: The balance invariant is enforced in exactly two methods; transfer works with any fee policy, and a new policy is a new class rather than an edit to transfer.
+    internals: |-
+      Attribute lookup on an instance checks data descriptors on the class (such as `property`), then the instance `__dict__`, then non-data descriptors and plain class attributes, walking the MRO. That is why a class-level `items = []` is visible through every instance until one of them assigns `self.items = ...`, and why mutating it with `self.items.append` changes it for all instances. `cls.__mro__` shows the linearised order used by `super()`.
+    edge_cases:
+      - Copy semantics. Returning `tuple(self._lines)` or a frozen dataclass protects the invariant; returning the list does not.
+      - Equality and hashing. Overriding `__eq__` without `__hash__` makes instances unhashable in Python 3; decide whether the object is an entity (identity) or a value (fields).
+      - Diamond inheritance. With `class D(B, C)` where both extend `A`, the MRO is D, B, C, A, object, and cooperative `super()` calls visit A once.
+    misconceptions:
+      - Encapsulation means private fields. It means one owner for each invariant; private fields are one way to get there.
+      - Abstraction and encapsulation are the same thing. Abstraction is about the caller's view (what), encapsulation about protecting state (who may change it).
+      - Polymorphism requires inheritance. In Python, duck typing and Protocols give polymorphism without a shared base class.
+- key: lld.oop_principles.cohesion_coupling
+  type: concept
+  title: Cohesion and coupling, the two numbers every class design is judged by
+  skills: [oop.composition_solid, oop.principles]
+  minutes: 12
+  difficulty: EASY
+  body:
+    summary: Aim for classes whose members all serve one purpose (high cohesion) and that know as little as possible about each other (low coupling).
+    explanation: |-
+      **Cohesion** measures how closely the members of one module belong together. A `ParkingTicket` that stores entry time, spot and vehicle and computes its own duration is cohesive. A `Utils` class with `send_email`, `parse_date` and `calculate_tax` has almost none: three unrelated reasons to change share one file.
+
+      **Coupling** measures how much one module depends on another. Coupling is unavoidable; the question is its *kind*. From weakest to strongest:
+
+      - Depending on an interface or Protocol with a small method set.
+      - Depending on a concrete class's public methods.
+      - Depending on another class's data layout (reaching into `order.customer.address.city`).
+      - Depending on another class's internals or on shared global state.
+
+      The two usually move together: when responsibilities are split along the right seams, each class is cohesive and the links between them are narrow. When you see a class that changes for many unrelated reasons, or a change that forces edits in five classes ("shotgun surgery"), one of the two has gone wrong.
+    points:
+      - High cohesion means one reason to change; it is the measurable side of the Single Responsibility Principle.
+      - Low coupling means a change behind an interface does not ripple to callers.
+      - "Message chains such as `a.b().c().d()` couple the caller to the whole object graph; tell the nearest object what you want instead (Law of Demeter)."
+      - Global state and singletons are the strongest coupling because the dependency is invisible in the signature.
+      - Splitting too far also hurts. Ten one-method classes that always change together have low cohesion across the split.
+    example:
+      language: python
+      code: |-
+        # Tight coupling: the invoice knows the customer's internal structure.
+        def shipping_label(invoice) -> str:
+            return invoice.order.customer.address.city.upper()
+
+        # Lower coupling: each object answers for its own data.
+        class Customer:
+            def __init__(self, name: str, city: str) -> None:
+                self._name, self._city = name, city
+
+            def label_line(self) -> str:
+                return f"{self._name}, {self._city.upper()}"
+
+        class Invoice:
+            def __init__(self, customer: Customer) -> None:
+                self._customer = customer
+
+            def shipping_label(self) -> str:
+                return self._customer.label_line()
+      explanation: If the address model changes, only Customer changes; the invoice and its callers do not.
+    misconceptions:
+      - Low coupling means no dependencies. It means narrow, explicit, stable dependencies.
+      - More classes always means better cohesion. Classes that always change together belong together.
+- key: lld.oop_principles.check
+  type: concept_check
+  title: "Concept check: OOP principles in Python"
+  skills: [oop.principles]
+  minutes: 10
+  difficulty: EASY
+  body:
+    intro: Several questions are code reading. Predict the output before choosing.
+    questions:
+      - id: q1
+        kind: single
+        prompt: What does this print?
+        code:
+          language: python
+          code: |-
+            class Cart:
+                items = []
+
+                def add(self, x):
+                    self.items.append(x)
+
+            a, b = Cart(), Cart()
+            a.add(1)
+            print(b.items)
+        options: ["[]", "[1]", "AttributeError", "None"]
+        answer: [1]
+        explanation: "`items` is a class attribute, one list shared by every instance. `self.items.append` mutates that shared list, so `b` sees it. The tempting `[]` assumes each instance gets its own list, which only happens when you assign `self.items = []` in `__init__`."
+      - id: q2
+        kind: single
+        prompt: "Inside `class Account`, `__init__` sets `self.__balance = 0`. Outside the class, what does `Account().__balance` do?"
+        options:
+          - Returns 0
+          - Raises AttributeError
+          - Raises PermissionError
+          - Returns None
+        answer: [1]
+        explanation: "Inside the class body the name is mangled to `_Account__balance`. Outside, no mangling happens, so Python looks for an attribute literally named `__balance`, which does not exist. It is not a permission check: `acct._Account__balance` still works, so mangling prevents accidents, not access."
+      - id: q3
+        kind: multi
+        prompt: Which of these are polymorphism?
+        options:
+          - "`len(x)` working for any object that defines `__len__`"
+          - "`Circle` and `Square` each overriding `area()` and a caller calling `shape.area()`"
+          - "A function with `if kind == \"circle\": ... elif kind == \"square\": ...`"
+          - "Defining `__add__` so `Money(1) + Money(2)` works"
+        answer: [0, 1, 3]
+        explanation: "Duck typing, method overriding and operator overloading all let one call site run different code depending on the object. The `if kind == ...` chain is the opposite: the caller decides by inspecting the type, so every new kind means editing that function."
+      - id: q4
+        kind: single
+        prompt: What is `D.__mro__` (names only)?
+        code:
+          language: python
+          code: |-
+            class A: pass
+            class B(A): pass
+            class C(A): pass
+            class D(B, C): pass
+        options:
+          - "D, B, A, C, object"
+          - "D, B, C, A, object"
+          - "D, C, B, A, object"
+          - "D, A, B, C, object"
+        answer: [1]
+        explanation: "C3 linearisation keeps each class before its bases and respects the order in the class statement, so A comes only after both B and C. The depth-first answer `D, B, A, C` would visit A before C, which C3 forbids because C is a subclass of A."
+      - id: q5
+        kind: single
+        prompt: "`class Stack(list)` adds `push` and `peek`. What is the main design problem?"
+        options:
+          - Lists are slow for stacks
+          - Callers inherit `insert`, `sort` and indexing, so they can break LIFO order
+          - Python does not allow subclassing built-ins
+          - Stack should be an abstract class
+        answer: [1]
+        explanation: "Inheritance exposes the whole base interface. A stack's invariant is that only the top is touched, and `insert(0, x)` breaks it. Wrapping a list (composition) exposes only `push`, `pop` and `peek`. Performance is fine: `append` and `pop()` are amortised O(1)."
+      - id: q6
+        kind: short
+        prompt: A teammate says encapsulation means making every field private and adding a getter and a setter. What is missing from that definition?
+        model_answer: "Encapsulation is about keeping an invariant in one place. A setter per field lets every caller put the object into an invalid state, so the rule still lives outside the class. Expose operations that keep the invariant (withdraw, add_line), return read-only views or copies, and validate in the constructor."
+        explanation: Interviewers look for the word invariant and for behaviour-shaped methods, not for access modifiers.
+- key: lld.oop_principles.exercise
+  type: coding_exercise
+  title: "Exercise: replace a type switch with polymorphism"
+  skills: [oop.principles, python.oop]
+  minutes: 20
+  difficulty: EASY
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 1200}
+  body:
+    prompt: |-
+      A delivery service computes charges with a type switch that is repeated in three other functions (ETA, label, insurance). Refactor `charge` so that adding a new delivery type does not require editing it, keep the results identical, and explain which principle each change applies.
+
+      ```python
+      def charge(delivery: dict) -> int:          # amounts in paise
+          kind = delivery["kind"]
+          km = delivery["km"]
+          if kind == "standard":
+              return 4000 + 500 * km
+          elif kind == "express":
+              return 8000 + 900 * km
+          elif kind == "same_day":
+              if km > 20:
+                  raise ValueError("same day only within 20 km")
+              return 15000 + 1200 * km
+          raise ValueError(kind)
+      ```
+    constraints:
+      - Keep integer arithmetic (paise). No floats.
+      - The same-day distance rule must still be enforced.
+    hints:
+      - What varies between the branches? Base fee, per-km rate and one validation rule.
+      - Give each delivery type its own class with a `charge(km)` method behind a common abstraction.
+      - Validation that belongs to a type should live in that type, not in the caller.
+      - A small registry from kind string to class keeps parsing at the edge of the system.
+    solution:
+      language: python
+      code: |-
+        from abc import ABC, abstractmethod
+
+
+        class DeliveryType(ABC):
+            base_paise: int
+            per_km_paise: int
+
+            def charge(self, km: int) -> int:
+                self.validate(km)
+                return self.base_paise + self.per_km_paise * km
+
+            def validate(self, km: int) -> None:      # hook: most types accept any distance
+                if km < 0:
+                    raise ValueError("distance cannot be negative")
+
+
+        class Standard(DeliveryType):
+            base_paise, per_km_paise = 4000, 500
+
+
+        class Express(DeliveryType):
+            base_paise, per_km_paise = 8000, 900
+
+
+        class SameDay(DeliveryType):
+            base_paise, per_km_paise = 15000, 1200
+            MAX_KM = 20
+
+            def validate(self, km: int) -> None:
+                super().validate(km)
+                if km > self.MAX_KM:
+                    raise ValueError("same day only within 20 km")
+
+
+        DELIVERY_TYPES: dict[str, DeliveryType] = {
+            "standard": Standard(),
+            "express": Express(),
+            "same_day": SameDay(),
+        }
+
+
+        def charge(delivery: dict) -> int:
+            try:
+                kind = DELIVERY_TYPES[delivery["kind"]]
+            except KeyError:
+                raise ValueError(f"unknown delivery kind {delivery['kind']!r}") from None
+            return kind.charge(delivery["km"])
+      explanation: The type switch becomes one lookup at the boundary; the per-type rule lives with its type, and a new type is a new class plus one registry entry. ETA, label and insurance become methods on the same classes, so the four switches collapse into one hierarchy.
+    rubric:
+      - {key: behaviour_kept, label: "Charges and the 20 km rule match the original for every kind", points: 3}
+      - {key: polymorphic_call, label: "Caller invokes one method without inspecting the kind", points: 3}
+      - {key: rule_with_owner, label: "Type-specific validation lives in that type", points: 2}
+      - {key: names_principles, label: "Explains which change is abstraction and which is polymorphism or encapsulation", points: 2}
+    follow_ups:
+      - prompt: Product wants charges configurable without a deploy. Does the class hierarchy still make sense?
+        look_for: "If types differ only by numbers, one class with data (base, per_km, max_km) loaded from config is simpler; keep subclasses only for behaviour that differs, such as a distance rule or ETA formula."
+      - prompt: When would you keep the match statement instead?
+        look_for: "When the set of types is closed and stable and new operations are added often; a single match per operation is then easier to read than adding a method to every class."
+- key: lld.oop_principles.leak_debug
+  type: debugging_exercise
+  title: "Debugging: a cart total that drifts"
+  skills: [oop.principles]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    scenario: |-
+      A cart caches its total so the checkout page is fast. Support reports orders where the charged total differs from the sum of the visible lines. Nobody touches `_total` directly.
+    artifacts:
+      language: python
+      code: |-
+        from dataclasses import dataclass
+
+
+        @dataclass
+        class Line:
+            sku: str
+            qty: int
+            unit_paise: int
+
+
+        class Cart:
+            def __init__(self) -> None:
+                self._lines: list[Line] = []
+                self._total = 0
+
+            def add(self, line: Line) -> None:
+                if line.qty <= 0:
+                    raise ValueError("qty must be positive")
+                self._lines.append(line)
+                self._total += line.qty * line.unit_paise
+
+            @property
+            def lines(self) -> list[Line]:
+                return self._lines
+
+            @property
+            def total(self) -> int:
+                return self._total
+
+
+        # elsewhere, a promotion module:
+        def apply_free_gift(cart: Cart) -> None:
+            cart.lines.append(Line("GIFT", 1, 0))
+
+        # and the quantity editor:
+        def change_qty(cart: Cart, sku: str, qty: int) -> None:
+            for line in cart.lines:
+                if line.sku == sku:
+                    line.qty = qty
+    symptoms:
+      - Totals are wrong only after a quantity change on the cart page.
+      - Gift lines appear even when the cart rejects quantity zero elsewhere.
+    tasks:
+      - Identify every path that changes cart state without going through the invariant.
+      - Propose a fix that makes the total impossible to get out of sync.
+      - State what you would test.
+    hints:
+      - The `lines` property returns the internal list itself.
+      - "`Line` is a mutable dataclass shared by reference."
+    reference: |-
+      The invariant is "total equals the sum of qty times unit price over lines, and every qty is positive". Two leaks break it:
+
+      - `lines` returns the internal list, so `apply_free_gift` appends without validation and without updating `_total` (here the gift is free, so the total survives by luck).
+      - `Line` is mutable and shared, so `change_qty` edits a line in place and `_total` is stale. A qty of 0 or negative is also accepted.
+
+      Fixes, in order of strength: make `Line` a `@dataclass(frozen=True)`; return `tuple(self._lines)` from `lines`; add `Cart.change_qty(sku, qty)` and `Cart.add_gift(...)` that validate and update; or remove the cache and compute `total` from lines on read (O(number of lines), trivially cheap for a cart), which removes the second copy of the truth entirely.
+    solution:
+      language: python
+      code: |-
+        @dataclass(frozen=True)
+        class Line:
+            sku: str
+            qty: int
+            unit_paise: int
+
+
+        class Cart:
+            def __init__(self) -> None:
+                self._lines: dict[str, Line] = {}
+
+            def set_line(self, line: Line) -> None:
+                if line.qty <= 0:
+                    raise ValueError("qty must be positive")
+                self._lines[line.sku] = line
+
+            def remove(self, sku: str) -> None:
+                self._lines.pop(sku, None)
+
+            @property
+            def lines(self) -> tuple[Line, ...]:
+                return tuple(self._lines.values())
+
+            @property
+            def total(self) -> int:
+                return sum(l.qty * l.unit_paise for l in self._lines.values())
+    rubric:
+      - {key: both_leaks, label: "Names both leaks: the returned list and the mutable shared Line", points: 3}
+      - {key: invariant_named, label: "States the invariant the cart must keep", points: 2}
+      - {key: fix_closes, label: "Fix routes every change through validated cart methods or removes the cached copy", points: 3}
+      - {key: tests, label: "Proposes a test that mutates via the old paths and asserts the total", points: 2}
+    follow_ups:
+      - prompt: The cart has 10,000 lines in a B2B flow. Is recomputing the total on every read still fine?
+        look_for: "Measure first; if it matters keep the cached total but update it inside the only mutating methods, so the cache can never be bypassed."
+      - prompt: Why is returning a tuple of frozen lines enough, but a tuple of mutable lines not?
+        look_for: The tuple stops structural changes but the elements are still shared references; immutability must reach the elements.
+- key: lld.oop_principles.interview
+  type: interview_question
+  title: "Interview question: explain OOP with one example from a real system"
+  skills: [oop.principles]
+  minutes: 10
+  difficulty: EASY
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 600}
+  body:
+    prompt: "Using a single example from a system you would build (for example payments or a parking lot), explain encapsulation, abstraction, inheritance and polymorphism, and say where you would avoid inheritance."
+    key_points:
+      - Encapsulation is explained as an invariant kept by one owner, with a concrete invariant.
+      - Abstraction is explained as the caller depending on what, not how, with a concrete interface.
+      - Polymorphism is shown as one call site dispatching to different implementations without type checks.
+      - Inheritance is justified by substitutability, and a case where composition is preferred is given.
+      - Uses one coherent example rather than four unrelated textbook ones.
+    model_answer: "In a payment service, Payment keeps its state machine: capture is only legal after authorise, enforced inside Payment.capture, so no caller can set status directly (encapsulation). Checkout depends on a PaymentGateway interface with authorise and capture; it does not know which vendor or protocol is used (abstraction). Two gateway adapters implement that interface and checkout calls gateway.capture without checking which one it has (polymorphism). I would not make RefundablePayment inherit from Payment just to reuse fields; refundability is a capability, so I would compose a refund policy instead. Inheritance fits where a subclass truly is the base and honours every method, such as specific exception types."
+    pitfalls:
+      - Reciting dictionary definitions with an Animal and Dog example.
+      - Describing encapsulation only as private fields.
+    follow_ups:
+      - prompt: How does Python enforce any of this when there is no private keyword?
+        look_for: "Conventions (_name), name mangling for subclass clashes, properties, frozen dataclasses, Protocols checked by mypy; enforcement is mostly by design and review, not the runtime."
+      - prompt: Give an example of inheritance that is fine.
+        look_for: "Exception hierarchies, a template method with a stable base, framework base classes designed for extension; substitutability holds."
+- key: lld.oop_principles.cards
+  type: revision_card
+  title: "Recall: OOP principles"
+  skills: [oop.principles]
+  minutes: 5
+  body:
+    cards:
+      - front: Encapsulation in one line?
+        back: Each invariant has one owner, and only that owner's methods change the state.
+      - front: Abstraction vs encapsulation?
+        back: Abstraction is the caller's view (what); encapsulation protects the state (who may change it).
+      - front: What does `self.__x` become inside class `A`?
+        back: "`_A__x` (name mangling); it prevents subclass clashes, not access."
+      - front: Inheritance test before you subclass?
+        back: Is-a plus substitutability; the subclass must honour every promise of the base.
+      - front: Smell that calls for polymorphism?
+        back: The same type switch (if kind == ...) repeated in more than one place.
+      - front: Class attribute `items = []` pitfall?
+        back: One list shared by all instances; create per-instance state in `__init__`.
+
+# ---------------------------------------------------------------------------------------------- composition, SOLID, DI
+- key: lld.composition_solid.lesson
+  type: lesson
+  title: Composition over inheritance, SOLID and dependency injection without a framework
+  skills: [oop.composition_solid]
+  minutes: 30
+  difficulty: MEDIUM
+  body:
+    summary: Build behaviour by combining small objects behind narrow interfaces, and pass dependencies in; SOLID names the ways designs fail when you do not.
+    what: |-
+      **Composition** builds an object out of other objects it holds and delegates to (has-a). **Inheritance** builds it by extending a base class (is-a). "Prefer composition" means: reach for inheritance only when substitutability is real, and otherwise hold a collaborator.
+
+      **SOLID** is five principles for class design:
+
+      - **S**ingle Responsibility: a class has one reason to change (one actor or concern that asks for changes).
+      - **O**pen/Closed: you can add behaviour by adding code, not by editing working code at a known variation point.
+      - **L**iskov Substitution: a subtype must be usable wherever its base is, without the caller noticing: no stronger preconditions, no weaker postconditions, no new exceptions the caller cannot expect.
+      - **I**nterface Segregation: clients should not depend on methods they do not use; prefer several small interfaces to one wide one.
+      - **D**ependency Inversion: high-level policy depends on abstractions it owns; low-level details (database, SMTP, HTTP) implement them.
+
+      **Dependency injection (DI)** is the mechanical way to follow DIP: an object receives its collaborators (usually through the constructor) instead of constructing them.
+    why: |-
+      Inheritance couples a subclass to the base class's implementation, not just its interface. When the base changes how its methods call each other, subclasses break (the **fragile base class** problem). A class with two responsibilities changes for two teams' reasons and its tests need both sets of fixtures. Code that calls `smtplib.SMTP(...)` or `datetime.now()` inside business logic cannot be unit tested without patching. SOLID and DI are the fixes for these concrete failures, not style rules.
+    when: |-
+      - Prefer composition when the relationship is "uses" or "has", when behaviour should be swappable at runtime, or when you would otherwise build a class explosion (`EmailRetryingLoggingNotifier`).
+      - Apply OCP at variation points you can name from the requirements (pricing rules, payment methods); do not wrap everything in interfaces "just in case".
+      - Check LSP whenever you override a method: can every existing caller of the base use the subclass unchanged?
+      - Inject anything with I/O, time, randomness or configuration; construct plain value objects directly.
+    how: |-
+      - **SRP**: list who would ask for changes to a class. Report formatting (product), tax calculation (finance) and persistence (platform) are three actors, so three classes.
+      - **OCP**: put the varying part behind an interface or a plain callable and select it by injection or a small registry. New variant equals new class.
+      - **LSP**: the classic violation is `Square(Rectangle)`. Code that sets width to 5 and height to 4 and expects area 20 gets 16. A square is a rectangle in geometry, not in a mutable API.
+      - **ISP**: split `Printer` with `print`, `scan`, `fax` into capabilities so a simple printer does not raise `NotImplementedError` for `fax`.
+      - **DIP**: define the interface next to the policy that needs it (`class Clock(Protocol): def now(self) -> datetime`), implement it at the edge, and wire the concrete classes in one composition root (`main()` or the app factory).
+      - **DI in Python**: constructor parameters with Protocol types and sensible defaults at the composition root. No container is needed.
+    mental_model: |-
+      Think of a class as a component on a circuit board. Composition is wiring components together through sockets (interfaces); inheritance is soldering a component onto another, so replacing one means desoldering both. SOLID is the checklist for whether each component has one job (S), new components can be plugged into existing sockets (O), any component that fits a socket really works there (L), sockets have only the pins you need (I), and the board defines the socket shapes rather than the parts supplier (D).
+    tradeoffs: |-
+      Composition adds indirection: you write delegating methods and readers follow one more hop. Too many tiny interfaces make a design hard to navigate; ISP is about client needs, not "one method per interface". OCP everywhere is speculative generality: an interface with one implementation and no test use is a cost. DI makes dependencies visible, which is the point, but a constructor with eight parameters is telling you the class has too many responsibilities.
+    mistakes:
+      - Reading DIP as "use a DI framework". It is about the direction of source dependencies; plain constructor parameters satisfy it.
+      - Subclassing to change one method's behaviour, then breaking when the base calls that method from somewhere new.
+      - Overriding a method to raise `NotImplementedError` in a subclass, a Liskov violation that ISP or composition would have prevented.
+      - Creating an interface for every class before a second implementation or a test double exists.
+      - Constructing collaborators deep inside methods (`Repo()` in a service method), which hides the dependency and blocks testing.
+      - Splitting by technical layer only (one giant `Service`), which leaves SRP violated inside the service.
+    interview: |-
+      In LLD rounds SOLID is tested by follow-ups rather than definitions: "add a new payment method", "how would you test this without the network", "this subclass throws for one method, is that a problem?". Interviewers listen for a named variation point, an interface owned by the high-level code, constructor injection, and an honest statement of when you would not add the abstraction. Be ready with one LSP violation and one fragile base class example.
+    explain_it:
+      - For each class, name its single reason to change.
+      - Point at the variation point and show the new class that a new variant needs.
+      - Show the constructor that receives the dependencies and the one place where they are wired.
+      - Say which abstraction you deliberately did not add and why.
+    example:
+      language: python
+      code: |-
+        from datetime import datetime, timezone
+        from typing import Protocol
+
+
+        class Clock(Protocol):
+            def now(self) -> datetime: ...
+
+
+        class Mailer(Protocol):
+            def send(self, to: str, subject: str, body: str) -> None: ...
+
+
+        class SystemClock:
+            def now(self) -> datetime:
+                return datetime.now(timezone.utc)
+
+
+        class ReminderService:
+            """Policy: remind members whose loan is overdue. Knows nothing about SMTP or the system clock."""
+
+            def __init__(self, loans, mailer: Mailer, clock: Clock) -> None:
+                self._loans = loans
+                self._mailer = mailer
+                self._clock = clock
+
+            def send_overdue_reminders(self) -> int:
+                today = self._clock.now().date()
+                sent = 0
+                for loan in self._loans.overdue(as_of=today):
+                    self._mailer.send(loan.member_email, "Overdue book", f"{loan.title} was due {loan.due}")
+                    sent += 1
+                return sent
+
+
+        # Composition root (main or app factory) is the only place that knows the concrete classes:
+        # service = ReminderService(SqlLoanRepo(conn), SmtpMailer(host), SystemClock())
+        # In a test: ReminderService(FakeLoans([...]), RecordingMailer(), FixedClock(datetime(2026, 1, 5)))
+      explanation: The service owns the Clock and Mailer abstractions it needs (DIP), receives implementations through its constructor (DI), and has one reason to change, the reminder policy (SRP).
+    internals: |-
+      The fragile base class problem in CPython: built-in `dict` methods such as `update` and the constructor insert entries without calling a subclass's overridden `__setitem__`. A `dict` subclass that counts writes in `__setitem__` therefore undercounts. `collections.UserDict` is implemented in Python on top of `__setitem__`, so the override is honoured. The lesson generalises: when you inherit, you depend on how the base class calls itself, which is rarely documented.
+    edge_cases:
+      - Template method (a base class calling abstract hooks) is a legitimate use of inheritance when the base is designed for extension and documents which hooks it calls.
+      - Value objects (Money, Position) need no interface and no injection; construct them directly.
+      - Python Protocols allow a third-party class to satisfy your interface without inheriting from it, which keeps DIP possible across library boundaries.
+    misconceptions:
+      - SRP means a class has one method. It means one reason to change; a cohesive class can have many methods.
+      - OCP means never editing a class. It means the common change (a new variant) does not require edits; bug fixes and refactors still edit code.
+      - LSP is about types matching. It is about behaviour; the signatures can match perfectly while the contract breaks.
+- key: lld.composition_solid.worked
+  type: worked_example
+  title: "Worked example: refactoring a god-class order service with SOLID"
+  skills: [oop.composition_solid, oop.principles]
+  minutes: 15
+  difficulty: MEDIUM
+  body:
+    problem: An OrderService validates orders, applies discounts with a type switch, writes to MySQL through a module-level connection and sends an email. Every change touches it and it has no unit tests. Refactor it step by step and say which principle each step applies.
+    steps:
+      - title: Start from the problem code
+        text: "Four reasons to change (validation rules, discount rules, storage, notification) and two hidden dependencies (`DB` global and `smtplib`). Testing `place` needs a database and a mail server."
+        code:
+          language: python
+          code: |-
+            class OrderService:
+                def place(self, order):
+                    if not order.lines:
+                        raise ValueError("empty order")
+                    if order.customer_type == "employee":
+                        order.total = order.subtotal * 70 // 100
+                    elif order.customer_type == "vip":
+                        order.total = order.subtotal * 90 // 100
+                    else:
+                        order.total = order.subtotal
+                    DB.execute("INSERT INTO orders ...", order.id, order.total)
+                    smtplib.SMTP("mail.local").sendmail("shop@x", order.email, "Thanks")
+      - title: Extract the variation point (OCP)
+        text: Discounts are the part product changes most. Put them behind a small interface and select by customer type at the edge. A new customer type is a new class plus a registry entry.
+        code:
+          language: python
+          code: |-
+            class DiscountPolicy(Protocol):
+                def apply(self, subtotal_paise: int) -> int: ...
+
+            class PercentOff:
+                def __init__(self, percent: int) -> None:
+                    self._percent = percent
+                def apply(self, subtotal_paise: int) -> int:
+                    return subtotal_paise * (100 - self._percent) // 100
+
+            NO_DISCOUNT = PercentOff(0)
+            POLICIES = {"employee": PercentOff(30), "vip": PercentOff(10)}
+      - title: Invert the I/O dependencies (DIP, ISP)
+        text: The service declares the two narrow abstractions it needs. A repository exposes only `save`, not the whole database; a notifier exposes only `order_placed`.
+        code:
+          language: python
+          code: |-
+            class OrderRepository(Protocol):
+                def save(self, order_id: str, total_paise: int) -> None: ...
+
+            class OrderNotifier(Protocol):
+                def order_placed(self, email: str, order_id: str) -> None: ...
+      - title: Inject and keep the service about policy (SRP, DI)
+        text: The service now orchestrates; each collaborator has one reason to change. Tests pass in-memory fakes; production wires MySQL and SMTP adapters in the composition root.
+        code:
+          language: python
+          code: |-
+            class OrderService:
+                def __init__(self, repo: OrderRepository, notifier: OrderNotifier,
+                             policies: dict[str, DiscountPolicy]) -> None:
+                    self._repo, self._notifier, self._policies = repo, notifier, policies
+
+                def place(self, order) -> int:
+                    if not order.lines:
+                        raise ValueError("empty order")
+                    total = self._policies.get(order.customer_type, NO_DISCOUNT).apply(order.subtotal)
+                    self._repo.save(order.id, total)
+                    self._notifier.order_placed(order.email, order.id)
+                    return total
+      - title: Check what you did not do
+        text: "Validation stayed inline because there is one rule; extract it when a second rule appears. There is no DI container and no abstract base for OrderService itself, since nothing varies there. Mention the remaining risk: save succeeds and the email fails, which needs a retry or an outbox, a system-design concern rather than a SOLID one."
+    takeaways:
+      - Find the reasons to change first; they tell you where to split.
+      - Put abstractions at named variation points and I/O boundaries, not everywhere.
+      - The high-level class owns the interfaces it needs; adapters implement them.
+      - Constructor injection plus fakes makes the service unit-testable in milliseconds.
+- key: lld.composition_solid.check
+  type: concept_check
+  title: "Concept check: composition, SOLID and DI"
+  skills: [oop.composition_solid]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: For each principle, think of the failure it prevents.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "In CPython, what does this print?"
+        code:
+          language: python
+          code: |-
+            class CountingDict(dict):
+                def __init__(self):
+                    super().__init__()
+                    self.writes = 0
+
+                def __setitem__(self, key, value):
+                    self.writes += 1
+                    super().__setitem__(key, value)
+
+            d = CountingDict()
+            d["a"] = 1
+            d.update({"b": 2, "c": 3})
+            print(d.writes)
+        options: ["1", "3", "0", "2"]
+        answer: [0]
+        explanation: "`dict.update` is implemented in C and inserts directly, without calling the subclass's `__setitem__`, so only the explicit assignment counts. Expecting 3 assumes the base class calls its own public method, which is exactly the hidden coupling behind the fragile base class problem. `collections.UserDict` would give 3."
+      - id: q2
+        kind: single
+        prompt: "`Square` extends `Rectangle` and overrides `set_width` to also set the height. Which principle does this break, and why?"
+        options:
+          - Single Responsibility, because Square does two things
+          - "Liskov Substitution, because code that sets width 5 and height 4 on a Rectangle expects area 20 and gets 16"
+          - Interface Segregation, because Square has unused methods
+          - Nothing, a square is a rectangle
+        answer: [1]
+        explanation: "LSP is about behaviour callers rely on. A caller of the Rectangle API expects width and height to be independent; Square silently strengthens that contract. The geometric is-a does not hold for a mutable API. Fixes: immutable shapes, or no inheritance between them."
+      - id: q3
+        kind: multi
+        prompt: Which statements about Dependency Inversion are true?
+        options:
+          - High-level policy should depend on abstractions, and low-level details implement them
+          - It requires a dependency injection container
+          - The abstraction is best defined alongside the code that uses it
+          - Passing a Clock into a constructor instead of calling datetime.now() inside is an application of it
+        answer: [0, 2, 3]
+        explanation: "DIP is about the direction of dependencies: policy owns the interface and details plug into it. Constructor parameters are enough; a container is an optional convenience, which is why option 2 is the tempting wrong answer."
+      - id: q4
+        kind: single
+        prompt: "A `Worker` interface has `work()` and `eat()`. `RobotWorker.eat()` raises NotImplementedError. What is the best fix?"
+        options:
+          - Return None from eat() in RobotWorker
+          - "Split into `Workable` and `Feedable` interfaces and let each client depend on the one it uses"
+          - Add an is_robot flag to Worker
+          - Make eat() abstract in a new base class
+        answer: [1]
+        explanation: "The wide interface forces implementers to stub methods and callers to guess. Segregating interfaces by client need removes the stub. Returning None hides the problem and is a Liskov violation in disguise; a flag reintroduces a type switch."
+      - id: q5
+        kind: single
+        prompt: A class has a constructor with nine injected dependencies. What does that most likely indicate?
+        options:
+          - DI is being overused and should be replaced with globals
+          - The class probably has several responsibilities and should be split
+          - A DI container is needed
+          - Nothing; constructor size does not matter
+        answer: [1]
+        explanation: "DI made the dependencies visible, and nine of them is a cohesion signal: the class serves several reasons to change. Going back to globals hides the same coupling rather than removing it."
+      - id: q6
+        kind: short
+        prompt: "Name a situation where you would still choose inheritance over composition, and the condition that makes it safe."
+        model_answer: "When the subclass truly is substitutable for the base and the base was designed for extension, for example an exception hierarchy (PaymentDeclined(PaymentError)) or a template method whose base documents which hooks it calls. Safe when every caller of the base can use the subclass unchanged and the base's self-calls are a stable, documented contract."
+        explanation: The answer should name substitutability (LSP) and a base designed for extension; "to reuse code" alone is the wrong reason.
+- key: lld.composition_solid.exercise
+  type: coding_exercise
+  title: "Exercise: make a report job unit-testable with dependency injection"
+  skills: [oop.composition_solid, python.oop]
+  minutes: 25
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 1500}
+  body:
+    prompt: |-
+      The daily sales report below cannot be tested without a real database, a real mail server and waiting for the right date. Refactor it so a unit test can run it in memory with a fixed date, then write that test. Explain which SOLID principles your change applies and which abstraction you chose not to add.
+
+      ```python
+      import smtplib, sqlite3
+      from datetime import date, timedelta
+
+      class DailySalesReport:
+          def run(self) -> None:
+              day = date.today() - timedelta(days=1)
+              conn = sqlite3.connect("/var/data/shop.db")
+              rows = conn.execute(
+                  "SELECT sku, SUM(qty) FROM sales WHERE day = ? GROUP BY sku", (day.isoformat(),)
+              ).fetchall()
+              lines = [f"{sku}: {qty}" for sku, qty in sorted(rows)]
+              body = "\n".join(lines) or "no sales"
+              smtplib.SMTP("mail.internal").sendmail("bot@shop", "ops@shop", body)
+      ```
+    constraints:
+      - The production behaviour must stay the same.
+      - No mocking library; use hand-written fakes.
+    hints:
+      - List the three things the class reaches out to.
+      - Define a narrow Protocol for each, owned by the report.
+      - Inject them in the constructor; build the real ones in one composition root.
+      - The formatting logic can become a pure function you test without any fake.
+    solution:
+      language: python
+      code: |-
+        from datetime import date, timedelta
+        from typing import Protocol
+
+
+        class SalesSource(Protocol):
+            def totals_for(self, day: date) -> list[tuple[str, int]]: ...
+
+        class Sender(Protocol):
+            def send(self, body: str) -> None: ...
+
+        class Today(Protocol):
+            def __call__(self) -> date: ...
+
+
+        def format_report(rows: list[tuple[str, int]]) -> str:          # pure, trivially testable
+            return "\n".join(f"{sku}: {qty}" for sku, qty in sorted(rows)) or "no sales"
+
+
+        class DailySalesReport:
+            def __init__(self, source: SalesSource, sender: Sender, today: Today) -> None:
+                self._source, self._sender, self._today = source, sender, today
+
+            def run(self) -> None:
+                day = self._today() - timedelta(days=1)
+                self._sender.send(format_report(self._source.totals_for(day)))
+
+
+        # test
+        class FakeSource:
+            def __init__(self, data: dict[date, list[tuple[str, int]]]) -> None:
+                self.data = data
+            def totals_for(self, day: date) -> list[tuple[str, int]]:
+                return self.data.get(day, [])
+
+        class RecordingSender:
+            def __init__(self) -> None:
+                self.sent: list[str] = []
+            def send(self, body: str) -> None:
+                self.sent.append(body)
+
+        def test_reports_yesterday_sorted() -> None:
+            source = FakeSource({date(2026, 3, 1): [("b", 2), ("a", 5)]})
+            sender = RecordingSender()
+            DailySalesReport(source, sender, lambda: date(2026, 3, 2)).run()
+            assert sender.sent == ["a: 5\nb: 2"]
+      explanation: SQL and SMTP move into adapters (SqliteSalesSource, SmtpSender) built only in the composition root. The report depends on abstractions it owns (DIP), formatting is a pure function (SRP), and the test runs in memory with a fixed date. No interface was added for the formatter because it has one implementation and is already testable.
+    rubric:
+      - {key: three_seams, label: "Identifies database, mail and clock as the three dependencies", points: 2}
+      - {key: injected, label: "Dependencies arrive through the constructor typed by narrow abstractions", points: 3}
+      - {key: test_written, label: "Writes a test with fakes and a fixed date that asserts the sent body", points: 3}
+      - {key: restraint, label: "Names an abstraction deliberately not added and why", points: 2}
+    follow_ups:
+      - prompt: Where do the real SQLite and SMTP objects get created now, and how do you test that wiring?
+        look_for: "One composition root (main or a factory); covered by a thin integration or smoke test rather than unit tests."
+      - prompt: The report must also go to Slack for some teams. What changes?
+        look_for: "A new Sender implementation, or a composite sender that fans out; DailySalesReport does not change (OCP)."
+- key: lld.composition_solid.interview
+  type: interview_question
+  title: "Interview question: defend composition over inheritance"
+  skills: [oop.composition_solid]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: "A notifier hierarchy has grown to EmailNotifier, SmsNotifier, RetryingEmailNotifier, RetryingSmsNotifier, LoggingRetryingEmailNotifier and more. Explain what went wrong, redesign it with composition, and say how SOLID applies to your redesign."
+    key_points:
+      - "Names the class explosion: channels times cross-cutting behaviours multiply subclasses."
+      - "Redesigns with a Notifier interface, one class per channel, and wrappers (decorators) for retry and logging that hold another Notifier."
+      - Shows that a new channel or a new wrapper is one new class (OCP) and that each class has one reason to change (SRP).
+      - Mentions that wrappers are substitutable for the interface (LSP) and that the sender depends only on the interface (DIP).
+      - States a cost, such as wrapper order mattering or more objects to wire.
+    model_answer: "Inheritance was used for two independent axes, channel and behaviour, so the number of classes is their product. I would define Notifier.send(message), implement EmailNotifier and SmsNotifier, and add RetryingNotifier(inner, attempts) and LoggingNotifier(inner) that implement Notifier by delegating to inner. Composition builds any combination at wiring time: LoggingNotifier(RetryingNotifier(SmsNotifier(client), 3)). New channel or new behaviour is one class. The order of wrappers matters (logging outside retry logs once per send, inside logs every attempt) and should be chosen deliberately."
+    pitfalls:
+      - Proposing multiple inheritance mixins as the fix without noting MRO coupling.
+      - Forgetting that retry must not retry non-retryable errors such as an invalid phone number.
+    follow_ups:
+      - prompt: How would you test RetryingNotifier?
+        look_for: "Inject a fake inner notifier that fails N times then succeeds, and a fake sleeper or clock; assert call count and the final result."
+      - prompt: Where should the decision about which wrappers to apply live?
+        look_for: "In the composition root or a factory driven by configuration, not inside the channels."
+      - prompt: Is this the decorator pattern or a Python decorator?
+        look_for: "The decorator pattern (an object wrapping an object with the same interface); a Python @decorator wraps a function, a related but different mechanism."
+- key: lld.composition_solid.cards
+  type: revision_card
+  title: "Recall: composition, SOLID and DI"
+  skills: [oop.composition_solid]
+  minutes: 5
+  body:
+    cards:
+      - front: Single Responsibility, in terms of change?
+        back: One actor or concern asks for changes to the class; split when there are several.
+      - front: Classic Liskov violation?
+        back: Mutable Square extends Rectangle; setting width and height independently breaks area expectations.
+      - front: Dependency Inversion in one line?
+        back: Policy owns the interface it needs; I/O details implement it and are wired at the edge.
+      - front: Fragile base class?
+        back: Subclasses break when the base changes how it calls its own methods.
+      - front: Signal that a class needs splitting after DI?
+        back: A long constructor parameter list; DI exposed too many responsibilities.
+      - front: High cohesion and low coupling, in one line?
+        back: Members serve one purpose; links to other modules are narrow interfaces.

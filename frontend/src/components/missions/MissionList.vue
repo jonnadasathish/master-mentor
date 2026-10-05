@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue'
 import type { HttpClient } from '../../api/client'
-import type { BatteryItem, Effects, PlanItem } from '../../api/types'
+import type { BatteryItem, Effects, PlanItem, PlanLearning } from '../../api/types'
 import { missionText } from '../../presentation/mission'
 import { useSkillsStore } from '../../stores/data'
 import MissionCard from './MissionCard.vue'
@@ -12,6 +12,8 @@ const props = defineProps<{
   client: HttpClient
   battery: readonly BatteryItem[]
   results: Record<number, Effects>
+  /** Learning sessions that would fill pending missions (plan.learning). */
+  learning?: Record<string, PlanLearning>
 }>()
 const emit = defineEmits<{ changed: []; completed: [itemId: number, effects?: Effects] }>()
 
@@ -59,6 +61,7 @@ defineExpose({ startNext })
         :client="client"
         :text="missionText(item, ctx)"
         :result="results[item.id] ?? null"
+        :learning="learning?.[String(item.id)] ?? null"
         @changed="emit('changed')"
         @completed="(effects) => emit('completed', item.id, effects)"
       />

@@ -1,0 +1,584 @@
+# Practical engineering 3: API implementation (validation, errors, idempotency, auth) and the delivery pipeline.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- API engineering
+- key: eng.api_engineering.lesson
+  type: lesson
+  title: "Implementing an API that survives real clients: validation, errors, idempotency, pagination, auth and timeouts"
+  skills: [engineering.api_engineering, network.rest_semantics]
+  minutes: 30
+  difficulty: MEDIUM
+  body:
+    summary: Validate at the boundary, return one stable error contract, make retried writes safe with idempotency keys, paginate with cursors, authorise every object, version additively and put a timeout on every outbound call.
+    what: |-
+      API engineering is the part of backend work between "the endpoint exists" and "the endpoint is safe to give to clients that retry, send garbage, paginate deep, and run old versions". It covers:
+
+      - **Input validation** at the edge: types, ranges, lengths, enums, required fields — rejected before business logic runs.
+      - **Error contract**: one machine-readable error shape and consistent status codes.
+      - **Idempotency** for writes that clients will retry.
+      - **Pagination** that stays fast and correct on large, changing data.
+      - **Authentication and authorisation**: who is calling, and may they touch *this* object.
+      - **Versioning** and compatible evolution.
+      - **Timeouts and retries** on everything the handler calls.
+    why: |-
+      Real clients retry on timeouts, mobile apps run versions from last year, and attackers change ids in URLs. Each gap becomes a concrete incident: a retried payment charged twice, `?offset=500000` scanning half a table, `GET /invoices/981` returning someone else's invoice, a partner API that stalls and pins every worker. Broken object level authorisation is the first entry in the OWASP API Security Top 10 (2023) because it is common and easy to exploit.
+    when: |-
+      On every endpoint you build or review. Interviewers use it in project deep dives ("how does your API handle retries?"), in code review exercises, and in system design when the API is defined.
+    how: |-
+      **Validation.** Parse the request into a typed schema at the boundary (bounded strings, positive integer amounts in minor units, enums, maximum page size). Reject with 400 or 422 and a field-level error list. Never trust ids or amounts from the client for things the server already knows (the price, the owner).
+
+      **Status codes.** 400/422 invalid input; 401 not authenticated; 403 authenticated but not allowed (or 404 to avoid revealing that the object exists); 404 not found; 409 conflict with current state (version mismatch, duplicate in-flight request); 412 when an `If-Match` precondition fails; 429 rate limited with `Retry-After`; 500 for bugs; 502/503/504 for upstream failure, unavailability and upstream timeout.
+
+      **Error contract.** One shape everywhere, for example `{"error": {"code": "refund_exceeds_total", "message": "...", "details": [...], "request_id": "..."}}`, or RFC 9457 problem details (`application/problem+json`). Codes are stable and documented; messages are for humans. Never leak stack traces, SQL or internal hostnames. Map domain exceptions to responses in one place.
+
+      **Idempotency.** For non-idempotent writes (create payment, place order), the client sends an `Idempotency-Key` header (a common convention, also an IETF draft). The server stores `(client, key) → request fingerprint, status, response` under a unique constraint. First request: insert the key as in-progress, do the work, store the response, ideally in the same database transaction as the side effect. Retry with the same key and same body: return the stored response. Same key while still in progress: 409 (or wait). Same key with a different body: reject. Expire keys after a window such as 24 hours.
+
+      **Pagination.** `OFFSET 100000` makes the database read and discard 100,000 rows, and rows inserted between pages cause duplicates or skips. Keyset (cursor) pagination continues from the last seen sort key: `WHERE (created_at, id) < ($1, $2) ORDER BY created_at DESC, id DESC LIMIT 20`, with an index on `(created_at, id)` and the cursor returned as an opaque token. Cap the page size.
+
+      **Authn and authz.** Authenticate once in middleware or a dependency; authorise **per object** in the service or query: `SELECT ... WHERE id = $1 AND owner_id = $2`. A route-level "is logged in" check is not authorisation.
+
+      **Versioning.** Additive changes (new optional request field, new response field, new endpoint) are compatible. Removing or renaming fields, changing types or units, making an optional field required, or changing semantics is breaking — ship it as a new version (`/v2` or a version header), run both, announce deprecation (the `Sunset` header, RFC 8594), and measure old-version traffic before removal.
+
+      **Timeouts.** Every outbound call needs a connect and read timeout that fits the request's latency budget: if the endpoint promises 2 s, a 30 s partner timeout is a bug. Python `requests` has no default timeout (it can wait forever); `httpx` defaults to 5 s. Retry only idempotent calls, with exponential backoff and jitter and a total budget.
+    mental_model: |-
+      Treat the API boundary as a contract with an untrusted, forgetful, retrying stranger. Everything they send is unvalidated, everything you return is a promise they will depend on for years, and any request may arrive twice.
+    tradeoffs: |-
+      - **404 vs 403** for someone else's object: 404 hides existence; 403 is clearer for legitimate users of shared resources.
+      - **Offset vs cursor**: offset allows "jump to page 37" and is simple; cursors are stable and fast but only go next/previous.
+      - **Strict vs lenient validation**: strict rejects unknown fields early but can break old clients when you add fields; lenient tolerates more but hides client bugs.
+      - **Idempotency storage**: same database as the side effect gives atomicity; a separate store such as Redis is faster but can disagree with the database after a crash.
+      - **URL versioning** is visible and cache-friendly; header versioning keeps URLs stable but is easier to get wrong.
+    mistakes:
+      - Checking only that the user is logged in and not that they own the object (IDOR / BOLA).
+      - Using floats for money; use integer minor units or a decimal type.
+      - Returning 200 with an error body, or 500 for invalid input.
+      - Calling a payment provider without an idempotency key and then retrying on timeout.
+      - Unbounded `page_size`, or deep `OFFSET` pagination on a large table.
+      - Outbound HTTP calls with no timeout.
+      - Logging request bodies that contain passwords, tokens or card data.
+      - Swallowing exceptions with a bare `except` and returning success.
+    interview: |-
+      Expect "a client times out and retries a create-order call — what happens?", "how do you paginate a feed of 100 million rows?", "how do you stop users reading each other's data?", and code review prompts on a handler. Good answers give the concrete mechanism (unique constraint on the idempotency key, keyset query, ownership in the WHERE clause) and its failure cases.
+    explain_it:
+      - Validate input into a typed schema and reject with a field-level error.
+      - Return one documented error shape with stable codes and correct statuses.
+      - Make retried writes safe with an idempotency key stored under a unique constraint.
+      - Authorise each object, paginate with a cursor, and bound every outbound call with a timeout.
+    example:
+      language: python
+      code: |-
+        def create_refund(user, order_id: int, req: RefundRequest, idem_key: str) -> Response:
+            # req was parsed and validated at the edge: amount_cents is an int, 1 <= amount_cents <= 10**9
+            with db.transaction():
+                prior = idem.find(user.id, idem_key)
+                if prior:
+                    if prior.fingerprint != req.fingerprint():
+                        return error(422, "idempotency_key_reused", "Key used with a different body")
+                    return prior.response                       # replay, never refund twice
+                order = orders.get_for_update(order_id, owner_id=user.id)   # authz in the query, row lock
+                if order is None:
+                    return error(404, "order_not_found", "Order not found")
+                if order.refunded_cents + req.amount_cents > order.total_cents:
+                    return error(409, "refund_exceeds_total", "Refund exceeds remaining amount")
+                refund = refunds.create_pending(order, req.amount_cents)    # sent by an outbox worker
+                resp = Response(201, {"refund_id": refund.id, "status": "pending"})
+                idem.save(user.id, idem_key, req.fingerprint(), resp)
+                return resp
+      explanation: Validation, ownership, a row lock against concurrent refunds, the idempotency record and the pending refund commit together; the payment call happens outside the request via an outbox, with its own idempotency key to the provider.
+    edge_cases:
+      - Two requests with the same new idempotency key arriving at the same moment — the unique constraint decides the winner; the other gets 409.
+      - A cursor whose row was deleted — keyset pagination still works because it compares values, not positions.
+      - A field that was optional in v1 and is now required — breaking, even if the server can default it.
+    misconceptions:
+      - "PUT and DELETE are idempotent by definition, so the implementation is too — only if you implement them that way."
+      - "HTTPS makes the API secure — it protects the channel, not the authorisation logic."
+- key: eng.api_engineering.check
+  type: concept_check
+  title: "Concept check: API engineering"
+  skills: [engineering.api_engineering]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Answer as the engineer who owns the endpoint and will be paged when it misbehaves.
+    questions:
+      - id: q1
+        kind: single
+        prompt: Logged-in user A calls GET /invoices/981, which belongs to user B. What should the API return?
+        options:
+          - 200 with the invoice, because A is authenticated
+          - 403 Forbidden, or 404 Not Found to avoid revealing the invoice exists, decided by an ownership check in the query or service
+          - 401 Unauthorized
+          - 400 Bad Request
+        answer: [1]
+        explanation: "A is authenticated, so 401 is wrong; the question is authorisation of this object. Returning 200 is the classic BOLA/IDOR bug. Many APIs return 404 so that ids cannot be probed; 403 is acceptable when existence is not secret."
+      - id: q2
+        kind: multi
+        prompt: Which changes break existing clients of a JSON API?
+        options:
+          - Removing a field from a response
+          - Adding a new optional field to a response
+          - Making a previously optional request field required
+          - Changing amount from integer cents to a decimal string
+          - Adding a new endpoint
+        answer: [0, 2, 3]
+        explanation: "Removing fields, adding a required input and changing a type or unit all break clients that were correct yesterday. Adding optional fields and new endpoints is compatible, provided clients ignore unknown fields — which is why that should be part of your client guidelines."
+      - id: q3
+        kind: single
+        prompt: A client pages through a newest-first list with ?offset=0 then ?offset=20. Between the two calls, five new rows are inserted at the top. What does the client see on page 2?
+        options:
+          - Exactly the next 20 rows, no overlap
+          - The last five rows of page 1 again at the top of page 2
+          - Five rows are skipped
+          - An error
+        answer: [1]
+        explanation: "Offsets count positions, and the five inserts pushed every row down by five, so rows 16–20 of page 1 are now rows 21–25. Deletions cause the opposite (skips). Keyset pagination continues from the last seen sort key and avoids both."
+      - id: q4
+        kind: single
+        prompt: A client retries POST /payments with the same Idempotency-Key while the first request is still being processed. What should the server do?
+        options:
+          - Process it again; the client asked twice
+          - Return 409 (or wait for the first to finish) and never run the side effect twice; after completion, replay the stored response
+          - Return 500
+          - Delete the key and start over
+        answer: [1]
+        explanation: "The point of the key is that the side effect happens at most once. A concurrent duplicate gets a conflict or waits; a later retry gets the stored response. Processing it again is exactly the double charge the key prevents."
+      - id: q5
+        kind: single
+        prompt: "In Python, `requests.get(partner_url)` is called inside a request handler. The partner stalls. What happens?"
+        options:
+          - requests times out after 30 seconds by default
+          - requests has no default timeout, so the call can wait indefinitely and pin a worker; pass timeout=(connect, read)
+          - The web server cancels it automatically after 5 seconds
+          - The operating system kills it after 60 seconds
+        answer: [1]
+        explanation: "Without a timeout argument, requests waits as long as the TCP connection stays open. A few stalled calls per worker can exhaust all workers. Some servers have worker timeouts, but relying on them kills the whole worker instead of failing one call cleanly."
+      - id: q6
+        kind: short
+        prompt: Design the error response for a request with two invalid fields. Show the status, the shape and what must never appear in it.
+        model_answer: "Status 422 (or 400 by convention). Body in one shape used by every endpoint, for example {error: {code: validation_failed, message: Request has invalid fields, details: [{field: amount_cents, code: must_be_positive}, {field: currency, code: unsupported}], request_id: ...}} or RFC 9457 problem details. Codes are stable and machine-readable, messages are for humans, all errors are listed at once, and the request id lets support find logs. It must never contain stack traces, SQL, internal hostnames or secrets."
+        explanation: Clients code against the error shape as much as against success responses, so it must be stable and complete.
+- key: eng.api_engineering.idempotency_interview
+  type: interview_question
+  title: "Interview question: make a create-payment endpoint safe to retry"
+  skills: [engineering.api_engineering, sd.idempotency_retries]
+  minutes: 15
+  difficulty: HARD
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    prompt: "Mobile clients call POST /payments. On flaky networks they time out and retry, and support has found customers charged twice. Explain how you would make the endpoint safe to retry, end to end: the client, the API, the database and the call to the payment provider."
+    key_points:
+      - "Client generates one Idempotency-Key per logical payment and reuses it for every retry."
+      - "Server stores the key under a unique constraint with a request fingerprint, status and stored response."
+      - "Concurrent duplicates get 409 or wait; completed duplicates get the stored response; same key with a different body is rejected."
+      - "The key record and the payment row are written in one transaction, or the outcome is reconciled after a crash."
+      - "The call to the provider uses its own idempotency key derived from the payment id, so provider-side retries are safe too."
+      - "Defines key expiry and explains what happens on retries after expiry."
+    model_answer: "The client creates an idempotency key when the user taps Pay and reuses it on every retry. The API inserts (merchant, key) into an idempotency table with a unique constraint, the request fingerprint and status in-progress, in the same transaction that creates the payment row in state pending. If the insert conflicts, it reads the existing row: completed means return the stored response; in progress means 409 so the client retries later; different fingerprint means 422. The provider is called with an idempotency key derived from our payment id, so if we time out and retry the provider call it charges once. On success we mark the payment and store the response. If we crash between the provider call and our update, a reconciliation job queries the provider by our key and finishes the state. Keys expire after a documented window such as 24 hours."
+    pitfalls:
+      - Deduplicating in memory or in a per-instance cache, which fails across instances and restarts.
+      - Check-then-insert without a unique constraint, which races under concurrent retries.
+      - Forgetting the provider call, which can itself be retried by your own code.
+    follow_ups:
+      - prompt: What exactly goes into the request fingerprint, and why?
+        look_for: "A hash of the method, path and canonicalised body fields that define the operation (amount, currency, payee); detects key reuse for a different payment."
+      - prompt: Where would you store keys if the payments table is in PostgreSQL and you already run Redis?
+        look_for: "PostgreSQL, in the same transaction as the payment, for atomicity; Redis could disagree with the database after a crash or eviction."
+      - prompt: How does the client know whether a timed-out payment succeeded?
+        look_for: "Retry with the same key and get the stored outcome, or query the payment by key or id; never create a new key for the same intent."
+- key: eng.api_engineering.code_review_refund
+  type: debugging_exercise
+  title: "Code review: a pull request that adds a refund endpoint"
+  skills: [engineering.api_engineering, engineering.debugging, testing.test_design, security.web_basics]
+  minutes: 30
+  difficulty: HARD
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 1800}
+  body:
+    scenario: |-
+      A teammate opened a pull request that adds partial refunds to the orders service (FastAPI, PostgreSQL, an external payment provider). It is their first PR in this codebase and they want to merge today. Review it as you would in real life: find the issues, rank them, and write the comments you would leave.
+    symptoms:
+      - The PR description says "adds refunds, tested locally, one happy-path test".
+      - CI is green.
+      - The endpoint will be called by the support tool and by a nightly batch job that retries on timeout.
+    artifacts:
+      language: diff
+      code: |-
+        diff --git a/app/api/refunds.py b/app/api/refunds.py
+        new file mode 100644
+        --- /dev/null
+        +++ b/app/api/refunds.py
+        @@ -0,0 +1,34 @@
+        +import logging
+        +import requests
+        +from fastapi import APIRouter, Depends
+        +from app.db import db
+        +from app.auth import current_user
+        +from app.settings import PAYMENT_URL
+        +
+        +log = logging.getLogger(__name__)
+        +router = APIRouter()
+        +
+        +@router.post("/orders/{order_id}/refunds")
+        +def create_refund(order_id: str, body: dict, user=Depends(current_user)):
+        +    log.info("refund request %s", body)
+        +    order = db.query_one(f"SELECT * FROM orders WHERE id = {order_id}")
+        +    if order is None:
+        +        return {"error": "not found"}, 404
+        +
+        +    amount = float(body["amount"])
+        +    refunded = order["refunded_amount"] + amount
+        +    if refunded > order["total"]:
+        +        return {"error": "too much"}, 400
+        +
+        +    resp = requests.post(
+        +        PAYMENT_URL + "/refunds",
+        +        json={"charge": order["charge_id"], "amount": amount, "card": body.get("card_number")},
+        +    )
+        +    db.execute(
+        +        "UPDATE orders SET refunded_amount = %s WHERE id = %s", (refunded, order_id)
+        +    )
+        +    try:
+        +        notify_customer(order["email"], amount)
+        +    except Exception:
+        +        pass
+        +    return {"status": "ok", "refund": resp.json()}
+        diff --git a/tests/test_refunds.py b/tests/test_refunds.py
+        new file mode 100644
+        --- /dev/null
+        +++ b/tests/test_refunds.py
+        @@ -0,0 +1,4 @@
+        +def test_refund(client, mocker):
+        +    mocker.patch("app.api.refunds.requests.post")
+        +    r = client.post("/orders/1/refunds", json={"amount": "10"})
+        +    assert r.status_code == 200
+    tasks:
+      - "List correctness risks (money handling, concurrency, ordering of side effects, unchecked results)."
+      - "List security issues and rate their severity."
+      - "List scalability and resilience risks."
+      - "List the testing gaps: name the specific tests that are missing."
+      - "List maintainability problems."
+      - "Rank everything into blockers, should-fix and nits, and write two review comments the way you would post them (problem, impact, suggested fix)."
+    hints:
+      - Who is allowed to refund order 1?
+      - What happens if two refunds for the same order arrive at the same time, or the batch job retries after a timeout?
+      - What does FastAPI do with a returned tuple?
+      - What happens to the database if the provider returns an error?
+    reference: |-
+      **Blockers — security**
+      - SQL injection: `order_id` is a string from the path interpolated into an f-string. Use a typed `int` path parameter and a bound parameter.
+      - Broken object level authorisation: any logged-in user can refund any order. Load the order with an ownership or role check (support staff only, scoped by permission).
+      - Card data: the PR forwards `card_number` and logs the whole body. Refunds go to the original charge, so no card data is needed; remove it and never log request bodies with sensitive fields.
+
+      **Blockers — correctness**
+      - Money as `float`; use integer cents (or Decimal) end to end.
+      - Race: two concurrent refunds both read `refunded_amount`, both pass the check and both refund — over-refund. Lock the row (`SELECT ... FOR UPDATE`) or use a conditional update `SET refunded_cents = refunded_cents + :a WHERE id = :id AND refunded_cents + :a <= total_cents` and check the row count.
+      - No idempotency: the batch job retries on timeout, and every retry refunds again. Require an idempotency key and pass one to the provider.
+      - The provider response is never checked: on a 4xx/5xx the database still records the refund. Check the status and persist an explicit refund state (pending, succeeded, failed).
+      - Side-effect order: provider call first, database update second, with no transaction — a crash in between leaves money refunded but not recorded. Record a pending refund first, then call the provider (or use an outbox), then mark the result.
+      - No validation: negative or zero amounts pass and a negative amount reduces `refunded_amount`. Use a request schema with `amount_cents: int > 0`.
+      - FastAPI does not interpret a returned `(body, status)` tuple the way Flask does; it serialises it as a JSON array with status 200. Raise `HTTPException` or return a `JSONResponse` with the status.
+
+      **Should fix — resilience and scalability**
+      - `requests.post` has no timeout; a stalled provider pins workers. Add connect/read timeouts that fit the budget.
+      - Customer notification runs synchronously in the request; move it to a queue or the outbox. The bare `except: pass` hides failures — at least log them.
+
+      **Testing gaps**
+      - Only a happy path, with a mock whose call arguments are never asserted, and a string amount that hides the float conversion.
+      - Missing: refund larger than the remaining amount (boundary: exactly remaining is allowed, one cent more is not); negative and zero amounts; user who does not own the order (expects 404/403); provider error leaves the order unchanged; retry with the same idempotency key refunds once; two concurrent refunds against a real database cannot exceed the total.
+
+      **Maintainability**
+      - `body: dict` instead of a Pydantic model; ad-hoc error shapes (`"too much"`) instead of the service's error contract; business logic in the handler instead of a service; `SELECT *`.
+
+      **Example comments.** "Blocker: `order_id` is interpolated into SQL (line 14), which allows SQL injection, e.g. `1 OR 1=1`. Please declare `order_id: int` and use a bound parameter." — "Blocker: two refunds racing can both pass the check on line 20 and over-refund. Could we take `SELECT ... FOR UPDATE` in a transaction, or do the conditional UPDATE and check the row count? A concurrent test would lock this in."
+    rubric:
+      - {key: security, label: "Finds the SQL injection, the missing per-order authorisation and the card data in logs", points: 3}
+      - {key: correctness, label: "Finds the float money, the concurrent over-refund race, the unchecked provider result and the missing idempotency", points: 3}
+      - {key: resilience, label: "Flags the missing timeout, the synchronous notification and the swallowed exception", points: 1}
+      - {key: tests, label: "Names specific missing tests including boundary, authorisation, provider failure, retry and concurrency", points: 2}
+      - {key: prioritised, label: "Separates blockers from nits and writes comments with problem, impact and a concrete fix", points: 1}
+    follow_ups:
+      - prompt: The author pushes back that this is an internal endpoint used only by support staff, so authorisation can wait. How do you respond?
+        look_for: "Internal endpoints still get abused (compromised accounts, scripts, SSRF); at minimum require a support role and audit-log every refund; treat money movement as a blocker."
+      - prompt: Which single test would give you the most confidence for the least effort, and at what level?
+        look_for: "An API-level integration test against a real database that the refund cannot exceed the remaining amount, including a retry with the same key; it exercises validation, authz and persistence together."
+- key: eng.api_engineering.cards
+  type: revision_card
+  title: "Recall: API engineering"
+  skills: [engineering.api_engineering]
+  minutes: 5
+  body:
+    cards:
+      - front: 401 vs 403?
+        back: 401 not authenticated; 403 authenticated but not allowed.
+      - front: Where does object-level authorisation belong?
+        back: In the query or service for that object, e.g. WHERE id = ? AND owner_id = ?.
+      - front: How does an idempotency key prevent double charges?
+        back: A unique stored key replays the stored response instead of repeating the side effect.
+      - front: Why is deep OFFSET pagination slow?
+        back: The database reads and discards every skipped row; keyset pagination seeks directly.
+      - front: Default timeout of Python requests?
+        back: None — it can wait forever; always pass timeout.
+      - front: Compatible API changes?
+        back: Additive ones — new optional fields and new endpoints.
+
+# ---------------------------------------------------------------------------------------------- tooling and delivery
+- key: eng.tooling.lesson
+  type: lesson
+  title: "The delivery pipeline: Git, Linux, Docker, CI/CD, config, migrations and rollbacks"
+  skills: [engineering.tooling]
+  minutes: 30
+  difficulty: MEDIUM
+  body:
+    summary: Build one immutable artifact, test it, promote the same artifact through environments with injected config, keep migrations backward compatible, and make rollback a routine operation.
+    what: |-
+      Delivery tooling is everything between `git commit` and code serving production traffic: version control, the build (a container image), the CI pipeline that tests it, the CD pipeline that deploys it, per-environment configuration and secrets, database migrations, and the ability to roll back. The language-specific parts (virtual environments, packaging) are covered elsewhere; this lesson is the method.
+    why: |-
+      Many production incidents are delivery incidents, not code bugs: a migration that locks a table, a secret missing in one environment, an image built for the wrong CPU architecture, a rollback that cannot work because the schema moved on. Interviewers ask "walk me through how your code reaches production" to see whether you have owned a service end to end.
+    when: |-
+      Whenever you ship, debug "works in staging, fails in production", review a Dockerfile or a migration, or design a release for a risky change.
+    how: |-
+      **Git.** Short-lived branches merged to main (trunk-based) keep merges small; long-lived branches create painful merges. `rebase` rewrites history — fine on your own branch, never on a shared one. To undo a pushed commit on a shared branch use `git revert <sha>` (a new inverse commit), not `reset` plus force-push. `git bisect` finds the commit that introduced a bug in O(log n) test runs; `git reflog` recovers commits you thought you lost.
+
+      **Linux on a box or in a container.** `ps`/`top` for processes and CPU, `free` and the container's memory metrics, `df -h`/`du` for disks, `ss -ltnp` for listening sockets, `lsof -p <pid>` for open files and connections, `journalctl -u <unit>` or `kubectl logs` for logs, `curl -v` and `dig` for network paths. Exit code 137 is 128 + 9: the process received SIGKILL, often from the OOM killer or after a shutdown grace period expired. Graceful shutdown means handling SIGTERM: stop accepting work, finish in-flight requests, exit.
+
+      **Docker images.** Each instruction creates a layer and the build cache is reused until the first instruction whose inputs changed, after which every later layer is rebuilt. So copy the dependency manifest and install dependencies before copying the source. Use multi-stage builds so compilers and build tools do not ship; a `.dockerignore` to keep `.git`, local env files and caches out of the context; a non-root user; a pinned base image (tag, or digest for reproducibility). Use the exec form `CMD ["python", "-m", "app"]` so the app is PID 1 and receives SIGTERM directly; the shell form runs under `/bin/sh -c`, which may not forward signals. Build for the platform you run (`--platform linux/amd64` when building on an ARM laptop).
+
+      **CI/CD stages.** Lint and type check, unit tests, build the image **once**, run integration tests against that image with real dependencies (database, Redis in containers), push it with an immutable tag (the git SHA, never only `latest`), deploy to staging, run smoke tests, then roll out to production gradually (canary or rolling), watching error rate and latency, with automatic or one-command rollback.
+
+      **Config and secrets.** The same image runs everywhere; configuration comes from the environment (twelve-factor style): environment variables or mounted files injected by the orchestrator, secrets from a secret manager. Never bake secrets into images or commit them. Validate configuration at startup and fail fast with a clear message; keep a manifest of required keys and diff it per environment before deploying.
+
+      **Migrations during deploys.** During a rolling deploy, old and new code run against the same schema, and a rollback runs old code against the new schema. So migrations must be backward compatible: **expand, migrate, contract**. Add a nullable column, deploy code that writes it, backfill in batches, then enforce `NOT NULL`; remove a column only after no running version reads it; rename by adding the new column, dual writing, and dropping the old later. On PostgreSQL, `ALTER TABLE` takes a strong lock — set a `lock_timeout` so a migration waiting behind a long query does not block all traffic queued behind it — and build indexes with `CREATE INDEX CONCURRENTLY`.
+
+      **Rollbacks.** Redeploy the previous immutable image; this only works if the schema is still compatible with it. Database down-migrations are rarely safe with production data, so prefer rolling forward with a fix and protecting risky behaviour with feature flags that can be turned off without a deploy.
+    mental_model: |-
+      Think of a release as moving one sealed box (the image) through a series of rooms (environments) that each plug in their own config. If the box is rebuilt per room, or the rooms differ in ways you did not list, "it passed CI" stops meaning anything. The database is the one thing all versions share, so it must always be compatible with both the current and the previous box.
+    tradeoffs: |-
+      - **Rebase vs merge**: linear history and clean bisects vs preserving what actually happened and never rewriting shared history.
+      - **Rolling vs blue-green vs canary**: rolling is cheap; blue-green allows instant switch-back but doubles capacity; canary limits blast radius but needs good metrics to judge.
+      - **Expand/contract migrations** are safer but need several deploys and temporary dual writes.
+      - **Slim base images** shrink size and attack surface but can lack tools you want when debugging (use debug sidecars or ephemeral containers).
+    mistakes:
+      - Rebuilding the image per environment, so production runs something CI never tested.
+      - Deploying with the mutable `latest` tag, which makes rollbacks and audits ambiguous.
+      - Migrations that are not backward compatible with the running version (drop or rename a column in one step).
+      - Adding a NOT NULL column without a default to a large populated table, which fails or rewrites depending on engine and version.
+      - Secrets in the image, in git or in CI logs.
+      - Letting the rollout continue after the migration step failed.
+      - Shell-form CMD so SIGTERM never reaches the app and every deploy drops in-flight requests.
+    interview: |-
+      "Walk me through what happens from merge to production", "how do you deploy a schema change with zero downtime?", "your rollback did not fix it — why?", and "CI is green but production fails — what do you check?" are common. Strong answers mention one immutable artifact, environment parity, expand/contract, gating the rollout on health, and what the rollback can and cannot undo.
+    explain_it:
+      - Describe the pipeline stages and that one image is built once and promoted.
+      - Explain how config and secrets are injected per environment and validated at startup.
+      - Explain expand, migrate, contract and why old code must work on the new schema.
+      - Say what a rollback restores and what it cannot.
+    example:
+      language: dockerfile
+      code: |-
+        FROM python:3.12-slim AS build
+        WORKDIR /app
+        COPY requirements.txt .                          # changes rarely: cached layer
+        RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+        COPY . .                                         # changes often: only layers below rebuild
+
+        FROM python:3.12-slim
+        RUN useradd --create-home app
+        COPY --from=build /install /usr/local
+        COPY --from=build /app /app
+        WORKDIR /app
+        USER app
+        CMD ["python", "-m", "app"]                      # exec form: the app receives SIGTERM
+      explanation: Dependency installation is cached until requirements.txt changes, build-only files stay in the first stage, and the app runs as a non-root PID 1 that can shut down gracefully.
+    edge_cases:
+      - A rollback after a migration that the old code cannot read — the rollback itself causes errors.
+      - Images built on ARM laptops failing on x86 nodes with "exec format error".
+      - Clock, locale or time zone differences between CI runners and production hosts.
+    misconceptions:
+      - "Green CI means the deploy is safe — CI proves the image passes tests on CI's data and config, not on production's."
+      - "A rollback undoes everything — it does not undo migrations, data written by the new version, or external side effects."
+- key: eng.tooling.check
+  type: concept_check
+  title: "Concept check: delivery tooling"
+  skills: [engineering.tooling]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Questions about the path from commit to production.
+    questions:
+      - id: q1
+        kind: single
+        prompt: Every small code change makes this image rebuild reinstall all dependencies (several minutes). Why, and what is the fix?
+        code:
+          language: dockerfile
+          code: |-
+            FROM python:3.12-slim
+            WORKDIR /app
+            COPY . .
+            RUN pip install -r requirements.txt
+            CMD ["python", "-m", "app"]
+        options:
+          - "pip has no cache inside Docker; add --cache-dir"
+          - "COPY . . comes before the install, so any file change invalidates the cache for every later layer; copy requirements.txt and install first, then copy the source"
+          - The base image is not pinned
+          - CMD should use the shell form
+        answer: [1]
+        explanation: "The build cache is reused only until the first instruction whose inputs changed. With the whole source copied first, any edit invalidates the install layer. Pinning the base image matters for reproducibility but does not cause this rebuild."
+      - id: q2
+        kind: single
+        prompt: A container repeatedly exits with code 137. What does that tell you first?
+        options:
+          - The application raised an unhandled exception
+          - The process was killed with SIGKILL (128 + 9), commonly by the OOM killer or after the shutdown grace period
+          - The image is missing
+          - The port is already in use
+        answer: [1]
+        explanation: "Exit codes above 128 mean death by signal number (code − 128); 9 is SIGKILL, which cannot be caught. Check memory limits and OOM events first. An unhandled Python exception exits with code 1."
+      - id: q3
+        kind: single
+        prompt: A commit pushed to the shared main branch an hour ago breaks checkout. Five teammates have pulled since. How do you undo it?
+        options:
+          - "git reset --hard HEAD~1 and force-push"
+          - "git revert <sha> and push the new inverse commit"
+          - Delete the branch and recreate it
+          - Ask everyone to rebase onto your local branch
+        answer: [1]
+        explanation: "revert adds a commit that undoes the change, so shared history is preserved and nobody's clone breaks. Reset plus force-push rewrites history others already have, causing lost work and confusing merges."
+      - id: q4
+        kind: multi
+        prompt: "During a rolling deploy, the old version keeps serving while the migration runs. Which PostgreSQL migrations are safe to run before the new code is fully rolled out?"
+        options:
+          - Add a nullable column
+          - Drop a column the old code still reads
+          - Rename a column the old code uses
+          - "CREATE INDEX CONCURRENTLY on a large table"
+        answer: [0, 3]
+        explanation: "Old code ignores a new nullable column, and a concurrent index build does not block writes. Dropping or renaming a column the old code uses breaks every old instance immediately — do those in a later contract step after no version reads the column."
+      - id: q5
+        kind: single
+        prompt: "In a `git bisect run` script, what does exit code 125 mean?"
+        options: ["The commit is good", "The commit is bad", "This commit cannot be tested; skip it", "Abort the bisect"]
+        answer: [2]
+        explanation: "0 is good, 125 is skip (for example the build is broken at that commit), other codes from 1 to 127 are bad. Using exit 1 for a broken build would wrongly mark the commit as introducing the bug."
+      - id: q6
+        kind: short
+        prompt: You rolled back to the previous image, but errors continue. Give at least four plausible reasons.
+        model_answer: "A migration ran with the new release and the old code cannot work with the new schema (dropped or renamed column, new NOT NULL constraint). The new version wrote data the old version cannot read (a new enum value, a new format). Config, secrets or a feature flag were changed separately from the image and were not rolled back. Caches or queues hold entries in the new format. The rollback did not take effect — a mutable tag such as latest resolved to the new image, or not all pods were replaced. The real cause was not the release at all (a dependency, infrastructure or traffic change at the same time)."
+        explanation: A rollback restores code only; everything stateful or configured separately stays as it is.
+- key: eng.tooling.ci_green_prod_fails
+  type: debugging_exercise
+  title: "Debugging scenario: CI is green but the production deployment fails"
+  skills: [engineering.tooling, engineering.debugging]
+  minutes: 25
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 1500}
+  body:
+    scenario: |-
+      The orders service deploys to Kubernetes. A release that adds a `region` column to orders passed every CI stage, but the production deployment failed: new pods never became ready, and the on-call engineer saw errors in two different places. Old pods are still serving. Diagnose what went wrong, why CI did not catch it, and how to fix both the release and the pipeline.
+    symptoms:
+      - All CI stages passed, including integration tests against PostgreSQL.
+      - The migration job failed, yet the rollout started anyway.
+      - New pods crash on start; old pods keep serving traffic.
+      - The same release deployed to staging last week without problems.
+    artifacts: |-
+      ```text
+      CI pipeline #8812, commit 4be91c2 — passed
+        lint ................ ok
+        unit tests .......... 412 passed
+        integration tests ... 57 passed   (fresh postgres:16 container, migrations applied to an empty schema)
+        build image ......... ok  -> registry/orders-api:latest
+        env for tests ....... PAYMENTS_WEBHOOK_SECRET=test-secret (set in CI variables)
+
+      Production deploy, 16:20 UTC
+        step 1: migration job (image registry/orders-api:latest)
+          INFO  [alembic.runtime.migration] Running upgrade 0041 -> 0042, add region to orders
+          sqlalchemy.exc.IntegrityError: (psycopg.errors.NotNullViolation)
+            column "region" of relation "orders" contains null values
+          [SQL: ALTER TABLE orders ADD COLUMN region VARCHAR(8) NOT NULL]
+          job status: Failed
+        step 2: rolling update of deployment orders-api (started regardless of step 1)
+          orders-api-6d9f-kq2   0/1   CrashLoopBackOff
+          Traceback (most recent call last):
+            File "/app/app/settings.py", line 31, in <module>
+              WEBHOOK_SECRET = os.environ["PAYMENTS_WEBHOOK_SECRET"]
+          KeyError: 'PAYMENTS_WEBHOOK_SECRET'
+        old pods (previous release) ... Running, serving traffic
+
+      Staging: secret PAYMENTS_WEBHOOK_SECRET created manually on 2026-09-22 by the feature author.
+      Staging: database recreated on every deploy (migrations on an empty schema, then a seed script inserts 1,200 orders with region set).
+      ```
+    tasks:
+      - Identify every independent failure in the artifacts and its root cause.
+      - Explain precisely why CI and staging did not catch each one.
+      - "Explain why production is still up, and what would have happened if the migration had succeeded but the pods still crashed."
+      - Propose a correct migration plan for the new column on a large, busy table.
+      - Propose pipeline changes that would catch each failure before production.
+    hints:
+      - What is different about a table with rows and an empty table for ADD COLUMN ... NOT NULL?
+      - Where did the secret come from in CI and in staging?
+      - Which image does latest point to at deploy time?
+    reference: |-
+      **Failure 1: unsafe migration.** Adding a `NOT NULL` column without a default fails on PostgreSQL when the table already has rows, because existing rows would be null. CI applies migrations to an empty schema, so the statement succeeds there, and staging recreates its database on every deploy and seeds it only after migrating, so neither environment ever ran this migration against existing rows.
+
+      **Failure 2: missing production secret.** The app correctly fails fast when `PAYMENTS_WEBHOOK_SECRET` is missing, but the secret exists only as a CI variable and as a manually created staging secret. Nobody declared it as a required config key for production.
+
+      **Process failures.** The rollout did not depend on the migration job succeeding. The image was referenced by the mutable `latest` tag, so it is not provable which image ran where, and rollback by tag is ambiguous.
+
+      **Why production is up.** The migration failed, so the schema is unchanged and the old pods still work; new pods never passed readiness, so the rolling update did not remove old ones. Had the migration succeeded and added a NOT NULL column, old code inserting orders without `region` would have started failing — the rollout gating and backward compatibility both matter.
+
+      **Migration plan (expand, migrate, contract).** 1) `ADD COLUMN region VARCHAR(8)` nullable — metadata-only and quick (set a `lock_timeout`). 2) Deploy code that writes region on every insert and update. 3) Backfill existing rows in batches of a few thousand by primary key, pausing between batches. 4) `ADD CONSTRAINT region_not_null CHECK (region IS NOT NULL) NOT VALID`, then `VALIDATE CONSTRAINT` (does not block writes), then `SET NOT NULL`, which on PostgreSQL 12+ can use the validated check instead of a full scan under an exclusive lock. If a sensible constant default exists, `ADD COLUMN ... NOT NULL DEFAULT 'UNKNOWN'` is also fast on PostgreSQL 11+.
+
+      **Pipeline changes.** Gate the rollout on the migration job succeeding. Tag images with the commit SHA and deploy by digest. Run migrations in CI against a database with representative data (a seeded, populated schema or a recent anonymised snapshot), plus a check that the previous release's tests still pass against the new schema. Keep a manifest of required config keys and fail the deploy if the target environment lacks any; create secrets through infrastructure-as-code, not by hand.
+    rubric:
+      - {key: two_failures, label: "Identifies both independent failures, the NOT NULL migration on a populated table and the missing secret", points: 3}
+      - {key: why_ci_missed, label: "Explains the empty-schema CI database and the CI-only or manual secret as the parity gaps", points: 2}
+      - {key: process, label: "Flags the ungated rollout and the mutable latest tag", points: 2}
+      - {key: migration_plan, label: "Gives an expand, backfill, then enforce plan safe on a large table", points: 2}
+      - {key: pipeline_fix, label: "Proposes concrete pipeline checks for data-bearing migrations and required config", points: 1}
+    follow_ups:
+      - prompt: Why is failing fast on a missing secret at startup good behaviour, even though it caused the crash loop?
+        look_for: "A clear early failure that blocks readiness is far better than starting and failing on the first webhook; the fix is provisioning, not lenient config."
+      - prompt: The backfill updates 40 million rows. What do you watch while it runs?
+        look_for: "Replication lag, lock waits, table bloat and autovacuum, database CPU and I/O, and error rate; throttle batch size and pause when lag rises."
+- key: eng.tooling.pipeline_interview
+  type: interview_question
+  title: "Interview question: from merge to production, and back"
+  skills: [engineering.tooling]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: "Walk me through what happens between merging a pull request and that code serving production traffic in a service you would build. Then tell me how you roll it back if error rates rise ten minutes later, and what the rollback cannot undo."
+    key_points:
+      - "Lists CI stages in order: static checks, unit tests, one image build, integration tests against real dependencies."
+      - "Tags the image immutably (commit SHA) and promotes the same image through staging to production."
+      - "Injects config and secrets per environment at runtime and validates them at startup."
+      - "Runs backward-compatible migrations before the code rollout and gates the rollout on their success."
+      - "Rolls out gradually (canary or rolling) with health checks and watches error rate and latency against the previous version."
+      - "Rolls back by redeploying the previous image or flipping a feature flag, and states that schema changes, written data and external side effects are not undone."
+    model_answer: "On merge, CI runs linting and type checks, unit tests, builds one image tagged with the commit SHA, and runs integration tests against that image with PostgreSQL and Redis containers. The image is pushed and deployed to staging with staging config injected from the secret manager; smoke tests run. Production deployment first runs migrations, which are expand-only and compatible with the running version, and the rollout waits for them to succeed. Then a canary takes a small share of traffic while we compare error rate and p95 with the old version; if healthy, a rolling update completes. If errors rise later, I turn off the feature flag if the change is behind one, otherwise redeploy the previous SHA. That restores code only: migrations stay applied, data the new version wrote stays, emails or payments already sent stay sent — which is why migrations must be backward compatible and risky behaviour goes behind flags."
+    pitfalls:
+      - Describing a rebuild per environment or deploying latest.
+      - Ignoring the database in the rollback story.
+    follow_ups:
+      - prompt: How do you decide automatically whether the canary is healthy?
+        look_for: "Compare canary vs baseline on error rate and latency percentiles over a fixed window with enough traffic; abort on threshold breach."
+      - prompt: How would you ship a column rename with zero downtime?
+        look_for: "Add the new column, dual write, backfill, switch reads, stop writing the old column, drop it in a later release."
+- key: eng.tooling.cards
+  type: revision_card
+  title: "Recall: delivery tooling"
+  skills: [engineering.tooling]
+  minutes: 5
+  body:
+    cards:
+      - front: Undo a pushed commit on a shared branch?
+        back: git revert <sha>, never reset plus force-push.
+      - front: Exit code 137?
+        back: SIGKILL (128 + 9), often the OOM killer.
+      - front: Dockerfile order for fast rebuilds?
+        back: Copy the dependency manifest and install before copying the source.
+      - front: Why exec-form CMD?
+        back: The app is PID 1 and receives SIGTERM for graceful shutdown.
+      - front: Expand, migrate, contract?
+        back: Add compatible schema, move code and data, remove the old shape last.
+      - front: What a rollback does not undo?
+        back: Migrations, data written by the new version, external side effects.

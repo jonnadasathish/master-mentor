@@ -1,0 +1,810 @@
+# Learning content: behavioral judgement — ambiguity, difficult decisions, prioritisation under deadlines and why change.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- ambiguity
+- key: beh.ambiguity.lesson
+  type: lesson
+  title: Making progress when the problem is unclear
+  skills: [behavioral.ambiguity]
+  minutes: 20
+  difficulty: MEDIUM
+  body:
+    summary: An ambiguity story shows how you turned an unclear request into a clear goal, wrote down your assumptions, tested the riskiest one cheaply, and shipped a small slice to learn from.
+    what: |-
+      Ambiguity means you do not have everything you need to act: the goal is vague ("make reporting better"), the requirements conflict, nobody owns the system you inherited, or the cause of a problem is unknown. Ambiguity questions test whether you wait for perfect information, charge ahead on guesses, or create clarity in a structured way.
+    why: |-
+      Above junior level, most work arrives under-specified. Teams expect an SDE-2 to clarify the problem with stakeholders, make reasonable assumptions explicit, and deliver something useful without a detailed spec. Interviewers listen for a method, because a method is what makes the behaviour repeatable.
+    when: |-
+      "Tell me about a time you worked with unclear requirements", "a time you had to start without all the information", "a time you inherited a system with no documentation", "a time the goal changed halfway", "a problem whose cause nobody understood".
+    how: |-
+      A method that works for most engineering ambiguity:
+
+      1. **Find the real goal.** Ask who the request is for and what decision or outcome it serves. "Make reporting better" became "finance needs month-end revenue numbers by the second working day; today it takes five".
+      2. **Write down assumptions and open questions**, and share them: "I'm assuming the report covers paid orders only; tell me by Thursday if not."
+      3. **Rank unknowns by risk** and test the riskiest one cheaply: a one-day spike, a query against production data, a five-minute call with the user.
+      4. **Separate reversible from irreversible decisions.** Move fast on reversible ones (a UI layout, an internal endpoint); slow down on irreversible ones (a data model, a public API, a deletion).
+      5. **Ship a thin slice** to the real user and learn from it.
+      6. **Keep a decision log** so later changes of direction are cheap and nobody is surprised.
+    mental_model: |-
+      Treat ambiguity like debugging an unknown system: form a hypothesis, find the cheapest experiment that could disprove it, run it, and update. The goal is not to remove all uncertainty, only the uncertainty that would change what you build.
+    tradeoffs: |-
+      Clarifying everything up front is slow and stakeholders may not know the answers until they see something. Building immediately is fast but risks building the wrong thing. The balance: clarify the goal and the irreversible decisions, then learn the rest by shipping small. Writing assumptions down costs a little time and saves weeks when someone later says "that's not what I meant".
+    mistakes:
+      - Waiting for a full spec and blaming the delay on unclear requirements.
+      - Building a large solution on unstated assumptions, then discovering the real need at demo time.
+      - Asking stakeholders open questions ("what do you want?") instead of concrete options.
+      - Treating every decision as irreversible and slowing everything down.
+      - No outcome showing that the clarity created was right.
+    interview: |-
+      Probes include "what did you assume, and were you right?", "how did you decide when you knew enough to start?", "what would you have done if the stakeholder was unavailable?". Answers that name a specific assumption that turned out wrong, and how the thin slice caught it early, are strong.
+    explain_it:
+      - The vague starting point and the real goal you uncovered.
+      - Assumptions written down and shared.
+      - The riskiest unknown and the cheap test for it.
+      - Reversible versus irreversible decisions.
+      - The thin slice, what it taught you and the result.
+    example:
+      language: text
+      code: |-
+        Question: Tell me about a time you had to work with unclear requirements.
+
+        Headline:   I turned a vague "improve month-end reporting" request into a two-week project
+                    that cut finance's close from five working days to two.
+        Situation:  Finance said reports were "slow and wrong"; there was no spec and three
+                    different people described three different problems.
+        Task:       My lead asked me to "own reporting improvements"; I had no defined scope.
+        Action:     - Interviewed the three finance users for 20 minutes each and found one shared
+                      goal: revenue by product line by the second working day of the month.
+                    - Wrote a one-page note of assumptions (paid orders only, UTC month boundaries,
+                      refunds counted in the month issued) and asked for corrections by Friday.
+                      Finance corrected one: refunds belong to the original order's month.
+                    - Spiked the riskiest unknown, whether our data could reconcile with the
+                      ledger: a query on last month matched to within 40 dollars on about 1,200,000.
+                    - Shipped a single CSV export first, then a scheduled job.
+        Result:     Finance closed the following month in two working days.
+        Metrics:    Close time from five working days to two; reconciliation differences from
+                    several thousand dollars to under 100.
+        Trade-offs: No dashboard in the first release; the CSV covered the decision they needed.
+        Reflection: The written assumptions caught the refund rule before I built on it. I now
+                    send an assumptions note in the first week of any vague project.
+      explanation: The candidate converts vagueness into a measurable goal, makes assumptions explicit, tests the riskiest one cheaply and proves the outcome with a number.
+    internals: |-
+      What interviewers typically listen for: comfort with acting before everything is known, a structured way of creating clarity, judgement about which decisions deserve caution, communication with stakeholders, and an outcome that proves the clarified goal was the right one.
+    edge_cases:
+      - "The stakeholder is unavailable: make the decision reversible, document the assumption and proceed."
+      - "Ambiguous root cause in an incident: mitigate first, then narrow hypotheses with data."
+      - "Inherited undocumented system: read the code paths for the task at hand, write notes as you go, confirm with logs."
+    misconceptions:
+      - Handling ambiguity means not asking questions. It means asking the right ones and acting on the rest.
+      - Clear requirements are someone else's job. At SDE-2 level creating clarity is part of the job.
+- key: beh.ambiguity.check
+  type: concept_check
+  title: "Concept check: judging ambiguity answers"
+  skills: [behavioral.ambiguity]
+  minutes: 8
+  difficulty: MEDIUM
+  body:
+    intro: Judge each sample from an answer to "tell me about a time requirements were unclear".
+    questions:
+      - id: q1
+        kind: single
+        prompt: Which first step is strongest when handed "make reporting better"?
+        options:
+          - Start building a dashboard with every metric available.
+          - Wait until product writes a detailed spec.
+          - Ask the users what decision the report supports and by when, then write down the goal and assumptions for them to correct.
+          - Ask the users "what do you want?" in an open meeting.
+        answer: [2]
+        explanation: "Finding the decision the work serves and sharing written assumptions creates clarity quickly. Building everything guesses, waiting stalls, and open-ended 'what do you want?' rarely produces usable answers."
+      - id: q2
+        kind: multi
+        prompt: Which decisions deserve extra caution under ambiguity because they are hard to reverse?
+        options:
+          - The schema of a table that will hold years of data.
+          - The colour of a button on an internal tool.
+          - The shape of a public API that partners will integrate with.
+          - The order of columns in a CSV prototype.
+        answer: [0, 2]
+        explanation: "Data models and public APIs are expensive to change once used. UI details and prototype formats are cheap to change, so move fast on them."
+      - id: q3
+        kind: single
+        prompt: "A candidate says 'the requirements were unclear, so the project was delayed by a month.' What is the main weakness?"
+        options:
+          - It is too short.
+          - It presents ambiguity as an excuse rather than describing how they created clarity.
+          - It mentions a delay.
+          - It does not name the product manager.
+        answer: [1]
+        explanation: "The question asks how you handle ambiguity. Blaming it for a delay without describing any action shows the opposite of the competency."
+      - id: q4
+        kind: single
+        prompt: Which is the best example of testing the riskiest unknown cheaply?
+        options:
+          - Building the full pipeline and checking the result at the end.
+          - A one-day query against last month's data to see whether it reconciles with the ledger.
+          - Asking a colleague whether they think it will work.
+          - Reading documentation about data warehouses.
+        answer: [1]
+        explanation: "A small experiment against real data gives evidence quickly. Building everything first delays the test; opinions and generic reading do not test your specific risk."
+      - id: q5
+        kind: short
+        prompt: Why share written assumptions with stakeholders early?
+        model_answer: "Written assumptions are concrete enough for people to correct (they react to 'refunds count in the month issued' more readily than to 'what are the rules?'), they catch wrong assumptions before you build on them, and they leave a record that makes later changes of direction cheaper and less contentious."
+        explanation: It turns an open question into a cheap correction.
+- key: beh.ambiguity.story
+  type: behavioral_question
+  title: "Story: unclear requirements"
+  skills: [behavioral.ambiguity]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: STORY_REHEARSAL, time_limit_seconds: 180}
+  body:
+    prompt: Tell me about a time you had to deliver something when the requirements were unclear or kept changing.
+    competency: Handling ambiguity
+    look_for:
+      - Describes the vague starting point concretely.
+      - Explains how they found the real goal, ideally as a measurable outcome.
+      - Mentions written assumptions or options shared with stakeholders.
+      - Shows a cheap test of the riskiest unknown or a thin first release.
+      - Gives a result with a number that shows the clarified goal was met.
+    pitfalls:
+      - Using ambiguity as the excuse for a delay.
+      - A story where someone else created all the clarity.
+    follow_ups:
+      - prompt: Which of your assumptions turned out wrong, and when did you find out?
+        look_for: A specific wrong assumption caught early by the method, and its cost.
+      - prompt: How did you decide you knew enough to start building?
+        look_for: The remaining unknowns were reversible or testable; irreversible ones were settled first.
+      - prompt: What would you have done if the stakeholder never replied?
+        look_for: Proceed on documented, reversible assumptions and escalate through their lead if a blocking decision remained.
+- key: beh.ambiguity.story_2
+  type: behavioral_question
+  title: "Story: an inherited system or a problem nobody understood"
+  skills: [behavioral.ambiguity, behavioral.ownership]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: STORY_REHEARSAL, time_limit_seconds: 180}
+  body:
+    prompt: Tell me about a time you had to work on a system or a problem that nobody fully understood, such as an undocumented legacy service or an intermittent bug with no clear cause.
+    competency: Creating clarity in an unknown system
+    look_for:
+      - Explains what was unknown and why it mattered, with an effect such as incidents or blocked work.
+      - Describes a structured approach (hypotheses, logs and metrics, reading code paths, reproducing).
+      - Shows how they narrowed the space with evidence rather than guessing.
+      - Mentions what they wrote down or built so others would not start from zero.
+      - Gives a result with a number (incidents reduced, time to change reduced).
+    pitfalls:
+      - "A lucky guess presented as a method."
+      - No artefact left behind for the team.
+    follow_ups:
+      - prompt: What was your first hypothesis, and how did you test it?
+        look_for: A specific hypothesis and a cheap experiment or log query.
+      - prompt: How did you know when to stop investigating and act?
+        look_for: Enough evidence to act safely, or a mitigation that bought time.
+      - prompt: What did you leave for the next engineer?
+        look_for: Notes, a diagram, a runbook, tests or alerts.
+- key: beh.ambiguity.cards
+  type: revision_card
+  title: "Recall: handling ambiguity"
+  skills: [behavioral.ambiguity]
+  minutes: 4
+  body:
+    cards:
+      - front: First move on a vague request?
+        back: Find the decision or outcome it serves and make it measurable.
+      - front: How to surface wrong assumptions early?
+        back: Write them down and ask stakeholders to correct them by a date.
+      - front: Where to slow down under ambiguity?
+        back: On irreversible decisions such as data models and public APIs.
+      - front: Cheapest way to learn the real need?
+        back: Ship a thin slice to the real user.
+
+# ---------------------------------------------------------------------------------------------- difficult decisions
+- key: beh.decision.lesson
+  type: lesson
+  title: Difficult decisions and the trade-offs behind them
+  skills: [behavioral.difficult_decision]
+  minutes: 18
+  difficulty: MEDIUM
+  body:
+    summary: A decision story shows the options, the criteria, the evidence, who you consulted, how reversible it was, and whether you would make the same call again.
+    what: |-
+      Difficult-decision questions ask about a choice where every option had a real cost: roll back or fix forward during an incident, delay a launch to protect data integrity, deprecate a feature some customers use, rewrite versus refactor, accept technical debt to hit a date. The signal is your reasoning, not whether the outcome was lucky.
+    why: |-
+      Engineers make trade-offs every day; seniority shows in how well they reason about them under uncertainty and pressure. Interviewers want to see that you can name options, weigh them against explicit criteria, involve the right people, decide in time, and evaluate the decision honestly afterwards.
+    when: |-
+      "Tell me about a difficult decision you made", "a time you had to choose between two good options", "a decision with incomplete data", "an unpopular decision", "a time you had to trade quality for speed".
+    how: |-
+      1. **State the decision and the stakes** in the headline.
+      2. **Name two or three real options**, each with its strongest argument.
+      3. **Give the criteria** you used (user impact, data safety, reversibility, cost, time) and which one dominated.
+      4. **Show the evidence** you gathered within the time you had, and what you could not know.
+      5. **Say who you consulted** and who decided.
+      6. **Describe how you reduced the downside** of the chosen option (a flag, a rollback plan, a communication).
+      7. **Evaluate honestly**: was it the right call, and would you make it again with the same information?
+    mental_model: |-
+      Judge decisions by the quality of the reasoning given the information available, not by the outcome alone. A good decision can turn out badly through bad luck, and a bad one can work out; interviewers want to hear that you know the difference.
+    tradeoffs: |-
+      Deciding fast limits damage in an incident but risks a wrong call; gathering more data improves the call but can cost more than the error would. Reversible decisions should be made quickly and revisited; irreversible ones deserve more evidence and more people. Involving many people builds support but slows the decision; name who really needed to be in the room.
+    mistakes:
+      - A decision with an obvious right answer (no real trade-off).
+      - Only one option described.
+      - Judging the decision purely by the lucky outcome.
+      - Leaving out who else was involved, or claiming a team decision as a solo one.
+      - No reflection on whether it was right.
+    interview: |-
+      Expect "what was the strongest case for the other option?", "what data did you wish you had?", "would you decide the same way today?". Strong candidates answer the last one with nuance: "same call, but I would have communicated it a day earlier".
+    explain_it:
+      - The decision and why it was hard.
+      - Options with their strongest arguments.
+      - The dominant criterion and the evidence.
+      - How the downside was reduced.
+      - Whether you would decide the same way, and why.
+    example:
+      language: text
+      code: |-
+        Question: Tell me about a difficult decision you had to make.
+
+        Headline:   I decided to delay a payout feature launch by a week, against pressure to ship,
+                    because a reconciliation test showed a rounding mismatch on refunds.
+        Situation:  Marketing had announced the launch date to about 300 merchants.
+        Task:       I was the backend owner and had sign-off on the payouts service.
+        Action:     - Two days before launch, the reconciliation job found payouts differing from
+                      the ledger by one cent on about 2 percent of orders with partial refunds.
+                    - Options: ship and fix forward; ship with partial refunds disabled; delay.
+                    - Criterion that dominated: money errors are hard to reverse and erode merchant
+                      trust; a date slip is recoverable.
+                    - Disabling partial refunds was not possible for existing merchants' flows, so
+                      I recommended a one-week delay to my manager and product, with the data.
+                    - Fixed the cause: amounts were computed with floats in one path; I switched it
+                      to integer minor units and added a property-based test over refund splits.
+        Result:     Launched one week later with zero reconciliation differences.
+        Metrics:    First month: about 41,000 payouts, zero mismatches.
+        Trade-offs: The delay cost goodwill with marketing; I joined the call to explain it to the
+                    account managers.
+        Reflection: Same decision today. I would run the reconciliation job a week earlier in the
+                    plan so the decision is not made two days before a public date.
+      explanation: Three real options, an explicit dominant criterion, the downside managed, and an honest evaluation that separates the decision from its timing.
+    internals: |-
+      What interviewers typically listen for: genuine trade-offs, structured reasoning, appropriate speed for the reversibility, stakeholder involvement, ownership of the call and its consequences, and calibrated reflection.
+    edge_cases:
+      - "A decision that turned out wrong: still a good story if the reasoning was sound and you show what you learned."
+      - "A decision made by someone else that you executed: describe your input and how you carried it out."
+    misconceptions:
+      - A good decision is one that worked out. It is one that was well reasoned with the information available.
+- key: beh.decision.check
+  type: concept_check
+  title: "Concept check: judging decision answers"
+  skills: [behavioral.difficult_decision]
+  minutes: 8
+  difficulty: MEDIUM
+  body:
+    intro: Judge each sample from an answer to "tell me about a difficult decision".
+    questions:
+      - id: q1
+        kind: single
+        prompt: Which decision is the best material for this question?
+        options:
+          - "Choosing to fix a bug that was crashing the app."
+          - "Choosing between delaying a payout launch or shipping with a known one-cent reconciliation mismatch on partial refunds."
+          - "Choosing which IDE to use."
+          - "Choosing to follow my manager's instruction."
+        answer: [1]
+        explanation: "Only the second has real costs on both sides. Fixing a crash and picking an IDE have obvious answers, and following instructions shows no decision."
+      - id: q2
+        kind: single
+        prompt: "During an incident a candidate rolled back rather than hot-fixing, and the rollback lost a day of a new feature. Which reflection is strongest?"
+        options:
+          - "It worked, so it was obviously right."
+          - "The rollback restored service in minutes with a known-good version; a hot-fix under pressure risked a second failure. Same call today, though I would add a feature flag so next time only the feature is switched off."
+          - "My manager agreed, so it was right."
+          - "I'm not sure; I just did what felt right."
+        answer: [1]
+        explanation: "The second explains the reasoning and improves the option set for next time. Outcome-only and authority-only justifications skip the reasoning, and 'felt right' shows none."
+      - id: q3
+        kind: multi
+        prompt: Which elements belong in a strong difficult-decision answer?
+        options:
+          - Two or three options with their strongest arguments.
+          - The criterion that dominated and why.
+          - How the downside of the chosen option was reduced.
+          - A claim that the other options were obviously bad.
+        answer: [0, 1, 2]
+        explanation: "If the other options were obviously bad, the decision was not difficult. Fair options, a dominant criterion and mitigation are the core of the answer."
+      - id: q4
+        kind: single
+        prompt: How should decision speed relate to reversibility?
+        options:
+          - Always decide slowly to be safe.
+          - Always decide fast to show confidence.
+          - Decide reversible things fast and revisit; spend more evidence and people on irreversible ones.
+          - Reversibility does not matter.
+        answer: [2]
+        explanation: "Matching care to reversibility is the core judgement. Uniformly slow wastes time on cheap choices; uniformly fast risks costly, permanent mistakes."
+      - id: q5
+        kind: short
+        prompt: Why can a decision that turned out badly still be a strong interview story?
+        model_answer: "Because decisions are judged by the reasoning given the information available. If the options, criteria and evidence were sound and you explain what you could not have known, plus what you learned or changed, it shows good judgement and honest reflection."
+        explanation: Separating decision quality from outcome is itself a signal of maturity.
+- key: beh.decision.story
+  type: behavioral_question
+  title: "Story: a hard technical trade-off"
+  skills: [behavioral.difficult_decision]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: STORY_REHEARSAL, time_limit_seconds: 180}
+  body:
+    prompt: Tell me about a difficult technical decision you made where every option had a real cost.
+    competency: Decision-making under trade-offs
+    look_for:
+      - States the decision and the stakes in the opening.
+      - Describes at least two options with their strongest arguments.
+      - Names the dominant criterion and the evidence used.
+      - Says who was consulted and who decided.
+      - Explains how the downside of the chosen option was reduced.
+      - Evaluates the decision honestly, separating reasoning from outcome.
+    pitfalls:
+      - A decision with an obvious answer.
+      - Justifying by outcome alone.
+    follow_ups:
+      - prompt: What was the strongest case for the option you rejected?
+        look_for: A fair and specific argument.
+      - prompt: What information did you wish you had?
+        look_for: Names the missing data and why it was unavailable in time.
+      - prompt: Would you make the same decision today?
+        look_for: A nuanced answer that distinguishes the call from its execution or timing.
+- key: beh.decision.story_2
+  type: behavioral_question
+  title: "Story: an unpopular decision"
+  skills: [behavioral.difficult_decision, behavioral.conflict_disagreement]
+  minutes: 15
+  difficulty: HARD
+  observation: {kind: STORY_REHEARSAL, time_limit_seconds: 180}
+  body:
+    prompt: Tell me about a time you made or recommended a decision you knew would be unpopular with your team or stakeholders.
+    competency: Making and communicating unpopular decisions
+    look_for:
+      - Explains why the decision was necessary, with a number or concrete risk.
+      - Shows they understood who would be unhappy and why.
+      - Describes how they communicated it (directly, early, with the reasoning).
+      - Mentions what they did to reduce the pain for those affected.
+      - Describes the aftermath and the relationship honestly.
+    pitfalls:
+      - Presenting the unhappy people as unreasonable.
+      - Avoiding the conversation and letting someone else deliver the news.
+    follow_ups:
+      - prompt: Who was most affected, and what did you do for them?
+        look_for: A concrete accommodation or support.
+      - prompt: How did you communicate it, and when?
+        look_for: Early, direct, with reasons and data; not by surprise.
+      - prompt: Did anyone change your mind on any part of it?
+        look_for: Openness to feedback on details even when the core decision stood.
+- key: beh.decision.cards
+  type: revision_card
+  title: "Recall: difficult decisions"
+  skills: [behavioral.difficult_decision]
+  minutes: 4
+  body:
+    cards:
+      - front: What makes a decision difficult enough for this question?
+        back: Every option has a real cost.
+      - front: How to judge a past decision?
+        back: By the reasoning given the information then, not by the outcome alone.
+      - front: Speed versus reversibility?
+        back: Fast on reversible, careful on irreversible.
+      - front: Strongest answer to "would you decide the same way"?
+        back: A nuanced yes or no that separates the call from its timing or execution.
+
+# ---------------------------------------------------------------------------------------------- prioritization and deadlines
+- key: beh.prioritization.lesson
+  type: lesson
+  title: Prioritising under deadlines and competing requests
+  skills: [behavioral.prioritization]
+  minutes: 18
+  difficulty: MEDIUM
+  body:
+    summary: A prioritisation story shows how you compared competing work by impact and urgency, cut scope rather than quality, said no with alternatives, and made the trade-off visible to the people affected.
+    what: |-
+      Prioritisation questions ask what you do when there is more work than time: a tight deadline, three stakeholders each with an "urgent" request, a choice between features and technical debt, or an incident during a release week. The signal is the reasoning you used and how you communicated it.
+    why: |-
+      Engineers who work on whatever arrives last, or on whatever is most interesting, waste effort on low-value work and miss commitments. Teams need SDE-2 engineers to prioritise their own work and push back with alternatives. Interviewers listen for an explicit method and for honesty about what was dropped.
+    when: |-
+      "Tell me about a time you had a tight deadline", "competing priorities", "a time you had to say no", "how do you balance technical debt and features", "a time you had too much on your plate".
+    how: |-
+      1. **List the work** and, for each item, the impact (users, revenue, risk) and the cost of delay (what gets worse each week it waits).
+      2. **Separate urgent from important.** An incident is both; a refactor is important but rarely urgent unless it blocks something.
+      3. **Cut scope before quality.** Ship the must-have part first; defer the nice-to-have; keep tests, monitoring and data safety.
+      4. **Say no with an alternative**: "I can't do both by Friday. I can do the export by Friday and the dashboard next Wednesday, or the dashboard by Friday if the export can wait."
+      5. **Make the trade-off visible** to the people affected and let the right person (your lead, the PM) confirm it.
+      6. **Track and re-plan** when new information arrives, and report early if a date is at risk.
+      7. For technical debt, **tie it to a cost** (incidents, slow delivery, on-call hours) so it competes on the same terms as features.
+    mental_model: |-
+      Prioritisation is choosing what not to do. If your story does not name something you deliberately dropped or deferred, it is a story about working hard, not about prioritising.
+    tradeoffs: |-
+      A simple impact-and-urgency ranking is fast and explainable but can undervalue slow-burning risks such as tech debt; give those a cost. Deferring scope keeps the date but may disappoint a stakeholder, so agree it with them rather than surprising them. Working extra hours can rescue one deadline but is not a method, and a story that relies on it is weak.
+    mistakes:
+      - "A story that is really about working long hours."
+      - Not naming anything that was dropped or deferred.
+      - Cutting tests or monitoring to hit a date and presenting it as prioritisation.
+      - Deciding alone what other stakeholders lose, without telling them.
+      - Raising a date risk at the last minute.
+    interview: |-
+      Probes: "what did you drop?", "how did the stakeholder you said no to react?", "what would you have done with half the time?", "how do you decide between tech debt and a feature?". Concrete numbers about impact and cost of delay make the reasoning credible.
+    explain_it:
+      - The competing work and the constraint.
+      - How each item was compared (impact, cost of delay).
+      - What was cut or deferred, and what was protected.
+      - How the trade-off was communicated and confirmed.
+      - The outcome against the deadline, with numbers.
+    example:
+      language: text
+      code: |-
+        Question: Tell me about a time you had to deliver against a tight deadline.
+
+        Headline:   With three weeks for a six-week estimate, I proposed a scope split that shipped
+                    the part the partner needed on the date and the rest two weeks later.
+        Situation:  A partner integration (an order-status webhook plus a reconciliation report)
+                    had a contractual go-live date, and the date was fixed after the estimate.
+        Task:       I was the backend lead for the integration, working with one other engineer.
+        Action:     - Listed the pieces with the partner's account manager: the webhook was needed
+                      on day one; the report was used monthly, first at the end of the month.
+                    - Proposed shipping webhook plus a manual CSV for the first report, and the
+                      automated report two weeks later; product and the partner agreed in writing.
+                    - Protected quality where it mattered: retries with idempotency keys and an
+                      alert on webhook failure rate stayed in scope; an admin UI was deferred.
+                    - Posted a short status every Monday and Thursday with risks in red.
+        Result:     Webhook live on the contractual date; automated report two weeks later.
+        Metrics:    Webhook delivery success above 99 percent in the first month; one manual CSV
+                    produced, taking about two hours.
+        Trade-offs: Two hours of manual work and no admin UI for a quarter.
+        Reflection: I would ask for the partner's usage pattern before estimating; it was the
+                    key fact that made the split obvious.
+      explanation: The candidate prioritises by when each piece is actually needed, cuts scope rather than reliability, and gets the trade-off agreed by the people affected.
+    internals: |-
+      What interviewers typically listen for: an explicit comparison method, a named sacrifice, protection of quality and safety, stakeholder communication, early risk reporting and a result against the constraint.
+    edge_cases:
+      - "Everything is truly required: negotiate the date or resources with data, and make the risk explicit."
+      - "Two managers give conflicting priorities: make the conflict visible to both and ask them to agree, with your recommendation."
+    misconceptions:
+      - Meeting a deadline by working nights shows prioritisation. It shows effort; prioritisation is choosing what not to do.
+      - Saying no is unhelpful. Saying no with options is one of the most useful things an engineer can do.
+- key: beh.prioritization.check
+  type: concept_check
+  title: "Concept check: judging prioritisation answers"
+  skills: [behavioral.prioritization]
+  minutes: 8
+  difficulty: MEDIUM
+  body:
+    intro: Judge each sample from an answer about deadlines or competing priorities.
+    questions:
+      - id: q1
+        kind: single
+        prompt: Which answer best shows prioritisation under a tight deadline?
+        options:
+          - "We all worked weekends for three weeks and made it."
+          - "I split the work by when each part was actually needed, shipped the webhook on the date, deferred the report two weeks with the partner's agreement, and kept retries and alerting in scope."
+          - "I cut the tests so we could ship on time."
+          - "I asked for the deadline to be moved."
+        answer: [1]
+        explanation: "The second names the method, the sacrifice, what was protected and the agreement. Weekends are effort, cutting tests trades away quality silently, and asking for a new date without options is not prioritising."
+      - id: q2
+        kind: single
+        prompt: "Two stakeholders each say their request is urgent and you can do one this week. What is the best move?"
+        options:
+          - Do the one from the more senior person.
+          - Do whichever is more interesting.
+          - Compare impact and cost of delay, recommend an order, and make the trade-off visible to both so the right person can confirm it.
+          - Do half of each.
+        answer: [2]
+        explanation: "An explicit comparison plus transparent confirmation resolves the conflict without hidden losers. Seniority and interest are not criteria, and half of each often delivers neither."
+      - id: q3
+        kind: multi
+        prompt: Which items should usually be protected when cutting scope to meet a date?
+        options:
+          - Data integrity checks.
+          - Monitoring and alerting for the new path.
+          - An admin UI for internal staff.
+          - Idempotency for operations that may be retried.
+        answer: [0, 1, 3]
+        explanation: "Data safety, observability and idempotency prevent costly, hard-to-reverse failures. An internal admin UI is usually deferrable with a manual workaround."
+      - id: q4
+        kind: single
+        prompt: How do you make technical debt compete fairly with feature work?
+        options:
+          - Insist that clean code is always the priority.
+          - Tie it to a measurable cost, such as incidents, on-call hours or slower delivery, and compare it on the same terms.
+          - Do it secretly inside feature tickets.
+          - Wait until it causes an outage.
+        answer: [1]
+        explanation: "Quantifying the cost puts debt in the same currency as features. Dogma, hiding work and waiting for an outage all avoid the comparison."
+      - id: q5
+        kind: short
+        prompt: "Rewrite this as a 'no with an alternative': 'I can't take that on this sprint.'"
+        model_answer: "I can't do both the export and the dashboard by Friday. I can do the export by Friday and the dashboard by next Wednesday, or swap them if the dashboard matters more. Which helps you most?"
+        explanation: An alternative turns a refusal into a decision the stakeholder can make.
+- key: beh.prioritization.story
+  type: behavioral_question
+  title: "Story: a tight deadline"
+  skills: [behavioral.prioritization]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: STORY_REHEARSAL, time_limit_seconds: 180}
+  body:
+    prompt: Tell me about a time you had to deliver against a deadline that was tighter than the work required.
+    competency: Prioritisation under deadlines
+    look_for:
+      - States the gap between the work and the time, with numbers.
+      - Describes how the work was compared or split (by need, impact, cost of delay).
+      - Names what was cut or deferred and what was protected.
+      - Shows the trade-off was agreed with the people affected.
+      - Mentions early, regular communication of risk.
+      - Gives the outcome against the deadline and the cost of the trade-off.
+    pitfalls:
+      - A story about working extra hours.
+      - Quality cut silently.
+    follow_ups:
+      - prompt: What did you drop, and who was unhappy about it?
+        look_for: A specific item and how the affected person was handled.
+      - prompt: What would you have done with half the time?
+        look_for: A further, reasoned cut that still protects safety; or a clear case for moving the date.
+      - prompt: How did you know early whether you were on track?
+        look_for: A tracking mechanism (milestones, checkpoints, burndown) and a threshold for raising risk.
+- key: beh.prioritization.story_2
+  type: behavioral_question
+  title: "Story: competing priorities from several stakeholders"
+  skills: [behavioral.prioritization, behavioral.conflict_disagreement]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: STORY_REHEARSAL, time_limit_seconds: 180}
+  body:
+    prompt: Tell me about a time several people needed different things from you at the same time and you could not do them all.
+    competency: Managing competing priorities
+    look_for:
+      - Describes the competing requests and why each mattered to its requester.
+      - Uses an explicit comparison (impact, urgency, dependencies), not seniority or interest.
+      - Makes the trade-off visible to all requesters and has the right person confirm it.
+      - Offers alternatives to those who waited (a date, a workaround, someone else).
+      - Gives the outcome and how relationships held up.
+    pitfalls:
+      - Saying yes to everything and missing commitments.
+      - Deciding silently who loses.
+    follow_ups:
+      - prompt: How did the person whose request waited react?
+        look_for: An honest account and what was offered to them.
+      - prompt: Who made the final call, and why them?
+        look_for: The right decision owner (lead, PM), with the candidate's recommendation.
+      - prompt: How do you stop this situation recurring?
+        look_for: A visible queue, planning with stakeholders, or intake rules.
+- key: beh.prioritization.story_3
+  type: behavioral_question
+  title: "Story: technical debt versus features"
+  skills: [behavioral.prioritization, behavioral.influence_leadership]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: STORY_REHEARSAL, time_limit_seconds: 180}
+  body:
+    prompt: Tell me about a time you argued for paying down technical debt instead of building a feature, or the other way round.
+    competency: Balancing technical debt and delivery
+    look_for:
+      - Quantifies the cost of the debt (incidents, on-call hours, slower changes) with numbers.
+      - Compares it with the feature's value in the same terms.
+      - Proposes a scoped plan (incremental, time-boxed) rather than a big rewrite.
+      - Shows how the decision was agreed with product or the lead.
+      - Gives the measured result after the work.
+    pitfalls:
+      - Arguing from code aesthetics alone.
+      - Proposing a full rewrite with no incremental path.
+    follow_ups:
+      - prompt: How did you measure the cost of the debt?
+        look_for: A concrete source (incident tracker, on-call log, lead time for changes).
+      - prompt: What did the product manager give up, and was it worth it?
+        look_for: A named trade-off and a result that justified it, or an honest admission it did not.
+      - prompt: How do you keep debt from building up again?
+        look_for: A mechanism such as a regular allocation, a review checklist or a metric.
+- key: beh.prioritization.cards
+  type: revision_card
+  title: "Recall: prioritisation"
+  skills: [behavioral.prioritization]
+  minutes: 4
+  body:
+    cards:
+      - front: Two dimensions for comparing work?
+        back: Impact and cost of delay.
+      - front: Under a deadline, cut what first?
+        back: Scope, never data safety, tests or monitoring.
+      - front: How to say no?
+        back: With an alternative the stakeholder can choose.
+      - front: How does tech debt compete with features?
+        back: Measured in the same currency, such as incidents, hours or lead time.
+      - front: Sign a story is not about prioritisation?
+        back: Nothing was dropped or deferred; it is about working hard.
+
+# ---------------------------------------------------------------------------------------------- why change
+- key: beh.why_change.lesson
+  type: lesson
+  title: Why change, answered honestly and looking forward
+  skills: [behavioral.why_change]
+  minutes: 15
+  difficulty: EASY
+  body:
+    summary: A good why-change answer is honest, moves towards something specific rather than away from something, never criticises your employer, and connects what you want next to what the role actually involves.
+    what: |-
+      "Why are you looking for a change?", "why this company?" and "why now?" test motivation and fit. They are also integrity checks: interviewers notice when the answer is generic, rehearsed to the point of emptiness, or quietly negative about the current employer.
+    why: |-
+      Teams want people who will stay and do well in the role, not people escaping a bad situation into any job. A forward-looking answer shows you have thought about your career and the role. A negative one raises the worry that you will say the same about this team in a year.
+    when: |-
+      Usually near the start (after the introduction) or near the end of a round; also in hiring-manager conversations, and whenever your CV raises a question (short tenure, long tenure, a gap, a domain switch).
+    how: |-
+      1. **Start from what you want next**, concretely: "own a backend system end to end", "work on larger-scale data problems", "move from a services company to product work where I see users' metrics".
+      2. **Give one honest reason it is hard to get where you are**, stated neutrally: "my current team's scope is mostly maintenance of a stable system", not "my manager doesn't value me".
+      3. **Connect to the role** using things you have actually verified: the job description, the company's public product, engineering blog posts, what the interviewer told you. Do not invent facts about the company.
+      4. **Keep it short**: three to five sentences.
+      5. **Prepare for the hard version**: layoffs, short tenure, a gap, or compensation. Be honest and brief, then return to what you want next.
+    mental_model: |-
+      Pull, not push. Talk about what pulls you towards the next role; mention what pushes you away from the current one only in neutral, factual terms, and only enough to explain the timing.
+    tradeoffs: |-
+      Complete candour about frustrations can sound bitter; complete polish can sound rehearsed. Aim for honest and specific. Mentioning compensation as a reason is acceptable when it is true, but leading with it can suggest it is the only reason; mention it as one factor if asked. Tailoring to the company helps, but only with facts you can stand behind.
+    mistakes:
+      - Criticising the current manager, team or company.
+      - "Generic answers ('looking for new challenges', 'growth') with nothing specific."
+      - Inventing facts about the company you are interviewing with.
+      - A different reason in every round, which interviewers may compare.
+      - A long defensive explanation of a layoff or short tenure.
+    interview: |-
+      Follow-ups: "what would make you stay where you are?", "why this role rather than a promotion internally?", "what do you know about what this team works on?". Answers should stay consistent with your self-introduction's closing sentence.
+    explain_it:
+      - What you want next, concretely.
+      - One neutral reason it is hard to get where you are.
+      - The verified link to this role.
+      - Three to five sentences, consistent across rounds.
+    example:
+      language: text
+      code: |-
+        "I've spent three years on our payments team, and I'm proud of what we built: refunds and
+        reconciliation now run with very few incidents. The system is stable, and most of my work
+        for the past year has been maintenance and small features. What I want next is to own a
+        larger backend system that is still growing, and to do more design work at scale. This
+        role's description talks about owning services end to end, and the engineer I spoke to
+        described the order platform migration you're planning, which is the kind of work I want
+        to be doing."
+
+        Seven-part view (the story behind the answer, used if probed):
+        Situation   stable payments platform, mostly maintenance
+        Task        decide what growth looks like next
+        Action      asked my lead about larger scope; internal options were a year away
+        Result      decided to look externally for a design-heavy backend role
+        Metrics     owned two services; incidents on them down to about one a quarter
+        Trade-offs  leaving a team I like and a domain I know well
+        Reflection  I want scope growth, not just a new title
+      explanation: The answer is pull-based, neutral about the current employer, consistent with the introduction, and cites only things the candidate learned from the job description and the interviewer.
+    edge_cases:
+      - "Laid off: one factual sentence ('my role was part of a reduction affecting the whole platform team'), then what you want next."
+      - "Short tenure: be honest about the mismatch without blame, and show what you learned about choosing roles."
+      - "Long tenure at one company: explain why you stayed (growth there) and why now is the moment to change."
+      - "Compensation is part of it: say so briefly if asked, alongside the role-related reasons."
+    misconceptions:
+      - Interviewers want to hear that you love the company above all. They want an honest, specific reason that fits the role.
+      - Admitting any dissatisfaction is a red flag. A neutral, factual reason is normal; criticism is the problem.
+- key: beh.why_change.check
+  type: concept_check
+  title: "Concept check: judging why-change answers"
+  skills: [behavioral.why_change]
+  minutes: 6
+  difficulty: EASY
+  body:
+    intro: Judge each sample answer as a hiring manager would.
+    questions:
+      - id: q1
+        kind: single
+        prompt: Which answer to "why are you looking for a change?" is strongest?
+        options:
+          - "My manager doesn't value my work and the codebase is a mess."
+          - "I'm looking for new challenges and growth."
+          - "My current system is stable and mostly in maintenance; I want to own a growing backend system and do more design at scale, which is what this role describes."
+          - "Honestly, mostly the salary."
+        answer: [2]
+        explanation: "The third is specific, neutral and connected to the role. The first criticises the employer, the second is generic, and leading with salary alone suggests it is the only reason."
+      - id: q2
+        kind: multi
+        prompt: Which sources are safe to use when explaining "why this company"?
+        options:
+          - The job description.
+          - What the interviewer told you about the team's work.
+          - A rumour from a forum about the company's interview process.
+          - The company's public product and engineering blog posts.
+        answer: [0, 1, 3]
+        explanation: "Use facts you can stand behind. Forum rumours may be wrong and citing them can backfire."
+      - id: q3
+        kind: single
+        prompt: "A candidate was laid off. Which opening is best?"
+        options:
+          - "It was a terrible company and they made bad decisions."
+          - "My role was part of a reduction across the platform team in March. What I'm looking for next is…"
+          - A five-minute explanation of the company's finances.
+          - Avoid mentioning it and hope it does not come up.
+        answer: [1]
+        explanation: "One factual, neutral sentence then a forward-looking pivot is enough. Bitterness, long explanations and avoidance all draw more attention to it."
+      - id: q4
+        kind: single
+        prompt: Why should the why-change answer stay consistent across interview rounds?
+        options:
+          - It does not need to.
+          - Interviewers may compare notes, and different reasons in different rounds undermine credibility.
+          - Because the recruiter wrote it down.
+          - To save preparation time.
+        answer: [1]
+        explanation: "Interviewers often share feedback. A consistent, honest answer reinforces itself; contradictions make every other claim look less reliable."
+      - id: q5
+        kind: short
+        prompt: "Explain 'pull, not push' in one or two sentences."
+        model_answer: "Lead with what draws you to the next role (scope, domain, kind of work) rather than what drives you away from the current one; mention the current situation only neutrally and only to explain the timing."
+        explanation: Pull-based answers sound motivated; push-based answers sound like escape.
+- key: beh.why_change.story
+  type: behavioral_question
+  title: "Practice: why are you looking for a change?"
+  skills: [behavioral.why_change]
+  minutes: 10
+  difficulty: EASY
+  observation: {kind: STORY_REHEARSAL, time_limit_seconds: 180}
+  body:
+    prompt: Why are you looking to leave your current role, and why now?
+    competency: Honest, forward-looking motivation
+    look_for:
+      - Leads with what they want next, specifically.
+      - Gives a neutral, factual reason for the timing, without criticising the employer.
+      - Connects the reason to the role using verifiable facts.
+      - Stays consistent with the closing of their self-introduction.
+      - Keeps the answer to about three to five sentences.
+    pitfalls:
+      - Generic growth language.
+      - Negative comments about the manager or team.
+    follow_ups:
+      - prompt: What would make you stay where you are?
+        look_for: An honest answer that confirms the stated reason (for example, scope that is not available there).
+      - prompt: Have you tried to get that inside your current company?
+        look_for: A concrete attempt and a neutral explanation of why it is not available soon.
+      - prompt: What would make you leave this role after a year?
+        look_for: An honest, reasonable answer tied to the same values, without promising never to leave.
+- key: beh.why_change.story_2
+  type: behavioral_question
+  title: "Practice: why this role, and the hard version"
+  skills: [behavioral.why_change, behavioral.self_introduction]
+  minutes: 10
+  difficulty: MEDIUM
+  observation: {kind: STORY_REHEARSAL, time_limit_seconds: 180}
+  body:
+    prompt: "Why this role? Then answer the hard version that applies to you: short tenure, a long time at one company, a layoff, or a career gap."
+    competency: Motivation and handling a sensitive career question
+    look_for:
+      - Names specific aspects of the role taken from verifiable sources, not invented claims.
+      - Links those aspects to their own experience or goals.
+      - Handles the sensitive point in one or two honest, neutral sentences.
+      - Pivots back to what they want next without being defensive.
+      - Does not criticise past employers.
+    pitfalls:
+      - Flattery about the company with no specifics.
+      - A long defensive account of the sensitive point.
+    follow_ups:
+      - prompt: What do you think the hardest part of this role would be for you?
+        look_for: An honest gap with a plan to close it.
+      - prompt: What did you learn about choosing roles from your last move?
+        look_for: A concrete lesson that is visible in how they are choosing now.
+      - prompt: What are you looking for in your next manager or team?
+        look_for: Specific, reasonable expectations consistent with their stated motivation.
+- key: beh.why_change.cards
+  type: revision_card
+  title: "Recall: why change"
+  skills: [behavioral.why_change]
+  minutes: 4
+  body:
+    cards:
+      - front: Principle for why-change answers?
+        back: Pull, not push.
+      - front: How to mention the current employer?
+        back: Neutrally and factually, only to explain timing.
+      - front: Safe sources for "why this company"?
+        back: Job description, public product, engineering posts, what the interviewer said.
+      - front: How long should the answer be?
+        back: Three to five sentences, consistent across rounds.
+      - front: Laid off — how to say it?
+        back: One factual sentence, then what you want next.

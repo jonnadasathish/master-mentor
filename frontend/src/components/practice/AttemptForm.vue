@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, reactive, ref } from 'vue'
 import type { ApiClient } from '../../api/client'
 import { ApiError } from '../../api/client'
-import type { Effects, ProblemAttempt, SkillDelta } from '../../api/types'
+import type { Effects, ProblemAttempt, SkillDelta, StepResult } from '../../api/types'
 import Icon from '../common/Icon.vue'
 import SkillDeltas from '../missions/SkillDeltas.vue'
 import { buildAttemptPayload, emptyForm, formErrors, formFromAttempt, newRequestId } from '../../practice/payload'
@@ -24,8 +24,13 @@ const props = defineProps<{
   startLogging?: boolean
   /** Minutes to prefill when the caller timed the attempt. */
   suggestedMinutes?: number | null
+  /** A learning-session step: the attempt completes that step (LEARNING_ENGINE §5). */
+  sessionStep?: { sessionId: number; position: number }
 }>()
-const emit = defineEmits<{ recorded: [attempt: ProblemAttempt, effects?: Effects] }>()
+const emit = defineEmits<{
+  recorded: [attempt: ProblemAttempt, effects?: Effects]
+  step: [result: StepResult, effects?: Effects]
+}>()
 
 const clockNow = () => (props.now ? props.now() : Date.now())
 const form = reactive(props.correctionOf ? formFromAttempt(props.correctionOf) : emptyForm())
@@ -92,6 +97,16 @@ async function save(): Promise<void> {
       deltas.value = envelope.effects?.skill_deltas ?? []
       effects = envelope.effects
       attempt = envelope.data
+    } else if (props.sessionStep) {
+      const { sessionId, position } = props.sessionStep
+      const envelope = await props.client.post<StepResult>(
+        `/learning/sessions/${sessionId}/steps/${position}/complete`,
+        { attempt: body },
+      )
+      deltas.value = envelope.effects?.skill_deltas ?? []
+      phase.value = 'saved'
+      emit('step', envelope.data, envelope.effects)
+      return
     } else if (props.planItemId !== undefined) {
       // Completing a plan item: the server links the observation (and battery/revision keys) to the item.
       const envelope = await props.client.post<{ observation: ProblemAttempt }>(

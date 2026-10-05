@@ -31,6 +31,12 @@ export const routes: RouteRecordRaw[] = [
     component: () => import('../views/TrackView.vue'),
     meta: { title: 'Prepare' },
   },
+  {
+    path: '/prepare/:slug(python|engineering|projects)',
+    name: 'curriculum',
+    component: () => import('../views/CurriculumView.vue'),
+    meta: { title: 'Prepare' },
+  },
   { path: '/log', name: 'log', component: () => import('../views/LogView.vue'), meta: { title: 'Log practice' } },
   {
     path: '/onboarding',
@@ -46,6 +52,13 @@ export const routes: RouteRecordRaw[] = [
   },
   { path: '/baseline', name: 'baseline', component: () => import('../views/BaselineView.vue'), meta: { title: 'Baseline' } },
   { path: '/skills/:key', name: 'skill', component: () => import('../views/SkillDetailView.vue'), meta: { title: 'Skill' } },
+  {
+    path: '/learn/session/:id(\\d+)',
+    name: 'session',
+    component: () => import('../views/learn/LearningSessionView.vue'),
+    meta: { title: 'Learning session' },
+  },
+  { path: '/learn/:key', name: 'learn', component: () => import('../views/learn/LearnContentView.vue'), meta: { title: 'Learn' } },
   { path: '/revise', name: 'revision', component: () => import('../views/RevisionView.vue'), meta: { title: 'Revise' } },
   { path: '/mocks', name: 'mocks', component: () => import('../views/MocksView.vue'), meta: { title: 'Mocks' } },
   { path: '/progress', name: 'progress', component: () => import('../views/ProgressView.vue'), meta: { title: 'Progress' } },

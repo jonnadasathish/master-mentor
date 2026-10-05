@@ -12,8 +12,21 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.domain.clock import FixedClock
 from app.models import AuditLog, CatalogLoad, Problem, RoadmapMilestoneSkill, RoleSkillTarget, Skill
-from app.services.seed_service import LoadReport, SeedLoader, SeedValidationError, lock_seed_dir
-from tests.catalog_helpers import SEED_DIR, bump_version, catalog_snapshot, clear_catalog, copy_seed
+from app.services.seed_service import (
+    LoadReport,
+    SeedLoader,
+    SeedValidationError,
+    lock_seed_dir,
+    validate_seed_dir,
+)
+from tests.catalog_helpers import (
+    SEED_DIR,
+    bump_version,
+    catalog_snapshot,
+    clear_catalog,
+    copy_seed,
+    retire_learning_skill,
+)
 
 pytestmark = pytest.mark.db
 CLOCK = FixedClock(datetime(2026, 10, 4, 12, 0, tzinfo=UTC))
@@ -30,6 +43,19 @@ EXPECTED = {
     "roadmap_milestone_skills": 133,
     "baseline_items": 12,
 }
+# Learning catalog counts follow the content files (they grow as content is authored); derived from the
+# validated catalog so this test checks that the loader writes exactly what was validated.
+_LEARNING = validate_seed_dir(SEED_DIR).catalog
+assert _LEARNING is not None
+_TOPICS = [p for t in _LEARNING.learning.tracks for p in t.topics]
+EXPECTED |= {
+    "learning_tracks": len(_LEARNING.learning.tracks),
+    "learning_topics": len(_TOPICS),
+    "learning_topic_skills": sum(len(p.skills) for p in _TOPICS),
+    "learning_content": len(_LEARNING.learning.content),
+    "learning_content_skills": sum(len(c.skills) for c in _LEARNING.learning.content),
+}
+LEARNING_FILES = {f"learning:{path.stem}" for path in (SEED_DIR / "learning").glob("*.yaml")}
 
 
 def load(session: Session, seed_dir: Path = SEED_DIR) -> LoadReport:
@@ -42,15 +68,19 @@ def test_first_load_into_clean_database(catalog_session: Session) -> None:
     assert {name: c.inserted for name, c in report.tables.items()} == EXPECTED
     assert report.catalog_load_id is not None
     current = catalog_session.scalar(select(CatalogLoad).order_by(CatalogLoad.id.desc()))
-    assert current is not None and current.seed_version == "seed-v1"
+    assert current is not None and current.seed_version == "seed-v2"
     assert current.catalog_fingerprint == report.catalog_fingerprint
-    assert set(current.file_fingerprints_json) == {
-        "mission_templates",
-        "problem_catalog",
-        "roadmap",
-        "role_profile:backend_fullstack_sde2",
-        "skill_graph",
-    }
+    assert (
+        set(current.file_fingerprints_json)
+        == {
+            "mission_templates",
+            "problem_catalog",
+            "roadmap",
+            "role_profile:backend_fullstack_sde2",
+            "skill_graph",
+        }
+        | LEARNING_FILES
+    )
     assert catalog_session.scalar(select(func.count()).select_from(AuditLog)) == 1
 
 
@@ -85,7 +115,7 @@ def test_invalid_seed_fails_before_any_write(catalog_session: Session, tmp_path:
     before = catalog_snapshot(catalog_session, include_ids=True)
 
     def corrupt(raw: dict[str, Any]) -> None:
-        bump_version(raw, "seed-v2")
+        bump_version(raw, "seed-v3")
         raw["skill_graph"]["skills"][0]["prerequisites"].append({"skill": "ghost.skill", "min_score": 45})
         raw["problem_catalog"]["problems"][0]["title"] = "would be written if validation were skipped"
 
@@ -114,14 +144,14 @@ def test_changed_seed_updates_deactivates_and_records_new_version(
     skill_ids_before = {s.skill_key: s.id for s in catalog_session.scalars(select(Skill))}
 
     def change(raw: dict[str, Any]) -> None:
-        bump_version(raw, "seed-v2")
+        bump_version(raw, "seed-v3")
         problems = raw["problem_catalog"]["problems"]
         problems[0]["title"] = "Two Sum (renamed)"
         problems[:] = [p for p in problems if p["platform_key"] != "single-number"]  # id 44 retired
         problems.append(
             {
                 **problems[1],
-                "id": 45,
+                "id": 900,
                 "platform_key": "valid-anagram",
                 "title": "Valid Anagram",
                 "is_canonical": False,
@@ -133,12 +163,13 @@ def test_changed_seed_updates_deactivates_and_records_new_version(
         ]
         raw["role_profile:backend_fullstack_sde2"]["skill_tiers"]["T4"].remove("math.number_basics")
         raw["roadmap"]["tracks"]["dsa_coding"][2]["skills"].remove("math.number_basics")
+        retire_learning_skill(raw, "math.number_basics")
 
     seed = copy_seed(tmp_path, mutate=change)
     lock_seed_dir(seed)
     report = load(catalog_session, seed)
 
-    assert report.changed and report.seed_version == "seed-v2"
+    assert report.changed and report.seed_version == "seed-v3"
     assert report.tables["problems"].inserted == 1 and report.tables["problems"].deactivated == 1
     assert report.tables["skills"].deactivated == 1
     assert report.tables["role_skill_targets"].deleted == 1
@@ -155,7 +186,7 @@ def test_changed_seed_updates_deactivates_and_records_new_version(
     assert catalog_session.scalar(select(func.count()).select_from(RoleSkillTarget)) == 132
     assert catalog_session.scalar(select(func.count()).select_from(RoadmapMilestoneSkill)) == 132
     loads = catalog_session.scalars(select(CatalogLoad).order_by(CatalogLoad.id)).all()
-    assert [entry.seed_version for entry in loads] == ["seed-v1", "seed-v2"]
+    assert [entry.seed_version for entry in loads] == ["seed-v2", "seed-v3"]
 
     # Loading the changed seed again is a no-op too.
     assert not load(catalog_session, seed).changed

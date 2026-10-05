@@ -1,0 +1,685 @@
+# Learning content: system design fundamentals — requirements and scoping, back-of-envelope estimation, API design.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- requirements and scoping
+- key: sd.requirements_scoping.lesson
+  type: lesson
+  title: Requirements and scope in the first five minutes
+  skills: [sd.requirements_scoping]
+  minutes: 20
+  difficulty: EASY
+  body:
+    summary: Turn a vague prompt into a short list of functional requirements, measurable non-functional targets and an explicit out-of-scope list before drawing a single box.
+    what: |-
+      Requirements scoping is the opening phase of a design discussion where you agree on **what** the system must do and **how well** it must do it.
+
+      - **Functional requirements** are user-visible behaviours: "a rider can request a ride", "a user can upload a photo and see it in their profile".
+      - **Non-functional requirements** are qualities with numbers: scale (daily active users, requests per second), latency (p99 under 200 ms for reads), availability (99.9% or 99.99%), durability (never lose a confirmed payment), consistency (a booked seat is never sold twice), cost and compliance.
+      - **Scope** is the explicit decision of what you will *not* design today: admin tooling, billing, analytics, notifications.
+    why: |-
+      Every later choice depends on these answers. "Store messages" is a single PostgreSQL table at 1,000 users and a partitioned wide-column store at 500 million. "Show the like count" can be eventually consistent; "show the account balance" cannot. Without scoping you either over-engineer (sharding a system that fits on one machine) or design the wrong thing, and a 45-minute round leaves no time to recover from either.
+    when: |-
+      At the start of every design round, every design document and every feature kickoff. Revisit it whenever the interviewer adds a constraint ("now make it global", "now it handles payments"): restate which requirement changed and which parts of the design it touches.
+    how: |-
+      A repeatable sequence for the first five minutes:
+
+      1. **Restate the problem** in one sentence and name the users (riders and drivers; buyers and sellers).
+      2. **List 3–5 core functional requirements**, phrased as user actions. Ask which ones matter most and drop the rest into "out of scope".
+      3. **Ask for scale**: daily active users, read/write ratio, data size per item, growth. If the interviewer says "you decide", pick round numbers and say them aloud.
+      4. **Set non-functional targets with numbers**: latency percentile, availability, durability, consistency per operation (strong for the seat booking, eventual for the view counter).
+      5. **Name the access pattern**: read-heavy or write-heavy, hot items, time-ordered data, geographic spread.
+      6. **Write the out-of-scope list** and confirm it in one sentence.
+
+      Availability numbers to remember: 99.9% allows about 8.8 hours of downtime per year (about 43 minutes per month); 99.99% allows about 53 minutes per year (about 4 minutes per month).
+    mental_model: |-
+      Treat requirements as a contract you sign with the interviewer. Each functional requirement becomes an API, each non-functional number becomes a design constraint you will later point to ("because p99 must be under 100 ms, the read path cannot call three services synchronously"). If a box in your final diagram does not trace back to a line in the contract, it is either missing from the contract or should not be in the design.
+    tradeoffs: |-
+      Asking questions costs time; a round has roughly 45 minutes, so spend about 5 on scoping, not 15. Over-asking reads as indecision; under-asking reads as guessing. When the interviewer deflects, state an assumption and move on. Narrow scope makes depth possible but risks missing the part the interviewer cares about, so ask "is there a part you want me to focus on?" once.
+    mistakes:
+      - Drawing boxes before agreeing on what the system does.
+      - "Non-functional requirements without numbers: 'it should be fast and scalable' constrains nothing."
+      - Treating consistency as a single global setting instead of deciding it per operation.
+      - Listing ten features and then designing none of them in depth.
+      - Forgetting to say what is out of scope, then being asked about it at minute 40.
+      - Asking about scale but never using the answers in the design.
+    interview: |-
+      Interviewers usually leave the prompt vague on purpose and observe whether you clarify before designing. A strong opening sounds like: "Core features: post, follow, home feed. Out of scope: ads, search, DMs. Scale: 100 million DAU, read-heavy around 100:1. Targets: feed p99 under 300 ms, 99.9% available, a post may take a few seconds to appear in followers' feeds." That one minute shows judgement and gives every later decision a reason.
+    explain_it:
+      - Restate the problem and the users in one sentence.
+      - Separate functional requirements (user actions) from non-functional ones (numbers).
+      - Choose consistency per operation, not per system.
+      - State what is out of scope and why.
+      - Point back to a requirement each time you justify a design choice.
+    edge_cases:
+      - "The interviewer refuses to give numbers: pick defensible round numbers, say them aloud and keep going."
+      - The prompt hides a strong-consistency requirement (inventory, payments, unique usernames) inside an otherwise eventually consistent product.
+      - "Compliance or locality constraints (data must stay in a region) change storage placement; ask once if the domain suggests it."
+    misconceptions:
+      - "Availability and consistency are not yes/no choices; you pick a target per operation and pay for it."
+      - "\"Scalable\" is not a requirement; \"handles 20,000 reads per second at peak with p99 under 200 ms\" is."
+- key: sd.requirements_scoping.worked
+  type: worked_example
+  title: "Worked example: scoping a ticket booking prompt"
+  skills: [sd.requirements_scoping, sd.capacity_estimation]
+  minutes: 12
+  difficulty: EASY
+  body:
+    problem: "The prompt is a single line: design a system to sell tickets for concerts. Walk through the first five minutes the way you would say them aloud."
+    steps:
+      - title: Restate and name the users
+        text: "\"Fans browse events, pick seats and pay; organisers create events. I will focus on the fan purchase path.\" Naming the users already exposes two very different traffic shapes: organisers write rarely, fans read heavily and spike at on-sale time."
+      - title: Core functional requirements
+        text: "Fans can (1) list events and see seat availability, (2) hold seats for a few minutes while paying, (3) confirm a booking after payment, (4) view their bookings. Out of scope: organiser tooling, refunds, dynamic pricing, recommendations. Say the out-of-scope list aloud and ask whether one of them matters."
+      - title: Scale questions and assumptions
+        text: "Ask: how many events and seats, how many concurrent fans at on-sale? Assume 10,000 events per day, an average venue of 20,000 seats, and a popular on-sale where 1 million fans arrive within 10 minutes for one event. That last number, not the daily average, drives the design."
+      - title: Non-functional targets per operation
+        text: "Seat booking must be **strongly consistent**: a seat is never sold twice. Browsing availability can be slightly stale (a few seconds) as long as the hold step rechecks. Holds expire after about 10 minutes. Availability target 99.9% for browsing; purchase correctness beats purchase availability."
+      - title: Name the hard part
+        text: "\"The interesting problem is the on-sale spike: a million users contending for 20,000 seats. I want a waiting room or admission control in front of the hold step, and an atomic conditional update on the seat row.\" Naming the bottleneck early tells the interviewer where you will spend the deep-dive time."
+    takeaways:
+      - Separate the daily average from the peak event; the peak drives the architecture.
+      - Pick consistency per operation, strong for the seat and relaxed for browsing.
+      - An explicit out-of-scope list buys time for depth on the hard part.
+- key: sd.requirements_scoping.check
+  type: concept_check
+  title: "Concept check: requirements and scoping"
+  skills: [sd.requirements_scoping]
+  minutes: 8
+  difficulty: EASY
+  body:
+    intro: Decide what each statement is and whether it is usable as a design constraint.
+    questions:
+      - id: q1
+        kind: single
+        prompt: Which of these is a usable non-functional requirement?
+        options:
+          - The system should be fast
+          - Users can share a post with followers
+          - Home feed reads complete within 300 ms at p99 at 30,000 requests per second
+          - The system should scale horizontally
+        answer: [2]
+        explanation: "It names a metric, a percentile, a threshold and a load, so it can be checked and can rule designs out. 'Fast' and 'scale horizontally' are wishes (the latter is a design choice, not a requirement). Sharing a post is functional."
+      - id: q2
+        kind: multi
+        prompt: In an e-commerce design, which operations usually need strong consistency?
+        options:
+          - Decrementing inventory for the last unit at checkout
+          - The 'people also viewed' carousel
+          - Recording that a payment was captured
+          - The product review count shown on the listing page
+        answer: [0, 2]
+        explanation: "Overselling the last unit and losing or duplicating a payment record are correctness bugs with money attached. The carousel and review count can be seconds or minutes stale without harm, so making them strongly consistent only adds latency and cost."
+      - id: q3
+        kind: single
+        prompt: Roughly how much downtime per year does a 99.99% availability target allow?
+        options: ["About 8.8 hours", "About 53 minutes", "About 5 minutes", "About 3.7 days"]
+        answer: [1]
+        explanation: "A year has about 525,600 minutes; one ten-thousandth of that is about 53 minutes. 8.8 hours is the 99.9% budget, and 3.7 days is 99%. Each extra nine divides the budget by ten."
+      - id: q4
+        kind: single
+        prompt: The interviewer answers your scale question with "you decide". What is the best move?
+        options:
+          - Ask again until they give a number
+          - Design for unlimited scale so the number does not matter
+          - State round assumptions (for example 50 million DAU, 10:1 read/write), write them down and use them
+          - Skip numbers and focus on the API
+        answer: [2]
+        explanation: "Stating assumptions keeps momentum and gives your later choices something to rest on. Insisting wastes time, and 'unlimited scale' leads to over-engineering and cannot justify any specific choice."
+      - id: q5
+        kind: multi
+        prompt: Which belong in an explicit out-of-scope list for a 45-minute 'design a ride-hailing app' round, unless the interviewer says otherwise?
+        options:
+          - Matching a rider to a nearby driver
+          - Driver payouts and tax reporting
+          - Tracking driver locations
+          - Promotions and referral codes
+        answer: [1, 3]
+        explanation: "Matching and location tracking are the core of the product and the interesting scaling problem. Payouts and promotions are real features but secondary; naming them as out of scope frees time for depth where it matters."
+      - id: q6
+        kind: short
+        prompt: Why should you name the access pattern (read-heavy, write-heavy, hot items) during scoping instead of later?
+        model_answer: "Because it decides the shape of the architecture: read-heavy with hot items points at caching, replicas and CDNs; write-heavy points at partitioned, append-friendly storage and async processing. Knowing it early lets you justify those components when you draw them instead of adding them by habit."
+        explanation: The access pattern is the bridge between the numbers you collected and the components you choose.
+- key: sd.requirements_scoping.case
+  type: architecture_case
+  title: "Drill: scope a food-delivery prompt in eight minutes"
+  skills: [sd.requirements_scoping, sd.capacity_estimation]
+  minutes: 10
+  difficulty: MEDIUM
+  observation: {kind: SD_DESIGN, time_limit_seconds: 600}
+  body:
+    prompt: |-
+      The prompt is: "Design a food delivery platform." Do only the scoping phase, out loud or on paper, within eight minutes. Produce: a one-sentence restatement with the user types, 3–5 functional requirements, the out-of-scope list, scale assumptions, non-functional targets with numbers (and which operations need strong consistency), and the one or two parts you consider hardest. Do not draw an architecture.
+    requirements:
+      functional:
+        - Customers browse nearby restaurants and menus
+        - Customers place and pay for an order
+        - Restaurants accept and prepare orders
+        - Couriers are assigned and their location is shown to the customer
+      non_functional:
+        - State your own scale numbers (DAU, peak orders per minute, couriers online)
+        - Latency targets per operation
+        - Consistency per operation (order and payment versus menu browsing)
+        - Availability target, especially at meal-time peaks
+    approach:
+      - Restate with the three user types (customer, restaurant, courier) and their different traffic shapes.
+      - Pick the core flow (browse, order, assign, track) and push the rest (ratings, promotions, payouts) out of scope.
+      - "Assume numbers, for example 10 million DAU, 2 million orders per day with a lunch and dinner peak several times the average, 200,000 couriers sending a location every few seconds."
+      - "Decide consistency: an order and its payment are strongly consistent and idempotent; menus and restaurant lists may be stale by minutes; courier location may be seconds stale."
+      - "Name the hard parts: courier location ingestion and nearby search; courier assignment under contention."
+    estimates: |-
+      Courier location writes: 200,000 couriers × one update every 4 seconds ≈ 50,000 writes per second, far more than the roughly 25 orders per second average (2 million / 86,400). Spotting that the location stream dominates write traffic is the key insight of the scoping phase.
+    rubric:
+      - {key: restatement, label: "Restates the problem and names the three user types", points: 2}
+      - {key: functional, label: "Lists 3–5 functional requirements as user actions and stops there", points: 2}
+      - {key: out_of_scope, label: "Names at least three out-of-scope features explicitly", points: 2}
+      - {key: numbers, label: "States numeric scale assumptions including a peak, not only an average", points: 2}
+      - {key: consistency, label: "Assigns consistency per operation (order/payment strong, menus/location relaxed)", points: 2}
+      - {key: hard_part, label: "Identifies the location stream or assignment as the hard part with a reason", points: 2}
+      - {key: time, label: "Finishes inside eight minutes without drawing an architecture", points: 1}
+    follow_ups:
+      - prompt: "The interviewer says: the business now operates in 30 countries. What changes in your requirements?"
+        look_for: Data residency and regional deployment, time zones and currencies, per-region peaks that do not overlap; scale numbers per region rather than global totals.
+      - prompt: Scale grows ten times. Which requirement becomes the bottleneck first?
+        look_for: The courier location write rate (about half a million per second) and nearby search, not order volume; mentions partitioning by region or geo cell.
+      - prompt: "Product says an order may be accepted by two couriers for a moment, as long as one is cancelled within a second. Does your consistency requirement change?"
+        look_for: Relaxing assignment to eventual with fast reconciliation allows optimistic assignment; explains the user-visible cost and the compensation step.
+- key: sd.requirements_scoping.interview
+  type: interview_question
+  title: "Interview question: open a vague design prompt"
+  skills: [sd.requirements_scoping]
+  minutes: 10
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 600}
+  body:
+    prompt: "\"Design a news feed.\" You have five minutes before the interviewer expects an architecture. Deliver the opening: what you ask, what you assume, what you write on the board and what you explicitly leave out."
+    key_points:
+      - "Restates the product and users: users follow others, post, and read a home feed."
+      - Lists a small set of functional requirements (post, follow, read home feed) and an explicit out-of-scope list (ads, search, DMs, notifications).
+      - "Asks for or assumes numbers: DAU, posts per user per day, average followers, read/write ratio; notes that celebrities create a skewed follower distribution."
+      - "Sets measurable targets: feed read latency at p99, availability, and acceptable feed staleness (a new post may take seconds to appear)."
+      - "Chooses consistency per operation: a user sees their own post immediately (read-your-writes) while followers may see it eventually."
+      - Names the hard part to deep-dive (fan-out strategy for users with millions of followers) before drawing.
+    model_answer: "I restate: users post short updates, follow others and read a reverse-chronological or ranked home feed. Core: post, follow, read feed. Out of scope: ads, search, messaging, notifications. I assume 200 million DAU, each reading the feed about 10 times and posting about once every few days, average 200 followers with a long tail of accounts that have millions, so reads dominate writes by around 100:1. Targets: feed p99 under 300 ms, 99.9% available, new posts visible to followers within a few seconds, but the author sees their own post at once. The hard part is fan-out for very large accounts, which I will come back to after the high-level design."
+    pitfalls:
+      - Starting with 'we will use Kafka and Cassandra' before any requirement exists.
+      - Stating scale numbers and never deriving a consequence from them.
+      - Choosing strong consistency for the whole feed.
+    follow_ups:
+      - prompt: "Why does the follower distribution matter more than the average follower count?"
+        look_for: The tail (accounts with millions of followers) makes fan-out on write explode for a few users; leads to a hybrid push/pull strategy.
+      - prompt: The interviewer adds that feeds must be ranked, not chronological. Which requirements change?
+        look_for: Read path latency budget now includes candidate retrieval and scoring; freshness and ranking signals become requirements; precomputation trade-off.
+      - prompt: "How would you know your non-functional targets are being met in production?"
+        look_for: SLIs per target (p99 latency, error rate, feed staleness), SLOs and alerts on burn rate.
+- key: sd.requirements_scoping.cards
+  type: revision_card
+  title: "Recall: requirements and scoping"
+  skills: [sd.requirements_scoping]
+  minutes: 5
+  body:
+    cards:
+      - front: Functional vs non-functional requirement?
+        back: Functional is a user action; non-functional is a measurable quality (latency, availability, scale, consistency).
+      - front: Downtime budget of 99.9% vs 99.99% per year?
+        back: About 8.8 hours vs about 53 minutes.
+      - front: How long should scoping take in a 45-minute round?
+        back: About five minutes, ending with a confirmed out-of-scope list.
+      - front: Consistency is chosen per …?
+        back: Operation — strong for money and inventory, eventual for counters and feeds.
+      - front: What drives the design, the daily average or the peak?
+        back: The peak (on-sale spikes, meal times, events), so always ask for it.
+
+# ---------------------------------------------------------------------------------------------- capacity estimation
+- key: sd.capacity_estimation.lesson
+  type: lesson
+  title: Back-of-envelope estimation with powers of ten
+  skills: [sd.capacity_estimation]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Turn users into requests per second, bytes per year and bits per second with round numbers, then use the result to decide whether you need a cache, a shard or a CDN.
+    what: |-
+      Back-of-envelope estimation is a quick, order-of-magnitude calculation of load (requests per second), storage (bytes over the retention period) and bandwidth (bytes per second in and out). The goal is the right power of ten, not the right digit: 12,000 versus 10,000 QPS rarely changes a design; 1,000 versus 100,000 always does.
+    why: |-
+      Numbers decide architecture. If peak writes are 300 per second, one relational primary is fine; at 300,000 you need partitioning. If the dataset is 50 GB it fits in memory on one cache node; at 50 TB it does not. Estimation is how you justify (or reject) each component instead of adding them by habit.
+    when: |-
+      Right after scoping, in about five minutes, and again in the deep dive when you size a specific component ("how many cache nodes?"). Skip it only if the interviewer explicitly says scale is not the point.
+    how: |-
+      **Constants to memorise**
+
+      - A day has 86,400 seconds; use about 10⁵. A year has about 3 × 10⁷ seconds and 365 days (use 400 for quick multiplication if you say so).
+      - 1 million requests per day ≈ 12 per second. 100 million per day ≈ 1,200 per second. 1 billion per day ≈ 12,000 per second.
+      - Powers of two: 2¹⁰ ≈ 10³ (KB), 2²⁰ ≈ 10⁶ (MB), 2³⁰ ≈ 10⁹ (GB), 2⁴⁰ ≈ 10¹² (TB), 2⁵⁰ ≈ 10¹⁵ (PB).
+      - 1 byte = 8 bits; network links are quoted in bits per second, so 1 GB/s ≈ 8 Gbps.
+
+      **The four calculations**
+
+      1. **Average QPS** = DAU × actions per user per day ÷ 10⁵. Do reads and writes separately.
+      2. **Peak QPS** = average × peak factor. Consumer daily traffic is often 2–3× the average at peak; launches, on-sales and live events can be 10× or more. State the factor you chose.
+      3. **Storage** = new items per day × bytes per item × retention days × replication factor (3 for a typical replicated store), plus indexes and metadata. Separate small metadata (database) from large blobs (object storage).
+      4. **Bandwidth** = QPS × payload size, ingress and egress separately. Egress for media usually dominates and is the reason for a CDN.
+
+      **Latency numbers, as orders of magnitude**
+
+      - CPU cache reference: about 1 ns. Main memory reference: about 100 ns.
+      - Random read from an SSD: tens to around a hundred microseconds.
+      - Round trip inside one data centre: around half a millisecond.
+      - Hard-disk seek: around 10 ms.
+      - Round trip between continents: around 100–150 ms.
+
+      The ratios matter more than the digits: memory is roughly a thousand times faster than an SSD random read, a same-datacentre hop costs about a millisecond, and a cross-continent hop costs about a hundred. A page that makes ten sequential cross-region calls cannot meet a 300 ms budget.
+    mental_model: |-
+      Think in exponents. Write every number as a power of ten, add exponents when you multiply, subtract when you divide: 10⁸ DAU × 10 reads = 10⁹ reads/day, ÷ 10⁵ s = 10⁴ QPS. Round aggressively, carry one significant digit, and sanity-check the final answer against something you know ("10⁴ QPS is a few app servers; 10⁶ QPS is a large fleet").
+    tradeoffs: |-
+      Precision costs time and buys nothing; the interviewer cares that you are within a factor of a few and that you use the answer. Rounding 86,400 to 10⁵ understates QPS by about 15%, which is acceptable if you say so. The bigger risk is false precision on an assumption (bytes per post) that could itself be off by ten.
+    mistakes:
+      - Computing only the average and sizing for it; peaks are what fall over.
+      - Mixing bits and bytes, which is an error of eight.
+      - Forgetting the replication factor and indexes in storage.
+      - Putting photos and videos in the database size instead of object storage.
+      - Doing arithmetic silently for three minutes; narrate it so the interviewer can follow and correct an assumption.
+      - Computing numbers and then never using them to choose a component.
+    interview: |-
+      Say the assumption, the formula and the result in one breath: "200 million DAU, 10 feed reads each, so 2 × 10⁹ reads a day, about 2 × 10⁴ QPS average, 6 × 10⁴ at a 3× peak." Then draw a conclusion: "that is too much for one database, so the read path needs a cache." Interviewers often ask you to size one component later (cache memory, number of shards), so keep the numbers on the board.
+    explain_it:
+      - State each assumption (DAU, actions per user, item size, peak factor) before using it.
+      - Show the formula and the power-of-ten arithmetic.
+      - Separate reads from writes and metadata from blobs.
+      - End each estimate with the design decision it supports.
+    example:
+      language: text
+      code: |-
+        Assumptions: 50M DAU, 20 reads and 2 writes per user per day, 1 KB per write, keep 5 years, 3 replicas.
+        Reads:   50M × 20 = 10⁹ / day  → 10⁹ / 10⁵ ≈ 10⁴ QPS avg  → ~3 × 10⁴ QPS at 3× peak
+        Writes:  50M × 2  = 10⁸ / day  → ≈ 10³ QPS avg            → ~3 × 10³ QPS at peak
+        Storage: 10⁸ × 1 KB = 100 GB / day → × 365 ≈ 36 TB / year → × 5 years ≈ 180 TB → × 3 ≈ 550 TB raw
+        Egress:  3 × 10⁴ QPS × 10 KB per response ≈ 300 MB/s ≈ 2.4 Gbps at peak
+        Decision: reads need a cache; 550 TB needs a partitioned store, not one primary.
+      explanation: Every line states its inputs, uses powers of ten, and the last line turns numbers into decisions.
+    internals: |-
+      Useful per-node yardsticks, all rough and highly workload-dependent: a stateless application server handles hundreds to a few thousand requests per second; a single relational primary on good hardware handles thousands to low tens of thousands of simple indexed queries per second; an in-memory key-value store such as Redis handles on the order of 100,000 simple operations per second per instance. Use them to turn QPS into a node count, and say they are rough.
+    edge_cases:
+      - "Spiky workloads (on-sales, live events): size for the spike or add admission control; the daily average is irrelevant."
+      - Write amplification such as fan-out on write can turn a few hundred posts per second into tens of thousands of timeline inserts per second.
+      - Long retention with small items can still dominate storage once replicas and indexes are counted.
+- key: sd.capacity_estimation.check
+  type: concept_check
+  title: "Concept check: estimation arithmetic"
+  skills: [sd.capacity_estimation]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Use powers of ten and round. Each answer is an order of magnitude.
+    questions:
+      - id: q1
+        kind: single
+        prompt: A service receives 500 million requests per day. What is the average QPS, roughly?
+        options: ["About 600", "About 6,000", "About 60,000", "About 500,000"]
+        answer: [1]
+        explanation: "5 × 10⁸ ÷ 10⁵ = 5 × 10³, so about 5,000–6,000 (exactly 5,787). 60,000 is a 10× slip, common when 86,400 is mistaken for 10⁴."
+      - id: q2
+        kind: single
+        prompt: "10 million photos uploaded per day at 2 MB each, kept for one year, no replication. Storage?"
+        options: ["About 7 TB", "About 70 TB", "About 7 PB", "About 70 PB"]
+        answer: [2]
+        explanation: "10⁷ × 2 MB = 2 × 10⁷ MB = 20 TB per day; × 365 ≈ 7,300 TB ≈ 7 PB. With three replicas it is about 22 PB raw, which is why such data goes to object storage with erasure coding."
+      - id: q3
+        kind: single
+        prompt: Peak egress is 2 GB/s. What link capacity is that in bits per second?
+        options: ["About 2 Gbps", "About 16 Gbps", "About 250 Mbps", "About 20 Gbps"]
+        answer: [1]
+        explanation: "Multiply bytes by 8: 2 GB/s = 16 Gbps. Answering 250 Mbps divides by 8 instead of multiplying."
+      - id: q4
+        kind: single
+        prompt: Which ordering of latencies is correct, fastest first?
+        options:
+          - SSD random read, main memory reference, same-datacentre round trip, cross-continent round trip
+          - Main memory reference, SSD random read, same-datacentre round trip, cross-continent round trip
+          - Main memory reference, same-datacentre round trip, SSD random read, cross-continent round trip
+          - Main memory reference, SSD random read, cross-continent round trip, same-datacentre round trip
+        answer: [1]
+        explanation: "Roughly 100 ns, then tens to about a hundred microseconds, then about half a millisecond, then about 100 ms. An SSD random read is typically faster than a network round trip within a data centre, though both are far slower than memory."
+      - id: q5
+        kind: multi
+        prompt: Which belong in a storage estimate for a user-posts table you will keep for five years?
+        options:
+          - Number of new posts per day
+          - Average bytes per post including metadata
+          - Replication factor
+          - Peak read QPS
+          - Index overhead
+        answer: [0, 1, 2, 4]
+        explanation: "Storage is items × size × retention × replicas plus indexes. Peak read QPS sizes servers and caches, not disk; including it confuses throughput with capacity."
+      - id: q6
+        kind: short
+        prompt: "Average write QPS is 3,000 and the peak factor is 3. Your relational primary sustains about 5,000 writes per second. What do you conclude and what do you propose?"
+        model_answer: "Peak is about 9,000 writes per second, above the primary's 5,000, so a single primary will saturate at peak even though the average fits. Options: batch or buffer writes through a queue to smooth the peak if latency allows, reduce write amplification, or partition (shard) the table so writes spread over several primaries. Replicas do not help because they only add read capacity."
+        explanation: The point of the estimate is the conclusion; read replicas are the tempting wrong fix for a write bottleneck.
+- key: sd.capacity_estimation.photo_storage
+  type: architecture_case
+  title: "Estimation drill: storage and bandwidth for a photo service"
+  skills: [sd.capacity_estimation, sd.storage_search]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: ESTIMATION_DRILL, time_limit_seconds: 900}
+  body:
+    prompt: |-
+      A photo-sharing service has 100 million DAU. About one user in ten uploads one photo per day. Each original averages 2 MB; the service also stores three resized versions totalling about 200 KB. Each user views about 100 photos per day, served as resized versions of about 100 KB. Photos are kept forever. Within 15 minutes estimate: upload QPS (average and peak), storage per year (originals, resized, metadata) with replication, ingress and egress bandwidth, and say which components the numbers force.
+    requirements:
+      functional:
+        - Upload a photo
+        - View photos in a feed or profile
+      non_functional:
+        - Uploads are durable once acknowledged
+        - Views are fast worldwide (p99 under 200 ms for the image bytes)
+        - Read-heavy workload
+    approach:
+      - "Uploads: 10⁸ × 1/10 = 10⁷ per day → ÷ 10⁵ ≈ 100 per second average (115 exactly); assume 3× peak ≈ 350 per second."
+      - "Bytes per upload: 2 MB + 200 KB ≈ 2.2 MB. Daily: 10⁷ × 2.2 MB = 22 TB per day."
+      - "Yearly: 22 TB × 365 ≈ 8 PB; with three-way replication about 24 PB raw (erasure coding would bring the overhead down to roughly one and a half times)."
+      - "Metadata: 10⁷ rows per day × about 500 bytes ≈ 5 GB per day ≈ 2 TB per year: belongs in a database, not with the blobs."
+      - "Views: 10⁸ × 100 = 10¹⁰ per day → 10⁵ per second average, about 3 × 10⁵ at peak."
+      - "Egress: 10⁵ × 100 KB = 10 GB/s ≈ 80 Gbps average; ingress: 115 × 2.2 MB ≈ 250 MB/s ≈ 2 Gbps."
+      - "Conclusions: blobs in object storage, metadata in a (later partitioned) database, a CDN in front of the resized images, uploads via pre-signed URLs straight to object storage."
+    estimates: |-
+      Order-of-magnitude answers: about 100 uploads/s average, 22 TB/day, 8 PB/year before replication, about 2 TB/year of metadata, 10⁵ view requests/s, around 80 Gbps egress. The egress figure alone rules out serving images from application servers.
+    hints:
+      - Treat originals and resized versions separately; only the resized versions are read often.
+      - The read-to-write ratio here is 1,000 views per upload.
+    rubric:
+      - {key: upload_qps, label: "Upload QPS within a factor of 2 of 100/s with a stated peak factor", points: 2}
+      - {key: storage, label: "Yearly blob storage around 8 PB and states the replication or erasure-coding multiplier", points: 3}
+      - {key: metadata, label: "Separates metadata (TB scale, database) from blobs (PB scale, object storage)", points: 2}
+      - {key: bandwidth, label: "Computes egress in bits per second (tens of Gbps) and ingress separately", points: 2}
+      - {key: decisions, label: "Turns the numbers into components (object storage, CDN, direct upload)", points: 3}
+      - {key: narration, label: "States each assumption before using it and rounds with powers of ten", points: 1}
+    follow_ups:
+      - prompt: Scale grows ten times to one billion DAU. Which number breaks something first?
+        look_for: Egress (hundreds of Gbps to Tbps) and view QPS; the CDN hit ratio becomes the key lever; storage growth to about 80 PB per year raises cost and tiering (cold storage for old originals).
+      - prompt: Product wants originals deleted after 90 days if the resized versions exist. Recompute storage.
+        look_for: Originals capped at about 90 × 20 TB ≈ 1.8 PB; resized versions still grow about 0.7 PB per year; total much smaller and mostly in resized versions.
+      - prompt: "The CDN hit ratio is 95%. What load reaches the origin?"
+        look_for: Five percent of 10⁵ requests per second ≈ 5,000 per second and about 4 Gbps from origin; origin shield or regional caches reduce it further.
+- key: sd.capacity_estimation.feed_drill
+  type: architecture_case
+  title: "Estimation drill: read, write and fan-out load for a social feed"
+  skills: [sd.capacity_estimation]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: ESTIMATION_DRILL, time_limit_seconds: 720}
+  body:
+    prompt: |-
+      A social app has 200 million DAU. Each user opens the home feed 5 times a day; each open returns 20 posts. One user in ten publishes one post per day, about 1 KB of text and metadata. The average user has 200 followers. Within 12 minutes estimate feed read QPS, post write QPS, storage for posts over five years, and the write load if every post is pushed into every follower's precomputed timeline. Conclude which strategy the numbers suggest.
+    requirements:
+      functional:
+        - Publish a post
+        - Read a home feed of recent posts from followed accounts
+      non_functional:
+        - Feed p99 under 300 ms
+        - A new post appears in followers' feeds within seconds
+    approach:
+      - "Feed reads: 2 × 10⁸ × 5 = 10⁹ per day → ≈ 10⁴ QPS average, ≈ 3 × 10⁴ at a 3× peak."
+      - "Post writes: 2 × 10⁷ per day → ≈ 200 per second average, ≈ 600 at peak."
+      - "Storage: 2 × 10⁷ × 1 KB = 20 GB per day → ≈ 7 TB per year → ≈ 36 TB over five years, ≈ 110 TB with three replicas."
+      - "Fan-out on write: 200 posts/s × 200 followers = 40,000 timeline inserts per second on average, over 10⁵ at peak; a single account with 10 million followers adds 10⁷ inserts for one post."
+      - "Conclusion: fan-out on write is affordable for typical accounts and makes reads cheap; very large accounts should be pulled at read time and merged (hybrid)."
+    estimates: |-
+      About 10⁴ feed reads/s, about 200 posts/s, about 7 TB/year of posts, about 4 × 10⁴ timeline inserts/s on average. The insight is that fan-out multiplies writes by two orders of magnitude and is skewed by large accounts.
+    rubric:
+      - {key: reads, label: "Feed read QPS around 10⁴ average with a stated peak", points: 2}
+      - {key: writes, label: "Post write QPS around 200 average", points: 2}
+      - {key: storage, label: "Five-year post storage in the tens of TB, replication stated", points: 2}
+      - {key: fanout, label: "Computes fan-out inserts as writes × followers (tens of thousands per second)", points: 3}
+      - {key: skew, label: "Identifies large accounts as the skew that breaks pure fan-out on write", points: 2}
+      - {key: conclusion, label: "Recommends a strategy (push, pull or hybrid) justified by the numbers", points: 2}
+    follow_ups:
+      - prompt: Each post may include one 500 KB image. What changes?
+        look_for: Images go to object storage plus CDN; adds about 10 TB per day of blobs; feed payload still references image URLs, so feed QPS math is unchanged.
+      - prompt: "A cache node holds 64 GB of usable memory. How many nodes to cache the last 800 timeline entries for every daily user, at 8 bytes per post ID?"
+        look_for: 2 × 10⁸ users × 800 × 8 bytes ≈ 1.3 TB, plus overhead (say double) ≈ 2.6 TB → about 40 nodes before replication.
+- key: sd.capacity_estimation.cards
+  type: revision_card
+  title: "Recall: estimation constants"
+  skills: [sd.capacity_estimation]
+  minutes: 5
+  body:
+    cards:
+      - front: Seconds in a day, rounded?
+        back: 86,400 ≈ 10⁵.
+      - front: 1 million requests per day is how many per second?
+        back: About 12.
+      - front: 1 GB/s in network units?
+        back: About 8 Gbps (multiply bytes by 8).
+      - front: Main memory vs SSD random read vs same-DC round trip?
+        back: About 100 ns vs tens to about 100 µs vs about half a millisecond.
+      - front: Cross-continent round trip?
+        back: About 100–150 ms.
+      - front: Storage formula?
+        back: Items per day × bytes × retention days × replication factor, plus indexes.
+
+# ---------------------------------------------------------------------------------------------- API design
+- key: sd.api_design.lesson
+  type: lesson
+  title: API design that survives retries, growth and change
+  skills: [sd.api_design]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Model resources and operations from the functional requirements, then make pagination, idempotency, versioning and errors explicit parts of the contract.
+    what: |-
+      In a design round the API is the boundary between clients and your system: the endpoints (or RPC methods), their inputs and outputs, and the guarantees around them. Common styles:
+
+      - **REST over HTTP**: resources identified by URLs (`/bookings/{id}`), standard methods (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`) and status codes. Cacheable `GET`s, universal tooling, the default for public and browser-facing APIs.
+      - **RPC** (for example gRPC over HTTP/2 with Protocol Buffers): operations as typed methods (`CreateBooking`), binary encoding, generated clients, streaming. Common for internal service-to-service calls.
+      - **GraphQL**: clients ask for exactly the fields they need from a typed schema; useful when many clients need different shapes of the same data, at the cost of harder caching and query-cost control.
+    why: |-
+      The API is the hardest part to change later: once mobile clients ship, an old version lives for years. It also encodes the system's guarantees. If `POST /payments` can be retried safely, clients can recover from timeouts; if it cannot, a flaky network charges customers twice.
+    when: |-
+      Right after requirements, before the data model: each functional requirement becomes one or two operations. In the deep dive, revisit the API when you add pagination for a large list, idempotency for a payment, or a streaming channel for real-time updates.
+    how: |-
+      **From requirement to endpoint.** "A fan holds seats and then pays" becomes `POST /events/{id}/holds` and `POST /bookings`. Name resources as nouns, use methods for verbs, and return the created resource with `201 Created`.
+
+      **Method semantics.** `GET`, `PUT` and `DELETE` are idempotent by definition in HTTP (repeating them has the same effect as doing them once); `POST` is not, and `PATCH` is not guaranteed to be. That is why creation endpoints need an idempotency key.
+
+      **Idempotency keys.** The client generates a unique key per logical operation and sends it in a header (`Idempotency-Key` is a common convention). The server stores the key with the result; a retry with the same key returns the stored result instead of acting again.
+
+      **Pagination.** Never return an unbounded list.
+
+      - *Offset* (`?limit=20&offset=4000`): simple and allows jumping to page N, but the database still walks past the skipped rows, and concurrent inserts shift pages so items are duplicated or skipped.
+      - *Cursor / keyset* (`?limit=20&after=<opaque cursor>`): the cursor encodes the last seen sort key (for example `(created_at, id)`); the query is `WHERE (created_at, id) < (:ts, :id) ORDER BY created_at DESC, id DESC LIMIT 20`, which uses an index and stays stable under inserts. It cannot jump to an arbitrary page.
+
+      **Versioning.** Prefer additive changes (new optional fields) that old clients ignore. For breaking changes, version explicitly, usually in the path (`/v2/...`) or in a header, and run both versions until old clients are retired.
+
+      **Error contract.** One machine-readable error shape for every endpoint, for example `{"error": {"code": "SEAT_UNAVAILABLE", "message": "...", "details": [...]}}`, or the standard Problem Details format (RFC 9457). Map to status codes consistently: `400` malformed, `401` unauthenticated, `403` not allowed, `404` not found, `409` conflict with current state, `422` semantically invalid, `429` rate limited (with `Retry-After`), `5xx` server faults that a client may retry.
+    mental_model: |-
+      Write the API as if the network lies: every request may arrive twice, arrive late, or have its response lost. A good contract tells the client exactly which calls are safe to repeat, how to resume a long list, and how to tell "your fault, do not retry" (4xx) from "our fault, retry later" (5xx, 429).
+    tradeoffs: |-
+      REST is universal and cache-friendly but chatty for complex screens; RPC is efficient and strongly typed but needs generated clients and is awkward from browsers; GraphQL reduces round trips but moves query-cost and caching problems to the server. Cursor pagination is fast and stable but cannot jump to page 50; offset is convenient for small admin lists. Versioning in the path is visible and easy to route; header versioning keeps URLs clean but is easier to forget.
+    mistakes:
+      - "Verbs in URLs (`/createBooking`) and `GET` requests that change state."
+      - "Returning `200` with an error message in the body, so clients and monitors cannot tell failures apart."
+      - Offset pagination on a large, frequently updated table.
+      - "A `POST` that creates money movements or orders without an idempotency key."
+      - Breaking changes (renaming a field) shipped without a new version.
+      - Leaking internal identifiers or database errors in error messages.
+    interview: |-
+      After requirements, write 3–6 endpoints with method, path, key request fields and response. Interviewers then probe: "what happens if the client retries this?", "how do you page through 10,000 bookings?", "how do you add a field without breaking old apps?". Answer each with the mechanism (idempotency key, keyset cursor, additive change) and its cost.
+    explain_it:
+      - Map each functional requirement to an operation.
+      - Say which operations are idempotent and how non-idempotent ones are made safe to retry.
+      - Choose a pagination scheme and state why.
+      - Show the error shape and the retryable versus non-retryable status codes.
+      - State the versioning policy.
+    example:
+      language: text
+      code: |-
+        GET    /v1/events/{event_id}/seats?section=A&status=available&limit=100&after=<cursor>
+               200 {"items": [{"seat_id": "A-12", "price_cents": 7500}], "next": "<cursor or null>"}
+        POST   /v1/events/{event_id}/holds          Idempotency-Key: 3f6c...
+               {"seat_ids": ["A-12", "A-13"]}
+               201 {"hold_id": "h_81", "expires_at": "2026-10-05T18:10:00Z"}
+               409 {"error": {"code": "SEAT_UNAVAILABLE", "details": ["A-13"]}}
+        POST   /v1/bookings                         Idempotency-Key: 9b1e...
+               {"hold_id": "h_81", "payment_token": "tok_..."}
+               201 {"booking_id": "b_77", "status": "CONFIRMED"}
+               409 {"error": {"code": "HOLD_EXPIRED"}}
+        GET    /v1/users/me/bookings?limit=20&after=<cursor>
+      explanation: Nouns for resources, idempotency keys on the two state-changing POSTs, cursor pagination on both lists, and a 409 with a machine-readable code for business conflicts.
+    edge_cases:
+      - "A retry arrives while the first request is still running: the idempotency store must record 'in progress' and make the duplicate wait or return 409, not execute twice."
+      - "The same idempotency key with a different request body: reject it (422 or 409) rather than return the old result."
+      - "Cursor over a non-unique sort key (created_at only): add the id as a tie-breaker or rows with equal timestamps are skipped."
+    misconceptions:
+      - "`PUT` being idempotent does not mean it is safe from lost updates; concurrent writers still need versioning (ETag with If-Match)."
+      - "\"REST\" does not require one table per resource; resources model the client's view, not the schema."
+- key: sd.api_design.check
+  type: concept_check
+  title: "Concept check: API contracts"
+  skills: [sd.api_design]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Each question is about what a client can safely assume.
+    questions:
+      - id: q1
+        kind: multi
+        prompt: Which HTTP methods are idempotent by definition?
+        options: ["GET", "POST", "PUT", "DELETE", "PATCH"]
+        answer: [0, 2, 3]
+        explanation: "Repeating GET, PUT or DELETE leaves the server in the same state as doing it once (DELETE may return 404 the second time, but the state is the same). POST is not idempotent; PATCH may or may not be, depending on the patch (an 'increment' patch is not)."
+      - id: q2
+        kind: single
+        prompt: A feed API uses `?offset=N&limit=20`. New posts are inserted at the top while a user scrolls. What happens?
+        options:
+          - Nothing; offsets are stable
+          - The user sees some posts twice because rows shift down between pages
+          - The user only ever misses new posts, never sees duplicates
+          - The database rejects the query
+        answer: [1]
+        explanation: "Each insert at the top pushes existing rows down, so the next page starts earlier than intended and repeats items. A keyset cursor based on the last seen (created_at, id) is immune to inserts above it."
+      - id: q3
+        kind: single
+        prompt: "A client sends `POST /payments` with `Idempotency-Key: k1`, the server charges the card, and the response is lost. The client retries with `k1`. Correct behaviour?"
+        options:
+          - Charge again; it is a new request
+          - Return the stored result of the first attempt without charging again
+          - Return 409 and ask the user to try again with a new key
+          - Return 500 because the first response was lost
+        answer: [1]
+        explanation: "The key identifies the logical operation, so the server returns the saved outcome. Charging again is the bug idempotency keys exist to prevent; returning 409 forces the client to guess whether the charge happened."
+      - id: q4
+        kind: single
+        prompt: Which status code tells a client that its request conflicts with the current state of the resource (seat already booked)?
+        options: ["400 Bad Request", "404 Not Found", "409 Conflict", "500 Internal Server Error"]
+        answer: [2]
+        explanation: "409 means the request is well-formed but conflicts with current state, and the client should not blindly retry. 400 is for malformed input; 500 implies a server fault that might succeed on retry, which is misleading here."
+      - id: q5
+        kind: multi
+        prompt: Which changes to a JSON response are usually backward compatible for existing clients?
+        options:
+          - Adding a new optional field
+          - Renaming an existing field
+          - Changing a field from integer to string
+          - Adding a new value to an enum that clients switch on
+          - Adding a new endpoint
+        answer: [0, 4]
+        explanation: "Old clients ignore unknown fields and do not call new endpoints. Renaming or retyping breaks parsers. A new enum value is a common trap: clients with exhaustive switches may crash, so document that unknown values must be tolerated or treat it as breaking."
+      - id: q6
+        kind: short
+        prompt: Write the SQL condition for the second page of a feed sorted by newest first, using a keyset cursor, and say why it includes the id.
+        model_answer: "WHERE (created_at, id) < (:last_created_at, :last_id) ORDER BY created_at DESC, id DESC LIMIT 20. The id breaks ties between rows with the same created_at; without it rows sharing the boundary timestamp would be skipped or repeated. An index on (created_at, id) makes it an index range scan regardless of page depth."
+        explanation: "Row-value comparison works in PostgreSQL and MySQL 8; in engines without it, expand to created_at < :ts OR (created_at = :ts AND id < :id)."
+- key: sd.api_design.booking_api
+  type: architecture_case
+  title: "Drill: design the API for a seat booking system"
+  skills: [sd.api_design, sd.idempotency_retries]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: SD_DESIGN, time_limit_seconds: 1200}
+  body:
+    prompt: |-
+      Design only the external API for a concert seat booking system. Fans list events, see available seats for an event, hold up to six seats for ten minutes, pay to confirm the booking, cancel a hold, and list their past bookings. Within 20 minutes write the endpoints (method, path, request, response, status codes), the error contract, the pagination scheme, how retries are made safe, and the versioning policy. The storage and architecture are out of scope.
+    requirements:
+      functional:
+        - List events and available seats for an event
+        - Hold up to six seats for ten minutes
+        - Confirm a booking by paying for a hold
+        - Cancel a hold
+        - List my bookings
+      non_functional:
+        - A seat is never sold twice
+        - Mobile clients on flaky networks retry automatically
+        - Old app versions keep working for at least a year
+    approach:
+      - "Resources: events, seats (a sub-resource of an event), holds, bookings."
+      - "`GET /v1/events/{id}/seats?status=available&limit&after` with a cursor; availability is a snapshot and may be stale by seconds."
+      - "`POST /v1/events/{id}/holds` with `Idempotency-Key`; 201 with `hold_id` and `expires_at`; 409 `SEAT_UNAVAILABLE` naming the seats that failed; 422 for more than six seats."
+      - "`POST /v1/bookings` with `Idempotency-Key` and `hold_id` plus a payment token; 201 `CONFIRMED`; 409 `HOLD_EXPIRED`; 402 or 422 for a declined payment with a code."
+      - "`DELETE /v1/holds/{id}`: idempotent, 204 even if already released or expired."
+      - "`GET /v1/users/me/bookings?limit&after`: keyset cursor on (created_at, id)."
+      - "One error envelope with a stable `code`; 429 with `Retry-After` for rate limits; 5xx are retryable with the same key."
+      - Additive changes within v1; a breaking change gets v2 and both run in parallel.
+    hints:
+      - Which of your endpoints can a client safely repeat without a key?
+      - What should a retry of the booking call return if the first one succeeded but the response was lost?
+    reference: |-
+      A strong answer makes the two POSTs idempotent with client-generated keys stored server-side with the response, uses cursors for both lists, returns 409 with machine-readable codes for business conflicts, and states that the hold, not the seat list, is the consistency point: listing can be stale because the hold call rechecks atomically.
+    rubric:
+      - {key: resources, label: "Endpoints cover all five requirements with nouns and correct methods", points: 2}
+      - {key: status_codes, label: "Uses 201/204/409/422/429 correctly and distinguishes retryable from non-retryable", points: 2}
+      - {key: idempotency, label: "Both state-changing POSTs take an idempotency key and the retry behaviour is stated", points: 3}
+      - {key: pagination, label: "Cursor pagination with a tie-breaking sort key on lists", points: 2}
+      - {key: errors, label: "One error envelope with stable machine-readable codes", points: 2}
+      - {key: versioning, label: "States an additive-change policy and when a new version is required", points: 1}
+      - {key: consistency_point, label: "Explains that the hold call is where double-selling is prevented", points: 2}
+    follow_ups:
+      - prompt: Traffic grows ten times during a major on-sale. What would you add to the API itself?
+        look_for: A waiting-room or queue token endpoint, 429 with Retry-After, a cheaper cached availability summary, server-driven polling intervals.
+      - prompt: The booking call times out on the client after the payment provider charged the card. Walk through what happens on retry.
+        look_for: The same key finds the stored in-progress or completed record; returns the stored result or waits; the payment provider call itself also uses an idempotency key; no second charge.
+      - prompt: "Partners now need a notification when a booking is confirmed. How do you expose that?"
+        look_for: Webhooks with signed payloads, retries with backoff, an event id for deduplication on the receiver side, and a polling fallback.
+- key: sd.api_design.interview
+  type: interview_question
+  title: "Interview question: offset or cursor pagination?"
+  skills: [sd.api_design, db.indexing]
+  minutes: 10
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 600}
+  body:
+    prompt: "An activity-log endpoint returns 50 million rows per large customer, sorted newest first. The current API uses `?page=N&size=50` and deep pages time out. Explain why, propose a replacement, and describe what clients lose and gain."
+    key_points:
+      - "Offset pagination makes the database read and discard offset rows before returning the page, so cost grows with page depth."
+      - Concurrent inserts shift offsets, causing duplicates or skipped rows between pages.
+      - "Keyset (cursor) pagination filters on the last seen sort key `(created_at, id)` with a matching index, so every page costs about the same."
+      - The cursor is opaque to clients (encoded, possibly signed) so the server can change its contents later.
+      - "Clients lose 'jump to page N' and total page counts; offer filters (date range) or an approximate count instead."
+    model_answer: "With OFFSET the engine must walk past every skipped row, so page 100,000 reads five million index entries before returning 50, and inserts at the head shift every later page. I would switch to a keyset cursor: the response includes next = encode(created_at, id) of the last row, and the next query is WHERE customer_id = ? AND (created_at, id) < (?, ?) ORDER BY created_at DESC, id DESC LIMIT 50 on an index (customer_id, created_at, id). Each page is a short index range scan. Clients can no longer jump to an arbitrary page or show an exact page count; I would add date-range filters for navigation and keep the cursor opaque."
+    pitfalls:
+      - Proposing a bigger timeout or a cache instead of fixing the access pattern.
+      - Using created_at alone as the cursor without a tie-breaker.
+    follow_ups:
+      - prompt: The product needs a 'previous page' button. How?
+        look_for: Store both first and last keys; query with the comparison reversed and ascending order, then reverse the result in the application.
+      - prompt: How does this work if the log is sharded by customer?
+        look_for: Each customer lives on one shard, so the cursor query stays single-shard; for cross-customer listing you would need a scatter-gather merge by sort key.
+- key: sd.api_design.cards
+  type: revision_card
+  title: "Recall: API design"
+  skills: [sd.api_design]
+  minutes: 5
+  body:
+    cards:
+      - front: Idempotent HTTP methods?
+        back: GET, PUT, DELETE (and HEAD, OPTIONS); POST is not, PATCH is not guaranteed.
+      - front: Why do offset pages get slow?
+        back: The database reads and discards every skipped row, so cost grows with depth.
+      - front: Keyset cursor for newest-first?
+        back: "WHERE (created_at, id) < (last_ts, last_id) ORDER BY created_at DESC, id DESC."
+      - front: Status code for 'conflicts with current state'?
+        back: 409 Conflict; not retryable as-is.
+      - front: Status code and header for rate limiting?
+        back: 429 Too Many Requests with Retry-After.
+      - front: Safest way to evolve a response?
+        back: Additive optional fields; breaking changes get a new version.

@@ -1,6 +1,6 @@
 # Roadmap: parallel tracks of ordered milestones + the M0 baseline battery. Owner doc: docs/product/ROADMAP.md
 # Validator: every skill appears in exactly one milestone.
-seed_version: seed-v1
+seed_version: seed-v2
 milestone_exit_rule: every required (T1-T3) skill listed has level >= L3, plus any extra_exit criteria
 baseline:
   key: M0-BASELINE

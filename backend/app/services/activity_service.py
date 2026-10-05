@@ -15,6 +15,7 @@ from app.domain.activity.rules import attempt_errors
 from app.domain.activity.vocabulary import PERSONAL_SEED_VERSION
 from app.domain.catalog.vocabulary import PRIMARY_MAPPING_BP
 from app.domain.clock import Clock, local_date
+from app.domain.learning.practice import AttemptFact, problem_state
 from app.errors import AppError
 from app.models import AuditLog, BaselineItem, Problem, ProblemAttempt, RevisionItemRow
 from app.repositories.activity_repository import ActivityRepository, AttemptRow, ProblemStats
@@ -30,6 +31,27 @@ from app.schemas.activity import (
 from app.schemas.envelope import ErrorCode
 
 FALLBACK_TIMEZONE = "UTC"
+
+
+def platform_url(problem: Problem) -> str | None:
+    """The stored URL, or the platform's canonical page for a known platform."""
+    if problem.url:
+        return problem.url
+    if problem.platform == "LEETCODE":
+        return f"https://leetcode.com/problems/{problem.platform_key}/"
+    return None
+
+
+def attempt_fact(a: ProblemAttempt) -> AttemptFact:
+    within = bool(
+        a.timed
+        and a.time_limit_seconds
+        and a.time_seconds is not None
+        and a.time_seconds <= a.time_limit_seconds
+    )
+    return AttemptFact(
+        a.outcome, a.hints_used, a.solution_viewed, a.timed, within, a.explanation_score, a.complexity_correct
+    )
 
 
 def problem_key(problem: Problem) -> str:
@@ -101,7 +123,7 @@ class ActivityService:
             platform=p.platform,
             platform_key=p.platform_key,
             title=p.title,
-            url=p.url,
+            url=platform_url(p),
             difficulty=p.difficulty,
             expected_minutes=p.expected_minutes,
             is_canonical=p.is_canonical,
@@ -110,6 +132,8 @@ class ActivityService:
                 {"skill": k, "mapping_weight_bp": w, "primary": w == PRIMARY_MAPPING_BP} for k, w in mappings
             ],
             attempt_count=stats.attempt_count,
+            practice_state=problem_state([attempt_fact(a) for a in stats.attempts]),
+            guide=p.guide_json,
             last_attempt=LastAttempt(
                 id=last.id, attempted_at=last.attempted_at.replace(tzinfo=UTC), outcome=last.outcome
             )

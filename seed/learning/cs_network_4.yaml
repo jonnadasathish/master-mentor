@@ -1,0 +1,560 @@
+# Learning content: real-time protocols (polling, long polling, SSE, WebSockets) and web security basics (OWASP, CORS, passwords, secrets).
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- real-time protocols
+- key: net.realtime.lesson
+  type: lesson
+  title: Long polling, Server-Sent Events and WebSockets
+  skills: [network.realtime_protocols]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Pushing data to clients means keeping something open; pick the simplest mechanism that matches the direction and rate of messages, then plan for every proxy timeout and reconnect on the path.
+    what: |-
+      HTTP is client-initiated, so "server push" needs one of these techniques:
+
+      - **Short polling**: the client asks every N seconds. Simple and cache-friendly, but latency up to N seconds and most requests return nothing.
+      - **Long polling**: the client sends a request and the server holds it open until there is data or a timeout (for example 30 seconds), then the client immediately sends the next one. Near-real-time over plain HTTP, but one request per message burst and a reconnect gap.
+      - **Server-Sent Events (SSE)**: one long-lived HTTP response with `Content-Type: text/event-stream`, in which the server writes events as lines (`event:`, `data:`, `id:`, `retry:`). Server-to-client only, UTF-8 text only. The browser's `EventSource` reconnects automatically and sends the last seen id in a `Last-Event-ID` header so the server can resume.
+      - **WebSockets** (RFC 6455): an HTTP/1.1 request with `Upgrade: websocket`, `Connection: Upgrade`, `Sec-WebSocket-Key` and `Sec-WebSocket-Version: 13`; the server answers `101 Switching Protocols` with `Sec-WebSocket-Accept` (base64 of SHA-1 of the key plus a fixed GUID). After that the TCP connection carries full-duplex framed messages, text or binary, plus ping, pong and close control frames. Client-to-server frames are masked.
+    why: |-
+      Chat, notifications, live dashboards, collaborative editing, progress bars and token streaming all need data to reach the client without it asking. Polling wastes requests and adds latency; holding a channel open removes both, at the cost of long-lived connections that every load balancer, proxy and NAT on the path will eventually try to close.
+    when: |-
+      - **SSE**: one-way server-to-client streams such as notifications, live scores, job progress or streaming generated text. Works through ordinary HTTP infrastructure and multiplexes nicely over HTTP/2.
+      - **WebSockets**: frequent messages in both directions with low latency, such as chat with typing indicators, multiplayer games, collaborative editors and trading screens; or binary data.
+      - **Long polling**: when intermediaries break streaming, as a fallback, or when updates are rare and simplicity matters.
+      - **Short polling**: when a few seconds of delay is fine and you want cacheable, stateless requests.
+    how: |-
+      **Keeping connections alive.** Every hop has an idle timeout: nginx's `proxy_read_timeout` defaults to 60 seconds, and cloud load balancers commonly default to 60 seconds of idle time too. A quiet channel is closed silently unless something crosses it. Send a heartbeat more often than the smallest idle timeout on the path, for example every 25 to 30 seconds: WebSocket ping frames from the server (browsers answer with pong automatically), or an SSE comment line (`: keepalive`).
+
+      **Reconnect.** Connections will drop (deploys, network changes, mobile sleep). Clients reconnect with exponential backoff plus random jitter so that a server restart does not cause every client to reconnect in the same second, and resume from the last event id or sequence number so no message is lost.
+
+      **Proxy configuration for WebSockets.** A reverse proxy must forward the upgrade explicitly; in nginx that means `proxy_http_version 1.1`, `proxy_set_header Upgrade $http_upgrade` and `proxy_set_header Connection "upgrade"`. For SSE, disable response buffering (`proxy_buffering off` or the `X-Accel-Buffering: no` response header) or events arrive in batches.
+
+      **Scaling.** Each connection is a socket and a file descriptor held for minutes or hours, so a server's capacity is counted in concurrent connections and memory per connection, not requests per second. A message for user 42 must reach the server holding user 42's connection: keep a connection registry and fan messages out through a pub/sub layer (Redis, Kafka, NATS) to the right server. Deploys need connection draining: stop accepting, tell clients to reconnect elsewhere, and spread reconnects.
+
+      **Security.** The WebSocket handshake carries the browser's cookies and is not covered by CORS, so the server must check the `Origin` header against an allowlist, or a malicious page can open an authenticated socket as the user (cross-site WebSocket hijacking). Use `wss://` (TLS). `EventSource` cannot set custom headers, so SSE authentication usually rides on cookies.
+    mental_model: |-
+      Short polling is checking the letterbox every few minutes; long polling is standing at the letterbox until the postman comes; SSE is a radio broadcast you tune into; a WebSocket is a phone call. Phone calls are the most flexible, but the line drops if nobody speaks for a minute, so you say "still there?" every half minute.
+    tradeoffs: |-
+      - **SSE vs WebSocket**: SSE is plain HTTP (works with existing auth, proxies, HTTP/2 multiplexing, automatic reconnect and resume built into the browser) but one-way and text-only; WebSockets are bidirectional and binary-capable but need upgrade-aware proxies, your own reconnect and resume logic, and your own message protocol.
+      - **Over HTTP/1.1** a browser allows only about six connections per host, shared across tabs, so several tabs each holding an SSE stream can starve other requests; HTTP/2 removes that limit by multiplexing.
+      - **Stateful connections** make horizontal scaling, deploys and load balancing harder than stateless request/response; that cost is the same whichever protocol you pick.
+    mistakes:
+      - No heartbeat, so idle connections are cut by a proxy after 60 seconds.
+      - Reconnecting immediately and in lockstep after a deploy, a self-inflicted thundering herd.
+      - Not resuming from the last event id, so messages sent during a reconnect are lost.
+      - Not checking `Origin` on the WebSocket handshake.
+      - Choosing WebSockets for a one-way notification feed that SSE would handle with less infrastructure.
+      - Keeping per-connection state only in one server's memory, with no way to route a message to the server holding the connection.
+      - Leaving proxy buffering on for SSE.
+    interview: |-
+      Asked as "polling vs long polling vs SSE vs WebSockets?", inside system-design rounds (chat, notifications, live feeds) and as debugging ("connections drop every 60 seconds"). Strong answers start from the direction and frequency of messages, mention proxies and timeouts, reconnect with resume, and how to route messages to the server holding the connection.
+    explain_it:
+      - Classify each technique by direction, latency and infrastructure needs.
+      - Describe the WebSocket upgrade handshake.
+      - Explain heartbeats against idle timeouts, and reconnect with backoff, jitter and resume.
+      - Explain how messages reach the right server when there are many.
+    example:
+      language: python
+      code: |-
+        # Server-Sent Events with FastAPI: a stream of job progress events.
+        import asyncio
+        from fastapi import FastAPI, Request
+        from fastapi.responses import StreamingResponse
+
+        app = FastAPI()
+
+        @app.get("/jobs/{job_id}/events")
+        async def job_events(job_id: str, request: Request):
+            last_id = int(request.headers.get("last-event-id", "0"))
+
+            async def stream():
+                seq = last_id
+                while not await request.is_disconnected():
+                    event = await next_progress_event(job_id, after=seq, timeout=25)
+                    if event is None:
+                        yield ": keepalive\n\n"           # comment line resets idle timers
+                        continue
+                    seq = event.seq
+                    yield f"id: {seq}\nevent: progress\ndata: {event.json}\n\n"
+
+            return StreamingResponse(stream(), media_type="text/event-stream",
+                                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+      explanation: "The id lets the browser resume with Last-Event-ID after a reconnect; the keepalive comment every 25 seconds keeps proxies with 60-second idle timeouts from closing the stream. next_progress_event is an application helper."
+    edge_cases:
+      - Mobile operating systems suspend background apps and their sockets; expect a reconnect and a resume on every foreground.
+      - Corporate proxies may buffer or block long-lived responses and upgrades; keep a long-polling fallback when the audience needs it.
+      - A half-open connection (peer vanished without a close) is detected only by a missed heartbeat.
+    misconceptions:
+      - "WebSockets are always faster than SSE. For server-to-client streams both are a single open connection; the difference is direction and tooling."
+      - "TCP keepalive will keep my WebSocket open. Linux's default first probe comes after two hours, far beyond proxy idle timeouts, and proxies track application traffic."
+- key: net.realtime.check
+  type: concept_check
+  title: "Concept check: real-time protocols"
+  skills: [network.realtime_protocols]
+  minutes: 8
+  difficulty: MEDIUM
+  body:
+    intro: Choose by direction, frequency and what sits between the client and the server.
+    questions:
+      - id: q1
+        kind: single
+        prompt: A dashboard shows build progress pushed from the server a few times per second; the browser never sends data back on that channel. Which is the simplest good fit?
+        options: ["Short polling every second", "Server-Sent Events", "WebSockets", "WebRTC data channels"]
+        answer: [1]
+        explanation: "SSE is a one-way server-to-client stream over plain HTTP with automatic reconnect and resume. WebSockets would work but add an upgrade path and a custom reconnect protocol for no benefit here. Polling every second adds latency and requests that mostly return nothing."
+      - id: q2
+        kind: single
+        prompt: What does the server send to accept a WebSocket upgrade?
+        options:
+          - "200 OK with Content-Type: application/websocket"
+          - "101 Switching Protocols with Sec-WebSocket-Accept derived from the client's key"
+          - "426 Upgrade Required"
+          - "204 No Content followed by binary frames"
+        answer: [1]
+        explanation: "The handshake is an HTTP/1.1 GET with Upgrade: websocket; the server answers 101 and proves it understood the request by returning base64(SHA-1(key + fixed GUID)). 426 is what a server sends when it requires an upgrade the client did not ask for."
+      - id: q3
+        kind: multi
+        prompt: Which statements about Server-Sent Events are true?
+        options:
+          - The browser reconnects automatically and sends Last-Event-ID
+          - It can carry binary frames directly
+          - It is server-to-client only
+          - Over HTTP/1.1 each open stream uses one of the browser's few connections per host
+        answer: [0, 2, 3]
+        explanation: "EventSource handles reconnect and resume; the stream is one-way and UTF-8 text (binary must be encoded, for example base64). Over HTTP/1.1 every stream occupies one of roughly six per-host connections, shared across tabs; HTTP/2 multiplexes them."
+      - id: q4
+        kind: single
+        prompt: Why must a WebSocket server check the Origin header during the handshake?
+        options:
+          - CORS blocks WebSocket handshakes from other origins only if Origin is checked by the browser
+          - The browser sends cookies with the handshake and CORS does not apply, so a malicious page could open an authenticated socket as the user
+          - Origin carries the user's session id
+          - It is required to compute Sec-WebSocket-Accept
+        answer: [1]
+        explanation: "WebSockets are not subject to the same-origin policy for reading, and cookies are attached to the handshake. Without an Origin allowlist, any site the user visits can talk to your socket with the user's credentials (cross-site WebSocket hijacking). Sec-WebSocket-Accept depends only on the key."
+      - id: q5
+        kind: single
+        prompt: After a deploy, 200,000 clients reconnect and the new servers fall over within seconds. What client behaviour prevents this?
+        options:
+          - Reconnect immediately so downtime is minimal
+          - Reconnect after a fixed 5-second delay
+          - Exponential backoff with random jitter, resuming from the last event id
+          - Fall back to short polling every second
+        answer: [2]
+        explanation: "A fixed delay moves the stampede 5 seconds later; jitter spreads reconnects over time, and backoff reduces pressure if servers are struggling. Resuming from the last id avoids replaying everything. One-second polling from 200,000 clients is its own overload."
+      - id: q6
+        kind: short
+        prompt: You run four WebSocket servers behind a load balancer. User A on server 1 sends a chat message to user B on server 3. How does it get there, and what do you need to keep track of?
+        model_answer: "Server 1 cannot write to B's socket, so it publishes the message to a pub/sub layer (Redis pub/sub, NATS, Kafka) on a channel for the conversation or for user B; server 3 is subscribed for the users connected to it and forwards the message on B's socket. You keep a registry of which server holds which user's connections (or subscribe per user), persist messages so offline or reconnecting users can fetch what they missed by sequence number, and clean up the registry when connections close."
+        explanation: The connection is state pinned to one server; cross-server delivery needs a fan-out layer and a durable store for resume.
+- key: net.realtime.debugging
+  type: debugging_exercise
+  title: "Debugging: WebSocket connections drop every 60 seconds"
+  skills: [network.realtime_protocols, network.tcp_ip_udp]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    scenario: |-
+      A support chat uses WebSockets. In local development connections stay open for hours. In production, behind a cloud load balancer and an nginx reverse proxy, idle connections close about 60 seconds after the last message. Active conversations are fine. Every few weeks a deploy also causes an error spike as all clients reconnect at once.
+    symptoms:
+      - Drops happen only on connections with no messages for about a minute.
+      - The browser receives close code 1006 (abnormal closure, no close frame).
+      - The server logs show the connection closed by the peer, not by application code.
+      - Raising nginx proxy_read_timeout to 3600 seconds made some connections last longer but they still drop at 60 seconds.
+    artifacts: |-
+      location /ws/ {
+          proxy_pass http://chat_backend;
+          proxy_http_version 1.1;
+          proxy_set_header Upgrade $http_upgrade;
+          proxy_set_header Connection "upgrade";
+          proxy_read_timeout 3600s;
+      }
+      # cloud load balancer: idle timeout 60 seconds (default)
+      # client: reconnects immediately on close
+    tasks:
+      - Explain why idle connections close at 60 seconds even after the nginx change.
+      - Propose the fix at the protocol level and say what interval to use.
+      - Fix the deploy-time reconnect storm.
+      - Explain how to make sure no messages are lost while a client reconnects.
+    hints:
+      - How many hops have an idle timeout?
+      - Which side should send traffic on an idle connection, and how often?
+      - What do all clients do at the same moment when every server restarts?
+    reference: |-
+      **Cause.** There are two idle timers on the path. nginx's (60 seconds by default, now raised) and the load balancer's, still 60 seconds. With no frames crossing the connection, the balancer drops it without a close frame, hence 1006. Raising one timeout cannot help while the other remains; and raising timeouts never helps against NAT devices and mobile networks you do not control.
+
+      **Fix.** Send application-level heartbeats more often than the smallest idle timeout: a server WebSocket ping every 25 to 30 seconds (browsers reply with pong automatically), closing the connection if no pong arrives within a couple of intervals so half-open connections are detected. Optionally raise the balancer's idle timeout too, but the heartbeat is what makes it robust.
+
+      **Deploy storm.** Drain servers one at a time: stop routing new connections to a server, send clients a close frame with a "going away" code (1001), and have clients reconnect after a random delay with exponential backoff and jitter instead of immediately.
+
+      **No lost messages.** Give every message a per-conversation sequence number and persist it before delivery. On reconnect, the client sends the last sequence it processed and the server replays everything after it; the client deduplicates by sequence.
+    rubric:
+      - {key: two_timeouts, label: Identifies the load balancer's 60-second idle timeout as the remaining cutoff behind nginx, points: 3}
+      - {key: heartbeat, label: Adds ping or heartbeat frames at an interval below the smallest idle timeout and detects missing pongs, points: 3}
+      - {key: reconnect, label: "Fixes the storm with draining, a going-away close and jittered exponential backoff", points: 2}
+      - {key: resume, label: Resumes by sequence number from persisted messages with client-side dedupe, points: 2}
+    follow_ups:
+      - prompt: Why not rely on TCP keepalive instead of WebSocket pings?
+        look_for: The Linux default first probe is after 7200 seconds, the browser does not expose the setting, and L7 proxies track application data rather than TCP probes on their own legs.
+      - prompt: Would switching to SSE remove the problem?
+        look_for: No; an idle SSE stream is cut by the same timeouts, so it also needs periodic keepalive comments; SSE does give built-in reconnect with Last-Event-ID.
+- key: net.realtime.interview
+  type: interview_question
+  title: "Interview question: pick the real-time mechanism for three features"
+  skills: [network.realtime_protocols, sd.realtime_delivery]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: A project-management web app wants three features. A notification badge that updates when someone mentions you (a few events per hour). A collaborative document editor where several people type at once. A long CSV import that reports progress. For each, choose short polling, long polling, SSE or WebSockets, justify the choice, and describe the infrastructure needed to run it for 100,000 concurrent users.
+    key_points:
+      - "Notifications: SSE (or long polling) because traffic is one-way and rare; short polling every minute is acceptable if a delay is fine."
+      - "Collaborative editing: WebSockets for frequent bidirectional low-latency messages, with an operation protocol and sequence numbers."
+      - "Import progress: SSE from a job-status stream, or plain polling of a status resource returned with 202."
+      - "Counts connections, not requests: 100,000 open connections need servers sized for sockets and memory, and file descriptor limits."
+      - "Fan-out across servers through pub/sub and a registry of which server holds which user."
+      - "Heartbeats below proxy idle timeouts, reconnect with backoff and jitter, and resume from the last event id."
+      - "Authentication and Origin checks on the connection; TLS (wss or https)."
+    model_answer: "Notifications are rare and one-way, so SSE: one stream per user carrying an event id; the browser resumes with Last-Event-ID, and the server sends a keepalive comment every 25 seconds. Over HTTP/2 it multiplexes with other requests. Collaborative editing needs low-latency messages in both directions, so WebSockets carrying operations with per-document sequence numbers; all editors of a document should be routed to the same server or share a pub/sub channel for that document, and the server persists operations so clients can resume after reconnect. The import is a job: POST returns 202 with a status resource; progress over SSE from that resource, or polling every few seconds if simpler. For 100,000 concurrent users the limit is open connections: tune file descriptor limits, size memory per connection, spread connections across many servers, use a pub/sub layer for fan-out, drain servers on deploy, and have clients reconnect with jittered backoff."
+    pitfalls:
+      - Using WebSockets for everything without considering the operational cost.
+      - Forgetting that the editor's messages must reach every collaborator across servers.
+    follow_ups:
+      - prompt: How do you load-balance WebSocket connections fairly when servers are added during a spike?
+        look_for: Existing connections stay where they are, so new servers get only new connections; use least-connections balancing, cap connections per server and occasionally ask clients to reconnect to rebalance.
+      - prompt: A corporate customer's proxy breaks streaming responses. What do you do?
+        look_for: Detect failure and fall back to long polling over ordinary requests; keep the message protocol transport-independent so the fallback is cheap.
+- key: net.realtime.cards
+  type: revision_card
+  title: "Recall: real-time protocols"
+  skills: [network.realtime_protocols]
+  minutes: 5
+  body:
+    cards:
+      - front: SSE vs WebSocket in one line?
+        back: SSE is one-way text over plain HTTP with built-in resume; WebSocket is full-duplex over an upgraded connection.
+      - front: Status code that accepts a WebSocket upgrade?
+        back: 101 Switching Protocols, with Sec-WebSocket-Accept.
+      - front: Why do idle sockets die at 60 seconds behind proxies?
+        back: Proxy and load-balancer idle timeouts; send heartbeats every 25 to 30 seconds.
+      - front: How should clients reconnect after a deploy?
+        back: Exponential backoff with random jitter, resuming from the last event id.
+      - front: Security check specific to the WebSocket handshake?
+        back: Validate the Origin header, since cookies are sent and CORS does not apply.
+
+# ---------------------------------------------------------------------------------------------- web security basics
+- key: net.web_security.lesson
+  type: lesson
+  title: "Web security basics: OWASP risks, access control, passwords and secrets"
+  skills: [security.web_basics]
+  minutes: 30
+  difficulty: MEDIUM
+  body:
+    summary: Most web vulnerabilities come from trusting input, trusting the browser, or forgetting to check who is allowed to do what; a handful of habits prevents the majority.
+    what: |-
+      **Authentication** answers "who are you?" (passwords, MFA, tokens); **authorization** answers "what may you do?" (roles, ownership, policies). A failed authentication is `401`; an authenticated user lacking permission is `403`.
+
+      The OWASP Top 10 (2021 edition) ranks the most common web risks. The ones every backend engineer must be able to explain and prevent:
+
+      - **Broken access control** (ranked first): a user reaches data or actions that are not theirs, for example changing `/invoices/1041` to `/invoices/1042` (an insecure direct object reference, IDOR).
+      - **Injection**: untrusted input is interpreted as code or a query, as in SQL injection, command injection or template injection. The 2021 edition files cross-site scripting under injection.
+      - **Cross-site scripting (XSS)**: attacker-controlled data is rendered as script in another user's browser. Stored (saved in your database), reflected (echoed from the request) or DOM-based (client code writes untrusted data into the page).
+      - **Cross-site request forgery (CSRF)**: a malicious site makes the user's browser send a state-changing request to your site, with the user's cookies attached automatically.
+      - **Server-side request forgery (SSRF)**: your server fetches a URL the attacker supplied and reaches internal services or the cloud metadata endpoint (`169.254.169.254`) that the attacker cannot reach directly.
+      - **Cryptographic failures** and **identification and authentication failures**: plaintext or fast-hashed passwords, missing TLS, weak session handling, no rate limits on login.
+    why: |-
+      Every request is attacker-controlled input: path, query, headers, cookies, body, file names, even the `Host` header. The browser is a confused deputy that attaches credentials to requests initiated by other sites. Defences belong on the server because the client can be modified at will.
+    when: |-
+      In every code review touching input handling, queries, HTML output, URL fetching, file uploads, login, permissions or configuration, and in design discussions about multi-tenant data, admin features and third-party integrations.
+    how: |-
+      **Injection.** Never build queries by string concatenation. Use parameterised queries, where the driver sends the query and the values separately so values can never become SQL. Identifiers (column names in `ORDER BY`) cannot be parameters: map them through an allowlist. For shell commands, pass an argument list without a shell.
+
+      **XSS.** Encode output for its context: rely on template auto-escaping for HTML, avoid raw-HTML sinks (`innerHTML`, `dangerouslySetInnerHTML`, a template's "safe" filter) for user data, sanitise with a vetted library when you must accept rich text, and add a Content Security Policy that forbids inline scripts. HttpOnly cookies limit what a successful XSS can steal.
+
+      **CSRF.** Set `SameSite=Lax` or `Strict` on session cookies, require an anti-CSRF token (synchronizer token or double-submit) or a verified `Origin` header on state-changing requests, and never change state on `GET`. APIs authenticated only with a bearer token in the `Authorization` header are not CSRF-prone, because browsers do not attach it automatically.
+
+      **CORS** is not a defence but a controlled relaxation of the same-origin policy. By default a script on `evil.com` can send some requests to `api.example.com` but cannot read the responses. The server opts in with `Access-Control-Allow-Origin` for specific origins; "non-simple" requests (methods other than GET, HEAD and POST, custom headers, or a JSON content type) are preceded by an `OPTIONS` preflight. Credentialed requests require `Access-Control-Allow-Credentials: true` and an explicit origin, never `*`. Reflecting any `Origin` back with credentials allowed lets every site read your users' data.
+
+      **Access control.** Deny by default, enforce on the server for every request, and check ownership at the object level (`WHERE id = :id AND tenant_id = :tenant`), not only role at the route level. Hiding a button is not access control.
+
+      **SSRF.** Allowlist destinations where possible. Otherwise resolve the hostname, reject private, loopback, link-local and metadata addresses, connect to the IP you checked (to defeat DNS rebinding), disable or re-validate redirects, and restrict egress at the network level. On AWS, require IMDSv2, whose session token needs a PUT request that simple SSRF cannot make.
+
+      **Password storage.** Store a slow, salted, memory-hard hash: Argon2id (OWASP minimum guidance: 19 MiB of memory, 2 iterations, parallelism 1), or bcrypt with a work factor of at least 10 (note bcrypt only uses the first 72 bytes), or scrypt, or PBKDF2-HMAC-SHA256 with about 600,000 iterations where FIPS compliance is needed. A **salt** is a unique random value per password stored next to the hash; it makes identical passwords hash differently and defeats precomputed tables. A **pepper** is an optional secret kept outside the database. Rate-limit login, check new passwords against breached-password lists and offer MFA.
+
+      **Secrets.** Keep keys, tokens and passwords out of source code and images. Load them at runtime from a secret manager or injected environment, with least-privilege access and rotation. Never log them or ship them to the frontend bundle. Scan commits for secrets. If one leaks, revoke and rotate it immediately; deleting it from git history does not un-leak it.
+    mental_model: |-
+      Draw the trust boundary. Everything that crosses it into your server is data from a stranger until validated, and everything your server sends back into a browser runs in someone else's security context. Each vulnerability above is a place where data crossed the boundary and was treated as code (injection, XSS), as identity (CSRF, SSRF) or as permission (broken access control).
+    tradeoffs: |-
+      - A strict Content Security Policy blocks most XSS but requires removing inline scripts and some third-party widgets.
+      - Higher password-hash cost slows attackers proportionally but also your login endpoint; tune it to roughly a few hundred milliseconds or less per hash on your hardware and rate-limit logins.
+      - Returning 404 instead of 403 for other users' objects hides their existence but makes debugging harder.
+      - Centralised authorization (a policy layer) is consistent but must be called everywhere; per-handler checks are easy to forget.
+    mistakes:
+      - Building SQL with f-strings because "the value is from our own frontend".
+      - Checking that the user is logged in but not that the object belongs to them.
+      - Hashing passwords with MD5, SHA-1 or a single SHA-256 round, which GPUs compute billions of times per second.
+      - "Treating CORS as protection against CSRF, or setting `Access-Control-Allow-Origin: *` together with credentials logic that reflects the Origin."
+      - Fetching user-supplied URLs from the server without restricting destinations.
+      - Committing an API key and "fixing" it by deleting the file in the next commit.
+      - Rendering user content through a raw-HTML sink to keep formatting.
+    interview: |-
+      Prompts include "how do you store passwords?", "authentication vs authorization", "what is CSRF and how do you prevent it?", "how does SQL injection work?", "what is CORS for?", and code-review exercises where you spot vulnerabilities. Strong answers name the mechanism of each attack, the primary defence and one defence in depth, without hand-waving ("sanitise input").
+    explain_it:
+      - Distinguish authentication from authorization with a status code for each failure.
+      - For injection, XSS, CSRF, SSRF and IDOR, state the mechanism and the primary defence.
+      - Explain why CORS is not a security boundary against CSRF.
+      - Explain salts, slow hashes and why a fast hash is wrong.
+    example:
+      language: python
+      code: |-
+        from argon2 import PasswordHasher
+        from argon2.exceptions import VerifyMismatchError
+
+        ph = PasswordHasher()                    # Argon2id with library defaults; salt generated per hash
+
+        def register(conn, email: str, password: str) -> None:
+            conn.execute("INSERT INTO users (email, password_hash) VALUES (%s, %s)",   # parameterised
+                         (email, ph.hash(password)))
+
+        def login(conn, email: str, password: str) -> bool:
+            row = conn.execute("SELECT id, password_hash FROM users WHERE email = %s", (email,)).fetchone()
+            if row is None:
+                ph.hash(password)                # similar work for unknown emails, so timing reveals less
+                return False
+            try:
+                ph.verify(row.password_hash, password)
+            except VerifyMismatchError:
+                return False
+            if ph.check_needs_rehash(row.password_hash):   # parameters were raised since this hash was made
+                conn.execute("UPDATE users SET password_hash = %s WHERE id = %s",
+                             (ph.hash(password), row.id))
+            return True
+      explanation: "argon2-cffi stores the algorithm, parameters and salt inside the encoded hash string, so verification needs no separate salt column, and check_needs_rehash upgrades old hashes at login. The %s placeholders are the psycopg parameter style; the driver sends values separately from the SQL."
+    edge_cases:
+      - "Second-order injection: a value stored safely is later concatenated into a query by a different job."
+      - "SSRF through redirects: an allowed URL redirects to an internal address."
+      - "Same-site is not same-origin: a compromised sibling subdomain bypasses SameSite cookie protection."
+      - Unicode normalisation and case differences let "Admin" and "admin" register as different users unless normalised.
+    misconceptions:
+      - "Input validation prevents injection. Validation helps, but parameterisation and output encoding are what make data unable to become code."
+      - "Encrypting passwords is safer than hashing. Encryption is reversible by whoever holds the key; passwords need a one-way slow hash."
+      - "HTTPS protects against XSS and CSRF. TLS protects the channel; these attacks happen inside a legitimate, encrypted session."
+- key: net.web_security.cors_csrf
+  type: concept
+  title: CORS vs CSRF, and why they are not opposites
+  skills: [security.web_basics, network.sessions_auth]
+  minutes: 8
+  difficulty: MEDIUM
+  body:
+    summary: CSRF is about another site sending requests with your user's cookies; CORS is about another site reading responses. CORS settings do not stop the request from being sent.
+    explanation: |-
+      The same-origin policy lets a page on `evil.com` **send** many requests to `bank.example.com` (a form submission, an image, a simple `fetch`), and the browser attaches the user's cookies according to their `SameSite` setting. What the page cannot do by default is **read** the response. CORS is the server's way to allow reading for named origins.
+
+      A CSRF attack does not need to read anything: a hidden auto-submitting form that POSTs to `/transfer` succeeds the moment the server processes it. So a strict CORS policy does not prevent CSRF for simple requests. Only non-simple requests (for example JSON bodies or custom headers) trigger a preflight that the browser refuses to follow without CORS approval, which is why requiring a custom header is a partial defence, but it is no substitute for SameSite cookies plus CSRF tokens or Origin checks.
+
+      Conversely, a misconfigured CORS policy creates a new hole: reflecting any `Origin` header into `Access-Control-Allow-Origin` with `Access-Control-Allow-Credentials: true` lets every website read authenticated responses, such as account details and CSRF tokens.
+    points:
+      - CSRF needs the browser to attach credentials automatically; bearer tokens in an Authorization header are not attached, so they are not CSRF-prone.
+      - SameSite=Lax blocks cookies on cross-site POSTs and embedded requests, which stops classic form-based CSRF.
+      - "CORS protects users' data from being read by other sites; it does nothing against curl or a server-side attacker."
+      - "Never combine a wildcard or reflected Origin with Allow-Credentials true."
+      - The preflight is an OPTIONS request; it must not require authentication and must not change state.
+    misconceptions:
+      - "If CORS is locked down, CSRF is impossible."
+      - "CORS errors in the browser console mean the request never reached the server. For simple requests it did reach the server; the browser only hid the response."
+- key: net.web_security.check
+  type: concept_check
+  title: "Concept check: web security basics"
+  skills: [security.web_basics]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Name the mechanism of each attack before choosing a defence.
+    questions:
+      - id: q1
+        kind: single
+        prompt: Which change fixes this code's vulnerability properly?
+        code:
+          language: python
+          code: |-
+            def find_users(conn, name: str):
+                return conn.execute(f"SELECT id, email FROM users WHERE name = '{name}'").fetchall()
+        options:
+          - "Escape single quotes in name with name.replace(\"'\", \"''\")"
+          - "Use a parameterised query: conn.execute(\"SELECT id, email FROM users WHERE name = %s\", (name,))"
+          - Reject names that contain the word SELECT
+          - Run the query with a read-only database user
+        answer: [1]
+        explanation: "Parameterisation sends the value separately, so it can never change the query's structure. Hand-escaping is fragile (encodings, other contexts), keyword blocklists are trivially bypassed, and a read-only user is useful defence in depth but still lets the attacker read every row with a UNION."
+      - id: q2
+        kind: single
+        prompt: A logged-in user changes the URL from /api/invoices/1041 to /api/invoices/1042 and sees another company's invoice. What is this, and what is the fix?
+        options:
+          - "XSS; escape the invoice fields"
+          - "Broken access control (IDOR); check on the server that the invoice belongs to the caller's tenant"
+          - "CSRF; add an anti-CSRF token"
+          - "Injection; parameterise the query"
+        answer: [1]
+        explanation: "The query was presumably safe; the missing piece is an ownership check such as WHERE id = :id AND tenant_id = :tenant on every object access. Using unguessable ids reduces discovery but is not authorization."
+      - id: q3
+        kind: multi
+        prompt: Which measures defend against CSRF on a cookie-authenticated web app?
+        options:
+          - SameSite=Lax or Strict on the session cookie
+          - An anti-CSRF token checked on state-changing requests
+          - Verifying the Origin header on state-changing requests
+          - Setting Access-Control-Allow-Origin to your own domain only
+        answer: [0, 1, 2]
+        explanation: "SameSite withholds cookies from cross-site requests; tokens and Origin checks prove the request came from your own pages. CORS controls who can read responses; a cross-site form POST is sent and processed regardless of CORS headers."
+      - id: q4
+        kind: single
+        prompt: Why is SHA-256(salt + password) a poor way to store passwords?
+        options:
+          - SHA-256 has known collisions
+          - It is fast, so attackers with GPUs can test billions of guesses per second against a leaked hash
+          - Salts make hashes reversible
+          - SHA-256 output is too long to store
+        answer: [1]
+        explanation: "The salt correctly defeats precomputed tables, but a fast hash still lets attackers brute-force each hash cheaply. Password hashes must be deliberately slow and memory-hard (Argon2id, scrypt, bcrypt). No practical SHA-256 collisions are known, and collisions are not the threat here."
+      - id: q5
+        kind: single
+        prompt: A "fetch image from URL" feature downloads whatever URL the user supplies. What is the main risk, and which defence is weakest?
+        options:
+          - "SSRF; the weakest defence is a string blocklist for 'localhost' and '127.0.0.1'"
+          - "XSS; the weakest defence is escaping the URL"
+          - "CSRF; the weakest defence is SameSite cookies"
+          - "SQL injection; the weakest defence is parameterisation"
+        answer: [0]
+        explanation: "The server becomes the attacker's proxy to internal services and the metadata endpoint. String blocklists miss decimal or IPv6 forms, DNS names that resolve to private IPs, and redirects. Resolve, check the IP against private ranges, connect to that IP, re-check redirects and restrict egress."
+      - id: q6
+        kind: short
+        prompt: An engineer commits an AWS access key to a public repository and deletes it in the next commit ten minutes later. What must happen now, and why is the deletion not enough?
+        model_answer: "Treat the key as compromised: deactivate and rotate it immediately, then review the cloud audit logs for activity with that key since the commit and clean up anything created. Deleting it in a later commit leaves it in the git history, forks and any clones, and automated scanners harvest public repositories within minutes. Afterwards add secret scanning to pre-commit and CI, move the application to short-lived credentials or a secret manager, and grant the key only the permissions it needs."
+        explanation: Revocation is the fix; history rewriting is at most cleanup.
+- key: net.web_security.debugging_review
+  type: debugging_exercise
+  title: "Security review: find the vulnerabilities in a small API"
+  skills: [security.web_basics, network.sessions_auth]
+  minutes: 20
+  difficulty: HARD
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 1200}
+  body:
+    scenario: |-
+      You are reviewing a pull request for an internal invoicing service built with FastAPI. It is about to be exposed to customers. Find every security problem, rank them by impact and propose a fix for each.
+    symptoms:
+      - The service runs on a cloud VM that has an instance role with access to the invoice storage bucket.
+      - Sessions are cookies set by the login endpoint; there is no other CSRF protection.
+      - "Customers belong to tenants; an invoice row has a tenant_id column."
+    artifacts:
+      language: python
+      code: |-
+        API_TOKEN = "sk_live_51H8xQ2..."            # payment provider key
+
+        @app.post("/login")
+        def login(email: str, password: str, response: Response):
+            user = db.execute("SELECT * FROM users WHERE email = %s", (email,)).fetchone()
+            if user and user.password_hash == hashlib.md5(password.encode()).hexdigest():
+                response.set_cookie("sid", new_session(user.id), samesite="none", secure=True)
+                return {"ok": True}
+            return {"ok": False}
+
+        @app.get("/invoices/search")
+        def search(q: str, user=Depends(current_user)):
+            rows = db.execute(f"SELECT id, title FROM invoices WHERE title LIKE '%{q}%'").fetchall()
+            return HTMLResponse(f"Results for {q}: " + ", ".join(r.title for r in rows))
+
+        @app.get("/invoices/{invoice_id}")
+        def get_invoice(invoice_id: int, user=Depends(current_user)):
+            return db.execute("SELECT * FROM invoices WHERE id = %s", (invoice_id,)).fetchone()
+
+        @app.post("/invoices/{invoice_id}/logo")
+        def fetch_logo(invoice_id: int, url: str, user=Depends(current_user)):
+            data = httpx.get(url, follow_redirects=True).content
+            store_logo(invoice_id, data)
+            return {"ok": True}
+    tasks:
+      - List each vulnerability with its category and the line it comes from.
+      - Rank them by impact and justify the top two.
+      - Give the concrete fix for each.
+      - Name one defence-in-depth measure beyond the direct fixes.
+    hints:
+      - Look at every place a request value meets SQL, HTML or a network call.
+      - Which endpoints check that the object belongs to the caller's tenant?
+      - What does the VM's instance role make reachable from inside the server?
+      - Read the cookie attributes and the hash function.
+    reference: |-
+      **1. SQL injection in search** (`f"... LIKE '%{q}%'"`): any user can read every tenant's data, or more, with a UNION. Fix: parameterise with `LIKE %s` and pass `f"%{q}%"` as the value; also filter by tenant.
+
+      **2. SSRF in fetch_logo**: the server fetches any URL, follows redirects, and runs with an instance role, so `http://169.254.169.254/...` can expose cloud credentials for the invoice bucket; internal services are reachable too. Fix: allowlist schemes (https) and validate the resolved IP against private, loopback and link-local ranges, connect to the checked IP, re-validate or disable redirects, cap size and time, restrict egress, and require IMDSv2.
+
+      **3. Broken access control in get_invoice and fetch_logo**: no tenant check, so any customer reads any invoice by id and can overwrite any invoice's logo. Fix: `WHERE id = %s AND tenant_id = %s` with the caller's tenant on every object access; return 404 for others.
+
+      **4. Reflected XSS in search**: `q` is placed unescaped into an HTML response, so a link with a script payload runs in the victim's session. Fix: return JSON, or render through an auto-escaping template; add a Content Security Policy.
+
+      **5. Weak password storage**: unsalted MD5 is cracked at enormous rates after a leak; the `==` comparison is also not constant-time. Fix: Argon2id or bcrypt with per-password salts via a library `verify`, rehash on next login, and rate-limit login attempts.
+
+      **6. Cookie and CSRF**: `samesite="none"` sends the session cookie on every cross-site request and there is no CSRF token, so any site can make state-changing POSTs as the user; the cookie also lacks HttpOnly, so the XSS above can steal it. Fix: `httponly=True, secure=True, samesite="lax"` (a `__Host-` name), plus CSRF tokens or Origin checks on POSTs; regenerate the session id at login.
+
+      **7. Hard-coded live secret**: the payment key is in source control. Fix: rotate the key now (treat as leaked), load it from a secret manager at runtime, add secret scanning.
+
+      **Also**: login returns 200 with ok false instead of 401; errors should not reveal whether the email exists. Ranking: injection and SSRF first (cross-tenant data and cloud credentials), then access control, XSS plus cookie flags, passwords, CSRF, secret.
+    rubric:
+      - {key: injection, label: Finds the SQL injection in search and parameterises it, points: 2}
+      - {key: ssrf, label: "Finds the SSRF, links it to the instance role or metadata endpoint, and gives an IP-validating fix", points: 2}
+      - {key: idor, label: Finds the missing tenant checks on get_invoice and fetch_logo, points: 2}
+      - {key: xss_cookies, label: "Finds the reflected XSS and the missing HttpOnly, SameSite=None and CSRF problems", points: 2}
+      - {key: passwords_secrets, label: Replaces MD5 with a salted slow hash and rotates the hard-coded key, points: 1}
+      - {key: ranking, label: Ranks by impact with a justification for the top two, points: 1}
+    follow_ups:
+      - prompt: How would you make missing tenant checks hard to reintroduce in future endpoints?
+        look_for: A repository or query layer that always takes the tenant, row-level security in the database, tests that call every endpoint as another tenant, and deny-by-default authorization middleware.
+      - prompt: How do you migrate millions of existing MD5 hashes without forcing every user to reset their password?
+        look_for: Wrap the old hashes (store argon2(md5) and verify accordingly) immediately, then replace with a plain Argon2id hash at each user's next successful login; force resets only for accounts that stay dormant.
+- key: net.web_security.interview
+  type: interview_question
+  title: "Interview question: store passwords and secrets for a new service"
+  skills: [security.web_basics]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: You are building sign-up and login for a new service, which also needs a database password and a payment provider API key. Explain how you store user passwords, what a salt and a pepper are, how login is protected against online attacks, and how the service gets its own secrets in development and production.
+    key_points:
+      - "Uses a slow, salted, memory-hard password hash (Argon2id, or bcrypt or scrypt) through a library, never a fast hash or encryption."
+      - "Salt: unique random per password, stored with the hash, defeats precomputed tables and identical-hash detection."
+      - "Pepper: optional secret held outside the database (for example in a KMS or secret manager), so a database dump alone is not enough."
+      - "Online attacks: rate limiting per account and per IP, breached-password checks, MFA, generic error messages."
+      - "Rehashes on login when parameters are raised; constant-time comparison inside the library."
+      - "Service secrets from a secret manager or injected environment at runtime, never in code or images; least privilege, rotation, no logging, separate per environment."
+    model_answer: "Passwords are hashed with Argon2id through a maintained library, with parameters tuned so a hash takes a bounded amount of time on our hardware; the library generates a random salt per password and stores salt and parameters in the hash string. A salt is unique per password and public; it means identical passwords produce different hashes and precomputed tables are useless. A pepper is an extra secret, held in a KMS or secret manager rather than the database, applied as an HMAC before hashing, so a stolen database alone cannot be cracked. Login has per-account and per-IP rate limits with backoff, checks new passwords against breached lists, offers MFA, returns the same error for unknown email and wrong password, and rehashes when parameters change. The database password and API key live in a secret manager; production instances fetch them at start-up with an identity that can read only their own secrets, and each environment has different credentials. Developers use their own low-privilege dev credentials. Secrets are rotated, never logged, and CI scans commits for them."
+    pitfalls:
+      - Saying "encrypt the passwords with AES".
+      - Treating the salt as secret or reusing one salt for all users.
+      - Putting production secrets in a committed .env file or baking them into the container image.
+    follow_ups:
+      - prompt: How do you rotate the payment API key without downtime?
+        look_for: Create a second key, deploy configuration that uses it (the provider accepts both during overlap), verify traffic, then revoke the old key; automate and audit.
+      - prompt: An attacker tries one common password against 100,000 different accounts. Do per-account rate limits help?
+        look_for: No, that is password spraying; use per-IP and global anomaly detection, breached-password checks, MFA and alerts on unusual login failure rates.
+- key: net.web_security.cards
+  type: revision_card
+  title: "Recall: web security basics"
+  skills: [security.web_basics]
+  minutes: 5
+  body:
+    cards:
+      - front: Authentication vs authorization?
+        back: Who you are (401 on failure) vs what you may do (403 on failure).
+      - front: Primary defence against SQL injection?
+        back: Parameterised queries, with an allowlist for identifiers.
+      - front: Does CORS stop CSRF?
+        back: No; CORS controls reading responses, the forged request is still sent.
+      - front: What does a password salt do?
+        back: Makes each hash unique, defeating precomputed tables; it is stored with the hash.
+      - front: First step when a secret leaks?
+        back: Revoke and rotate it; deleting it from git is not enough.
+      - front: Main SSRF target in the cloud?
+        back: The instance metadata endpoint at 169.254.169.254 and internal services.

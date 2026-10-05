@@ -1,0 +1,598 @@
+# Learning content: behavioral ownership and impact — owning outcomes end to end and quantifying results.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- ownership
+- key: beh.ownership.lesson
+  type: lesson
+  title: Ownership stories that show you closed the loop
+  skills: [behavioral.ownership]
+  minutes: 20
+  difficulty: MEDIUM
+  body:
+    summary: An ownership story shows you took responsibility for an outcome, not only a task, acted without being asked, and fixed the cause so the problem stayed fixed.
+    what: |-
+      Ownership is acting as if the outcome is yours: noticing a problem, deciding it is worth solving, driving it to a result, and leaving a mechanism behind so it does not recur. It includes owning your own mistakes. For an engineer it typically shows up as:
+
+      - taking an incident from alert to postmortem, including the follow-up actions;
+      - fixing something outside your assigned scope because it hurt users or the team (a flaky deploy pipeline, a missing alert);
+      - carrying a feature from vague idea to production, monitoring and adoption, not just to "merged";
+      - admitting your change caused a problem and leading the fix.
+    why: |-
+      At the SDE-2 level teams expect you to own a component or a feature end to end without a senior engineer checking each step. Interviewers use ownership questions to see whether you stop at "my ticket is done" or at "the problem is solved", and whether you know the limits of your authority (when to fix it yourself and when to escalate).
+    when: |-
+      Questions like "tell me about a time you went beyond your role", "a time you took responsibility for a failure", "a time you handled a production incident", "a time you fixed something nobody asked you to", "a project you drove end to end". Debugging under pressure is usually an ownership story: the signal is how you prioritised mitigation, communicated and followed through.
+    how: |-
+      Build the story around four ownership moments and make each one explicit:
+
+      1. **Noticed**: how you found the problem (an alert, a metric you checked, a customer complaint you read), ideally before being told.
+      2. **Decided**: why you chose to act, and what you were not going to do (you did not rewrite the whole service).
+      3. **Drove**: the actions, including the unglamorous ones: the status updates, coordinating another team, the migration script, the rollback plan.
+      4. **Closed the loop**: the result with numbers, plus the mechanism you left behind (an alert, a test, a runbook, a checklist item) and evidence it worked.
+
+      For incident stories, keep the order of operations clear: **mitigate first** (rollback, feature flag, scale out), **communicate** (who knew what and when), **root-cause**, then **prevent** (the follow-up actions and who owned them).
+    mental_model: |-
+      Ownership is the difference between "the ticket is closed" and "the problem cannot come back". If your story ends at the fix, it is a debugging story; if it ends at the mechanism that prevents recurrence and the check that it worked, it is an ownership story.
+    tradeoffs: |-
+      Taking ownership of something outside your scope has costs: your own roadmap slips, and you can step on another team. Strong answers name that cost and show how it was handled ("I told my lead I would spend two days on it and agreed what would slip"; "I fixed the alert in their repo through a PR their on-call reviewed"). Owning everything yourself is not the goal: escalating early, or handing over with a clear write-up, is also ownership.
+    mistakes:
+      - Stopping the story at "I fixed the bug" with no prevention or follow-up.
+      - "A story where ownership means working all night alone, with no mention of mitigation, communication or asking for help."
+      - Choosing a story where you only did what your ticket said.
+      - Hiding that your own change caused the incident; interviewers usually respect owning it.
+      - Bypassing the owning team (pushing a fix to their service without review) and presenting it as initiative.
+      - No numbers on impact or recurrence.
+    interview: |-
+      Expect follow-ups such as "how did you know it was worth your time?", "who else was involved and what did they do?", "what did you not do?", "has it happened again since?". The last one is the strongest test: an answer like "no recurrence in eight months, and the new alert fired once on a different issue" shows the loop is closed.
+    explain_it:
+      - How you noticed, ideally before anyone asked.
+      - Why it mattered enough to act, with a number.
+      - Mitigate, communicate, root-cause, prevent, in that order for incidents.
+      - The mechanism you left behind and evidence that it worked.
+      - What it cost you and how you handled the scope boundary.
+    example:
+      language: text
+      code: |-
+        Question: Tell me about a time you took ownership of a problem that wasn't assigned to you.
+
+        Headline:   I noticed our nightly invoice job was silently skipping customers, fixed it,
+                    recovered the missed invoices, and added the alerting that made it visible.
+        Situation:  A cron job in a service owned by another team generated about 8,000 invoices a
+                    night. Finance mentioned in a channel that totals "looked low" for two weeks.
+        Task:       Nobody had picked it up; I owned the payments API it called, so I volunteered to
+                    investigate, with my lead's agreement to spend up to two days.
+        Action:     - Compared the job's log counts with the customer table: about 3 percent of
+                      customers were skipped every night.
+                    - Found the cause: the job caught every exception per customer, logged at DEBUG,
+                      and continued; a currency-conversion timeout was being swallowed.
+                    - Opened a PR in their repo (reviewed by their on-call) that retried with backoff,
+                      logged at ERROR and emitted a skipped-customer count metric.
+                    - Wrote a one-off script to regenerate the missed invoices and checked totals
+                      against finance's ledger before sending.
+        Result:     All missed invoices were recovered and sent within three days.
+        Metrics:    About 3,400 missed invoices recovered; skipped customers per night went from
+                    around 240 to 0; an alert fires when the skipped count is above zero.
+        Trade-offs: My own refunds feature slipped by two days, which my lead and I agreed upfront.
+                    I did not refactor their job further; I wrote up the risks for their backlog.
+        Reflection: Silent catch-and-continue was the real bug. I now ask in reviews of batch jobs
+                    "how would we know if this skipped something?", and I suggested a skipped-count
+                    metric as a team convention for batch jobs.
+      explanation: Each ownership moment (noticed, decided, drove, closed the loop) is explicit, the scope boundary is respected, and recurrence is prevented by a metric and alert rather than a promise.
+    internals: |-
+      What interviewers typically listen for in ownership answers: initiative (you acted before being told), scope (how far beyond your role it went), judgement about authority (you involved the owning team), follow-through (the mechanism and the check), and accountability for your own errors. A story with all five is rare and strong; most weak stories lack follow-through.
+    edge_cases:
+      - "Your own change caused the incident: say so in the first sentence, then focus on mitigation and the prevention you led."
+      - "You escalated rather than fixed: that can still be ownership if you drove the escalation to a result and tracked it."
+      - "The fix is still in progress: say what is done, what is measured so far and who owns the rest."
+    misconceptions:
+      - Ownership means doing everything yourself. Driving others, escalating with data and handing over cleanly are ownership too.
+      - An incident story is automatically an ownership story. Without prevention and follow-through it shows debugging skill, not ownership.
+- key: beh.ownership.worked
+  type: worked_example
+  title: "Worked example: building an incident ownership story"
+  skills: [behavioral.ownership, communication.structured_answers]
+  minutes: 12
+  difficulty: MEDIUM
+  body:
+    problem: |-
+      You were on call when a deploy you reviewed caused a spike of 502 errors on the order API. Build the story for "tell me about a time you handled a production incident under pressure", step by step, making sure it shows ownership and not only debugging.
+    steps:
+      - title: State the stakes and your responsibility first
+        text: "Headline: 'I was on call when a deploy I had reviewed took down about a third of order API requests; I mitigated it in 15 minutes, led the root-cause analysis, and the follow-ups removed that class of failure.' Saying 'a deploy I had reviewed' up front shows accountability before anyone asks."
+      - title: Mitigate before you investigate
+        text: "Actions in order: I checked that the errors started at the deploy time, rolled back using our one-click pipeline instead of debugging live, and confirmed the 502 rate returned to baseline (under a tenth of a percent) on the dashboard. Interviewers listen for this order; investigating for 40 minutes while customers fail is a red flag."
+      - title: Communicate while you work
+        text: "I posted in the incident channel every 10 minutes (impact, current action, next update time) and told support which error customers were seeing so they could respond. Communication is a large part of ownership under pressure and is often missing from engineers' stories."
+      - title: Root-cause with evidence
+        text: "Next morning I reproduced it: the new code created an HTTP client per request, the worker processes ran out of file descriptors under peak load (about 300 requests per second), and the load balancer returned 502. Staging never reached that load. Be specific enough that a technical follow-up has an answer."
+      - title: Close the loop with mechanisms
+        text: "Follow-ups I owned: a shared client with connection pooling; an alert on open file descriptors per pod at 80 percent of the limit; a short load test in the pipeline for the order API. Follow-ups someone else owned: the platform team raised the descriptor limit. Result: no recurrence in the following six months, and the new alert caught one unrelated leak early."
+      - title: Add trade-off and reflection
+        text: "Trade-off: the load-test step adds about four minutes to each deploy; we accepted it for this one critical service, not for all services. Reflection: as reviewer I had not asked how the change behaved under load; I now ask about resource lifecycle (clients, connections, file handles) in every review of request-path code."
+    takeaways:
+      - Admit your part in the first sentence; it reads as maturity, not weakness.
+      - "Order of operations: mitigate, communicate, root-cause, prevent."
+      - Separate follow-ups you owned from those others owned.
+      - "End with recurrence evidence: 'no repeat in six months'."
+- key: beh.ownership.check
+  type: concept_check
+  title: "Concept check: what makes an ownership story"
+  skills: [behavioral.ownership]
+  minutes: 8
+  difficulty: MEDIUM
+  body:
+    intro: Judge each sample answer for the ownership signal an interviewer is listening for.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "Which ending of an incident story shows the strongest ownership?"
+        options:
+          - "…and after the fix was deployed, I closed the ticket."
+          - "…I deployed the fix, added an alert on queue age above five minutes, wrote a runbook entry, and checked a month later: no recurrence, and the alert caught one unrelated backlog early."
+          - "…the fix worked and my manager thanked me."
+          - "…I stayed up until 4 a.m. to fix it."
+        answer: [1]
+        explanation: "The second ending closes the loop: prevention mechanisms plus evidence they worked. Closing the ticket, praise and long hours describe activity or effort, not a durable outcome."
+      - id: q2
+        kind: single
+        prompt: "During an incident, a candidate says they spent 45 minutes finding the root cause before taking any mitigation, although a rollback was available. How will most interviewers read this?"
+        options:
+          - Strong debugging skill.
+          - A judgement problem; restoring service should usually come before root-causing when a safe mitigation exists.
+          - Neutral; order does not matter.
+          - Strong ownership, because they found the real cause.
+        answer: [1]
+        explanation: "Users were failing for 45 avoidable minutes. Mitigate first (rollback, flag, scale), then investigate with the pressure off. Finding the cause is good, but the ordering shows weak incident judgement."
+      - id: q3
+        kind: multi
+        prompt: "A candidate fixed a bug in another team's service. Which details strengthen the ownership signal?"
+        options:
+          - They opened a PR that the owning team's on-call reviewed.
+          - They pushed directly to the other team's main branch to save time.
+          - They agreed with their own lead what of their work would slip.
+          - They wrote up remaining risks for the owning team's backlog.
+        answer: [0, 2, 3]
+        explanation: "Ownership includes judgement about authority: involve the owner, manage your own commitments, and hand over what you did not fix. Bypassing review is initiative without judgement and usually counts against the candidate."
+      - id: q4
+        kind: single
+        prompt: "The candidate's own code change caused the incident. When should they say so in the answer?"
+        options:
+          - Never; it makes them look bad.
+          - Only if the interviewer asks directly.
+          - Early, ideally in the headline, then focus on mitigation and prevention.
+          - At the very end, briefly.
+        answer: [2]
+        explanation: "Owning the mistake up front is itself strong ownership signal and prevents an awkward discovery in follow-ups. Hiding it, or burying it at the end, reads as defensive."
+      - id: q5
+        kind: multi
+        prompt: Which of these are prevention mechanisms rather than intentions?
+        options:
+          - "An alert on file descriptors at 80 percent of the limit."
+          - "'I will be more careful next time.'"
+          - A load-test step in the deploy pipeline for the critical service.
+          - "'The team will remember this.'"
+        answer: [0, 2]
+        explanation: "Mechanisms work without anyone remembering. Intentions ('be careful', 'remember') decay, so interviewers give them little weight."
+      - id: q6
+        kind: short
+        prompt: "Give the four ownership moments an ownership story should make explicit."
+        model_answer: "Noticed (how you found the problem, ideally before being asked), decided (why it was worth acting on and what you would not do), drove (the actions including coordination and communication), closed the loop (the result with numbers and a mechanism that prevents recurrence, plus evidence it worked)."
+        explanation: Most weak ownership stories skip the first or the last moment.
+- key: beh.ownership.interview
+  type: interview_question
+  title: "Interview question: what ownership means at your level"
+  skills: [behavioral.ownership]
+  minutes: 10
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 300}
+  body:
+    prompt: "An interviewer asks: 'What does ownership mean to you as a mid-level backend engineer? Give me a concrete example from your work.' Answer in under five minutes."
+    key_points:
+      - Defines ownership as responsibility for an outcome (the problem staying solved), not for a task or ticket.
+      - Includes owning one's own mistakes and following through after the fix.
+      - Mentions judgement about scope and authority (involving owners, escalating when appropriate).
+      - Backs the definition with one concrete story that has a number and a prevention mechanism.
+      - Keeps the definition short (under about 30 seconds) and spends most time on the example.
+    model_answer: "To me ownership means I'm responsible for the outcome, not the ticket: the service works, people know its state, and the same problem doesn't come back. It includes my own mistakes and knowing when to pull in the people who own a system. For example, I noticed our nightly invoice job, owned by another team, was silently skipping about 3 percent of customers. With my lead's agreement I spent two days on it: found a swallowed timeout, fixed it through a PR their on-call reviewed, recovered about 3,400 invoices with finance, and added a skipped-count metric with an alert. It has stayed at zero since, and batch jobs on our team now emit that metric by convention."
+    pitfalls:
+      - A long abstract definition with no example.
+      - An example where ownership means heroics (working all night) rather than follow-through.
+    follow_ups:
+      - prompt: When is it not your job to fix something you notice?
+        look_for: When another team owns it and can act, when the fix is risky without context, or when it would derail a higher priority; then ownership means reporting it with evidence and following up.
+      - prompt: How do you make sure something you handed over actually gets done?
+        look_for: Written handover with an owner and a date, a ticket they can track, and a check-in later; not "I told them".
+      - prompt: Tell me about a time you did not take ownership and regretted it.
+        look_for: An honest example and a concrete change in behaviour afterwards.
+- key: beh.ownership.story
+  type: behavioral_question
+  title: "Story: a production incident under pressure"
+  skills: [behavioral.ownership, communication.structured_answers]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: STORY_REHEARSAL, time_limit_seconds: 180}
+  body:
+    prompt: Tell me about a time you handled a production incident or debugged a serious issue under time pressure.
+    competency: Ownership and debugging under pressure
+    look_for:
+      - States the user impact and their own role (on call, author of the change, responder) in the opening.
+      - Mitigates before root-causing when a safe mitigation exists, and says why.
+      - Mentions communication during the incident (status updates, support, stakeholders).
+      - Explains the root cause specifically enough to survive a technical follow-up.
+      - Names at least one prevention mechanism they owned (alert, test, runbook, guardrail).
+      - Gives numbers on impact and duration, and evidence of no recurrence.
+    pitfalls:
+      - Debugging narrative with no mention of users or communication.
+      - Ending at the fix with no prevention.
+    follow_ups:
+      - prompt: Walk me through the first ten minutes. What did you look at, in what order?
+        look_for: A concrete sequence (alert, dashboard, recent deploys, logs, mitigation decision) that shows a method, not luck.
+      - prompt: What would you do differently if it happened again tomorrow?
+        look_for: A specific improvement to detection, mitigation or communication, not "be faster".
+      - prompt: Has anything similar happened since? How do you know?
+        look_for: Evidence from an alert, a metric or the postmortem tracker; honest if they cannot be sure.
+- key: beh.ownership.story_2
+  type: behavioral_question
+  title: "Story: fixing something that was not your job"
+  skills: [behavioral.ownership]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: STORY_REHEARSAL, time_limit_seconds: 180}
+  body:
+    prompt: Tell me about a time you took responsibility for a problem that was outside your assigned work.
+    competency: Ownership beyond scope, with judgement
+    look_for:
+      - Explains how they noticed the problem and why it mattered, with a number.
+      - Makes clear it was outside their scope and who did own it.
+      - Shows judgement about authority (agreed with their lead, involved the owning team, used review).
+      - Describes concrete actions through to a result, not just raising the issue.
+      - Leaves a mechanism or a documented handover so it stays fixed.
+      - States what it cost them (their own work that slipped) and how that was handled.
+    pitfalls:
+      - A story where the owning team is portrayed as lazy or incompetent.
+      - Acting unilaterally in someone else's system and calling it initiative.
+    follow_ups:
+      - prompt: Why did you think this was worth your time over your own work?
+        look_for: A reasoned priority call with the impact quantified, and that their lead agreed.
+      - prompt: How did the owning team react?
+        look_for: A collaborative account; if there was friction, how they handled it without blame.
+      - prompt: What did you deliberately not fix?
+        look_for: A scoped boundary and a handover of remaining risks to the owner.
+- key: beh.ownership.story_3
+  type: behavioral_question
+  title: "Story: a feature you drove from idea to production"
+  skills: [behavioral.ownership, behavioral.impact]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: STORY_REHEARSAL, time_limit_seconds: 180}
+  body:
+    prompt: Tell me about a project or feature you owned end to end, from an unclear request to something running in production.
+    competency: End-to-end ownership
+    look_for:
+      - Shows ownership beyond code (clarifying requirements, rollout plan, monitoring, docs).
+      - Describes how they decided the scope of the first release.
+      - Explains the rollout (flags, staged release, migration) and how they watched it.
+      - Gives an adoption or impact number after launch, not only "it shipped".
+      - Mentions something they followed up on after launch (a bug, a metric, user feedback).
+    pitfalls:
+      - Stopping the story at "merged" or "deployed".
+      - Leaving out every non-coding step.
+    follow_ups:
+      - prompt: How did you know the feature was being used and working?
+        look_for: A specific metric, dashboard or log query, with a value.
+      - prompt: What was the riskiest part of the rollout and how did you reduce the risk?
+        look_for: Names the risk (data migration, backward compatibility, load) and a concrete control (flag, canary, rollback plan).
+      - prompt: What did you hand over, and to whom, when you moved on?
+        look_for: Documentation, runbook or alerts, and a named owner.
+- key: beh.ownership.cards
+  type: revision_card
+  title: "Recall: ownership stories"
+  skills: [behavioral.ownership]
+  minutes: 5
+  body:
+    cards:
+      - front: The four ownership moments?
+        back: Noticed, decided, drove, closed the loop.
+      - front: Incident order of operations?
+        back: Mitigate, communicate, root-cause, prevent.
+      - front: Mechanism or intention?
+        back: An alert, test or checklist is a mechanism; "be more careful" is an intention.
+      - front: Your change caused the incident. Where do you say it?
+        back: In the headline, then focus on mitigation and prevention.
+      - front: Strongest closing evidence for ownership?
+        back: "No recurrence in N months, shown by a metric or alert."
+
+# ---------------------------------------------------------------------------------------------- impact
+- key: beh.impact.lesson
+  type: lesson
+  title: Quantifying impact honestly
+  skills: [behavioral.impact]
+  minutes: 20
+  difficulty: MEDIUM
+  body:
+    summary: Impact is the measured difference your work made, stated with a baseline, an after value, a source and your share of the credit, then translated into what it meant for users or the business.
+    what: |-
+      Impact is what changed in the world because of your work: faster, cheaper, more reliable, more used, less toil. A result statement has five parts:
+
+      - **Metric**: what was measured (p95 latency, error rate, cost per month, tickets per week, deploy time).
+      - **Baseline**: the value before.
+      - **After**: the value after, and over what period.
+      - **Source**: how it was measured (APM, billing report, support dashboard, load test).
+      - **Meaning**: what that change meant for users, the team or the business.
+
+      Example: "Checkout p95 went from 1,200 to 450 ms over the two weeks after release, measured in our APM; checkout abandonment on mobile dropped by about 2 percentage points in the same period, though a pricing change shipped too, so I attribute only part of it to us."
+    why: |-
+      "I worked on performance" and "I cut p95 by 60 percent" describe the same project but give very different evidence. Interviewers need to judge scope and impact to calibrate level, and numbers are the fastest way to show both. Numbers also make you credible in follow-ups: a candidate who knows how the metric was measured clearly did the work.
+    when: |-
+      Every Result section of every story; "your most impactful project"; customer-impact questions ("a time you improved things for users"); questions about cost, efficiency or developer productivity. In the self-introduction, each highlight carries one number.
+    how: |-
+      1. **Choose the metric that matches the goal.** Latency for speed work, error or incident rate for reliability, dollars or instance hours for cost, time saved for tooling, adoption or conversion for features.
+      2. **Use percentiles for latency** (p95, p99), not averages; averages hide tail pain.
+      3. **Give both absolute and relative values**: "from 40 to 6 minutes, about 85 percent faster". A large percentage on a tiny base can mislead.
+      4. **Translate to meaning**: hours of engineer time per week, failed payments avoided, cloud spend per month, tickets that support no longer handles.
+      5. **Attribute honestly.** "The team shipped it; my part was the caching layer, which accounted for most of the latency drop according to the traces."
+      6. **When there is no precise number, estimate with a stated method**: "about 20 engineers ran this deploy roughly twice a day; saving 15 minutes each is about 10 engineer-hours a day". Say it is an estimate.
+      7. **Keep the numbers you prepare consistent** across stories and with your CV.
+    mental_model: |-
+      Think of every result as a before-and-after graph with a labelled axis. If you cannot describe the axis (what was measured), the two points (baseline and after) and where the data came from, you do not yet have a result.
+    tradeoffs: |-
+      Leading with business numbers (revenue, conversion) is powerful but often hard to attribute to one change, so pair them with a direct technical metric you clearly own. Precision helps credibility only when it is real; a rounded honest figure ("about 30 percent") beats a fake exact one. Too many numbers in one answer blur together; pick the one or two that matter most.
+    mistakes:
+      - Results without a baseline ("latency is now 200 ms").
+      - Activity presented as impact ("I wrote 40 tests", "I closed 120 tickets").
+      - Averages for latency, which hide the tail.
+      - Claiming the whole team's or company's outcome as yours.
+      - Percentages without the absolute values ("cost dropped 90 percent" on a 50-dollar bill).
+      - Inventing precise figures that do not survive a follow-up.
+    interview: |-
+      Common probes: "how did you measure that?", "what else changed at the same time?", "what was your share?", "was it worth the cost?". Candidates who prepared the source and the attribution answer in one sentence; others start hedging, which undermines the whole story. Customer-impact questions add "how did the user experience change?", so have one user-facing effect ready (fewer failed payments, faster page loads, fewer support contacts).
+    explain_it:
+      - Metric, baseline, after, period and source.
+      - Absolute and relative change.
+      - What it meant for users or the business.
+      - Your share of the credit and other factors.
+      - Estimates labelled as estimates, with the method.
+    example:
+      language: text
+      code: |-
+        Question: What is the most impactful thing you have done in your current role?
+
+        Headline:   I cut our monthly database bill by about a third by finding and fixing the three
+                    queries that drove most of the read load, without any user-visible change.
+        Situation:  Our PostgreSQL primary and two read replicas cost about 18,000 dollars a month,
+                    and finance asked engineering for savings.
+        Task:       I volunteered to investigate read load; our team of five owned the main API.
+        Action:     - Enabled pg_stat_statements and ranked queries by total time: three queries
+                      accounted for about 70 percent of read time.
+                    - One was an N+1 on the order history page; I replaced it with one query and a
+                      join. One recomputed a dashboard count every request; I cached it in Redis
+                      with a 60-second TTL after confirming with product that slight staleness was
+                      acceptable. One lacked an index; I added it with CREATE INDEX CONCURRENTLY.
+                    - Watched replica CPU for two weeks, then proposed dropping one replica.
+        Result:     We removed one replica and downsized the other.
+        Metrics:    Replica CPU at peak from about 75 percent to 30 percent; monthly cost from about
+                    18,000 to 12,000 dollars (billing report, three months after); order history p95
+                    from 900 to 250 ms as a side effect.
+        Trade-offs: The dashboard count can now be up to a minute stale; product accepted this. One
+                    replica means less headroom, so I added an alert at 60 percent CPU.
+        Reflection: I would have run this analysis a year earlier; I now review the top queries by
+                    total time once a quarter.
+      explanation: Every number has a baseline, an after value and a source, the business meaning (dollars) is paired with metrics the candidate clearly owned, and the staleness trade-off is explicit.
+    internals: |-
+      What interviewers listen for in impact answers: the size of the change, the scope it affected (one endpoint, a whole product, the company's bill), whether you chose the right metric, how confident the attribution is, and whether you understood the cost of the improvement. These map to level: larger scope and well-reasoned attribution read as more senior.
+    edge_cases:
+      - "Internal tooling with no business metric: use engineer time saved, deploy frequency or incident count."
+      - "A project that was cancelled: impact can be what you learned and the decision it informed, stated honestly."
+      - "Confidential numbers: use percentages and orders of magnitude, and say why."
+    misconceptions:
+      - Bigger numbers are always better. A modest number with clear attribution often beats a huge one you cannot defend.
+      - Impact means business revenue. Reliability, cost, developer time and user experience are all impact if measured.
+- key: beh.impact.worked
+  type: worked_example
+  title: "Worked example: from 'made it faster' to a defensible result"
+  skills: [behavioral.impact, communication.followup_handling]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    problem: |-
+      A candidate's result statement is "I made the reports page much faster and users were happier." Turn it into a result that survives "how did you measure that?" and "what was your share?".
+    steps:
+      - title: Name the metric that matches the goal
+        text: "The goal was speed, so the metric is page load time for the reports page. Use a percentile: 'p95 time to render the reports page'. If the slow part was the API, use the API's p95 and say so."
+      - title: Find the baseline and the after value
+        text: "Look up the APM or real-user monitoring data for the two weeks before and after. Suppose p95 went from 8 seconds to just under 2 seconds. Say both: 'from about 8 seconds to under 2 seconds'. Rounding is fine; do not invent decimals you cannot defend."
+      - title: Translate it into user or business meaning
+        text: "'Users were happier' is not measurable. Find a proxy: support tickets about slow reports went from about 25 a month to 2; the report export feature's weekly users went up by 40 percent. Pick one, and say where it came from."
+      - title: State your share and the other factors
+        text: "If a teammate upgraded the database in the same month, say so: 'my change was the query rewrite and pagination; traces show it accounted for most of the drop, the database upgrade helped the rest.' Honest attribution makes the rest of the claim believable."
+      - title: Assemble the result sentence
+        text: "'Reports page p95 went from about 8 seconds to under 2 in our RUM data over the following two weeks, mostly from my query rewrite and pagination; slow-report tickets dropped from about 25 a month to 2.' One sentence, two numbers, a source and the attribution."
+    takeaways:
+      - Metric, baseline, after, period, source, then meaning.
+      - Replace feelings ("happier") with a measurable proxy.
+      - State other factors before the interviewer finds them.
+- key: beh.impact.check
+  type: concept_check
+  title: "Concept check: strong and weak impact statements"
+  skills: [behavioral.impact]
+  minutes: 8
+  difficulty: MEDIUM
+  body:
+    intro: Judge each result statement as an interviewer calibrating scope and impact.
+    questions:
+      - id: q1
+        kind: single
+        prompt: Which result statement is strongest?
+        options:
+          - "I improved the API's performance significantly."
+          - "The API's average latency is now 120 ms."
+          - "The API's p99 went from 2,400 ms to 380 ms in our APM over the following month, which stopped the client timeouts that had caused about 150 failed orders a week."
+          - "I wrote 60 new performance tests for the API."
+        answer: [2]
+        explanation: "The third has metric, percentile, baseline, after, period, source and user meaning. 'Significantly' has no number, the average has no baseline and hides the tail, and test count is activity, not impact."
+      - id: q2
+        kind: single
+        prompt: "'I reduced our logging cost by 90 percent.' What is the most useful follow-up an interviewer can ask?"
+        options:
+          - "What was the absolute cost before and after?"
+          - "What logging library do you use?"
+          - "Why did you care about logging?"
+          - "Was it hard?"
+        answer: [0]
+        explanation: "A relative number alone can hide a tiny base: 90 percent of 50 dollars a month is not the same as 90 percent of 50,000. Strong candidates give absolute values without being asked."
+      - id: q3
+        kind: multi
+        prompt: "A candidate's feature shipped the same month as a marketing campaign, and sign-ups rose 20 percent. Which statements are honest attribution?"
+        options:
+          - "My feature increased sign-ups by 20 percent."
+          - "Sign-ups rose 20 percent that month, but a campaign ran too; in the A/B test my feature's variant converted 3 points better than control."
+          - "I can't separate the effect from the campaign; what I can show is that the signup form's error rate went from 6 percent to under 1."
+          - "Sign-ups rose because of me and the campaign was irrelevant."
+        answer: [1, 2]
+        explanation: "Honest attribution names the confounder and offers a cleaner measure (an A/B result or a directly owned technical metric). Claiming the whole rise ignores an obvious confounder and usually fails the first probe."
+      - id: q4
+        kind: single
+        prompt: Why should latency results use p95 or p99 rather than the average?
+        options:
+          - Averages are harder to compute.
+          - Averages hide tail latency, which is what slow users and timeouts actually experience.
+          - Percentiles always give smaller numbers.
+          - Interviewers do not understand averages.
+        answer: [1]
+        explanation: "A few very slow requests barely move the mean but cause timeouts and complaints. Percentiles describe the experience of the slowest users, and percentiles are usually larger than the mean, not smaller."
+      - id: q5
+        kind: single
+        prompt: "The candidate has no exact number for engineer time saved by a new deploy tool. What is the best result statement?"
+        options:
+          - "It saved a huge amount of time."
+          - "It saved exactly 1,247 engineer-hours."
+          - "As an estimate, about 20 engineers deployed roughly twice a day and each deploy got about 15 minutes faster, so roughly 10 engineer-hours a day."
+          - Skip the result and talk about the design.
+        answer: [2]
+        explanation: "A labelled estimate with its method is credible and probe-proof. 'Huge' is empty, and a falsely precise number invites a follow-up the candidate cannot answer."
+      - id: q6
+        kind: short
+        prompt: "List the five parts of a complete result statement."
+        model_answer: "The metric, the baseline, the after value with the period, the source of the measurement, and what it meant for users or the business (plus your share of the credit)."
+        explanation: Missing any one of these is what a follow-up will ask for.
+- key: beh.impact.interview
+  type: interview_question
+  title: "Interview question: how do you measure your impact?"
+  skills: [behavioral.impact]
+  minutes: 10
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 300}
+  body:
+    prompt: "An interviewer asks: 'How did you know your last major project was a success? Walk me through how you measured it.' Answer in under five minutes using a real or realistic project."
+    key_points:
+      - Names a success metric that was defined before or at the start of the project, not chosen afterwards.
+      - Gives baseline and after values with a period and a measurement source.
+      - Distinguishes a directly owned technical metric from a business or user metric.
+      - Addresses attribution and other factors that changed at the same time.
+      - Mentions a guardrail metric checked to ensure nothing else got worse (errors, cost, latency).
+    model_answer: "For the notifications extraction, we agreed upfront the goal was to stop checkout waiting on SMS providers, so the metric was checkout p95 latency, with notification delay and lost-message count as guardrails. Baseline from APM over two weeks: p95 about 1,200 ms. Two weeks after the switch: about 450 ms. Notification delay went from minutes to under 10 seconds, and shadow-mode comparison found zero lost messages. A pricing experiment ran at the same time, so I don't claim the conversion change; the latency and delay numbers are clearly ours, visible in traces."
+    pitfalls:
+      - Choosing the metric after the fact to fit the result.
+      - No guardrail metric, so a regression elsewhere would go unnoticed.
+    follow_ups:
+      - prompt: What would you have done if the metric had not moved?
+        look_for: Investigate with traces or data, check the hypothesis, and be willing to roll back or change course; not reinterpret the metric.
+      - prompt: Which metric would your product manager have cared about most?
+        look_for: Translates the technical metric into a user or business metric and says how confident the link is.
+      - prompt: How long after launch did you keep checking?
+        look_for: A specific period and a reason (weekly cycles, month-end load), plus an alert for longer term.
+- key: beh.impact.story
+  type: behavioral_question
+  title: "Story: your most impactful project"
+  skills: [behavioral.impact, communication.structured_answers]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: STORY_REHEARSAL, time_limit_seconds: 180}
+  body:
+    prompt: What is the most impactful piece of work you have done in the last two years?
+    competency: Measurable impact
+    look_for:
+      - Opens with the outcome and its size in one sentence.
+      - Explains why the problem mattered before the work, with a number.
+      - Describes their own actions and decisions, distinguished from the team's.
+      - "Result has metric, baseline, after, period and source."
+      - Translates the result into user, team or business meaning.
+      - Attributes honestly and names the cost or trade-off of the improvement.
+    pitfalls:
+      - Choosing a large company outcome where their part was small.
+      - Percentages without absolute values.
+    follow_ups:
+      - prompt: How did you measure that, exactly?
+        look_for: Tool or report, time window and percentile or aggregation; consistent with the answer.
+      - prompt: What else changed at the same time that could explain the result?
+        look_for: Names plausible confounders and how they separated their effect, or admits the limit.
+      - prompt: What was the cost of the improvement, and was it worth it?
+        look_for: Names a real cost (complexity, staleness, money, maintenance) and argues the trade-off.
+- key: beh.impact.story_2
+  type: behavioral_question
+  title: "Story: improving things for customers"
+  skills: [behavioral.impact, behavioral.ownership]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: STORY_REHEARSAL, time_limit_seconds: 180}
+  body:
+    prompt: Tell me about a time your work directly improved the experience of customers or end users.
+    competency: Customer impact
+    look_for:
+      - Identifies the customer problem concretely (what users saw, how often, how they found out).
+      - Shows they used customer evidence (support tickets, user feedback, funnel data, error logs).
+      - Describes their own actions to fix it, including talking to support or product if relevant.
+      - Gives a user-facing result with a number (fewer failed payments, faster loads, fewer tickets).
+      - Mentions how they confirmed the fix with users or support, not only with tests.
+    pitfalls:
+      - A purely internal refactor presented as customer impact without a user-facing measure.
+      - Talking about customers abstractly with no evidence.
+    follow_ups:
+      - prompt: How did you first learn that customers had this problem?
+        look_for: A specific channel and evidence, ideally sought out by the candidate.
+      - prompt: Did any customers get worse off from your change?
+        look_for: Considers edge segments (old clients, other regions, power users) and how they checked.
+      - prompt: What did you learn about your users from this?
+        look_for: A specific insight that changed how they build or test since.
+- key: beh.impact.story_3
+  type: behavioral_question
+  title: "Story: reducing cost or toil"
+  skills: [behavioral.impact]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: STORY_REHEARSAL, time_limit_seconds: 180}
+  body:
+    prompt: Tell me about a time you reduced cost, manual work or operational toil for your team or company.
+    competency: Efficiency impact
+    look_for:
+      - Quantifies the cost or toil before (dollars a month, hours a week, pages per on-call shift).
+      - Explains how they found where the cost came from (profiling, billing breakdown, on-call log).
+      - Describes the change and the decision behind it in first person.
+      - States the after value and how it was measured over a meaningful period.
+      - Names a risk introduced (less headroom, staleness, new component) and how it was controlled.
+    pitfalls:
+      - A saving with no absolute numbers.
+      - Ignoring the reliability cost of the saving.
+    follow_ups:
+      - prompt: How did you decide this was the biggest lever to pull?
+        look_for: A ranking by data (top queries by total time, billing by service) rather than a guess.
+      - prompt: What would make you undo this change?
+        look_for: A concrete condition (traffic growth, latency SLO breach) and a monitoring signal for it.
+      - prompt: Did the saving last?
+        look_for: A later measurement or an alert that guards it.
+- key: beh.impact.cards
+  type: revision_card
+  title: "Recall: quantifying impact"
+  skills: [behavioral.impact]
+  minutes: 5
+  body:
+    cards:
+      - front: Five parts of a result statement?
+        back: Metric, baseline, after with period, source, meaning (plus your share).
+      - front: Which latency number to quote?
+        back: A percentile such as p95 or p99, not the average.
+      - front: "'Cost dropped 90 percent' — what is missing?"
+        back: The absolute values before and after.
+      - front: No exact number available?
+        back: A labelled estimate with its method.
+      - front: Another change shipped at the same time?
+        back: Name it and give a metric you clearly own or an A/B result.

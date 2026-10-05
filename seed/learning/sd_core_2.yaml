@@ -1,0 +1,705 @@
+# Learning content: system design fundamentals — data model and storage choice, high-level decomposition, object storage, search, geo indexing and ID generation.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- data modelling and storage choice
+- key: sd.data_modeling.lesson
+  type: lesson
+  title: Choosing storage and a data model from access patterns
+  skills: [sd.data_modeling]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: List the queries first, then pick the store whose data model serves them cheaply; most systems end up with a relational core plus a few specialised stores.
+    what: |-
+      The data-modelling step decides **which entities exist, how they are keyed and related, and which kind of store holds each**. The main families:
+
+      - **Relational** (PostgreSQL, MySQL): tables, joins, constraints, multi-row ACID transactions, secondary indexes, flexible ad-hoc queries.
+      - **Document** (MongoDB and similar): JSON-like documents grouped by key; nested data read in one fetch; flexible schema; joins are limited or expensive.
+      - **Wide-column** (Cassandra, ScyllaDB, HBase): rows grouped by a **partition key** and sorted by **clustering columns** inside the partition; very high write throughput and linear horizontal scaling, but you design one table per query and there are no joins.
+      - **Key-value** (Redis, DynamoDB, etcd): get/put by key; extremely fast and simple; anything beyond lookup by key is your problem.
+      - **Object storage** (Amazon S3, GCS, MinIO): immutable blobs by key, effectively unlimited capacity, cheap per GB, high per-request latency; for images, videos, backups, logs.
+    why: |-
+      The store fixes what is cheap and what is impossible. A relational database makes "sell this seat only if it is still available" a single conditional update; a wide-column store makes "append 100,000 sensor readings per second" cheap but makes "find all readings above a threshold across devices" a full scan. Choosing by fashion ("NoSQL scales") instead of by access pattern produces systems that are slow at their most common query or that lose correctness on their most important one.
+    when: |-
+      Right after the API: each endpoint implies a query. Revisit the choice when estimates show a single node cannot hold the data or the write rate, or when one access pattern (full-text search, nearby search, time-series) does not fit the primary store.
+    how: |-
+      1. **List entities and relationships** from the functional requirements (user, event, seat, hold, booking).
+      2. **List the access patterns** with their frequency and latency target: "get seats for event by section, 20,000 QPS", "insert booking, 300 QPS, strongly consistent", "list a user's bookings newest first".
+      3. **Pick the primary store** for the entities that need transactions and constraints. Relational is the default unless a number rules it out.
+      4. **Design keys and indexes for each access pattern**: primary keys, a unique constraint that enforces an invariant (`UNIQUE (event_id, seat_id)` on bookings), composite indexes in the order the query filters and sorts.
+      5. **Add specialised stores only for patterns the primary cannot serve**: object storage for blobs, a search index for full text, a cache for hot reads, a wide-column store for very high-volume append-only data.
+      6. **Decide denormalisation explicitly**: copy data when a read must be one lookup, and say which component keeps the copy in sync.
+
+      Wide-column modelling is query-first: for "messages in a conversation, newest first" the table is `PRIMARY KEY ((conversation_id), sent_at, message_id)` with clustering order descending. The partition key decides which node holds the data; the clustering columns give the sort order within it. Keep partitions bounded, for example by adding a time bucket to the partition key for very active conversations.
+    mental_model: |-
+      Data model = access patterns + invariants. For each query, ask "which key do I look up, and does the data I need sit together under it?". For each invariant ("a seat is sold once", "a username is unique"), ask "which single store enforces it atomically?". If an invariant spans two stores, you have a distributed-transaction problem; redesign so one store owns it.
+    tradeoffs: |-
+      Normalised relational schemas keep one copy of each fact and support new queries without a redesign, but joins across very large tables and write volume eventually push you to partitioning. Denormalised documents and wide-column tables make the common read a single lookup but duplicate data that must be kept in sync, and new query patterns may need a new table. Key-value stores are the fastest and simplest but push every query into the application. Object storage is the cheapest per byte but is not a database: no queries, high per-request latency, metadata lives elsewhere.
+    mistakes:
+      - Choosing a store before listing the queries.
+      - Putting large blobs (images, PDFs) in database rows instead of object storage with a URL or key in the row.
+      - "Picking a NoSQL store 'for scale' when the data fits on one relational primary for years."
+      - Enforcing uniqueness or inventory in application code with a read-then-write instead of a constraint or conditional update.
+      - Unbounded partitions in a wide-column store (all events of a popular entity under one key).
+      - Denormalising without naming who updates the copies.
+    interview: |-
+      Write the main tables or collections with their keys and the one or two critical indexes, then justify the store per access pattern: "bookings in PostgreSQL because the seat invariant needs a transaction; images in object storage; message history in a wide-column store keyed by conversation because writes dominate and reads are always by conversation and time." Expect follow-ups such as "what is the partition key and why?", "what happens when one key gets hot?" and "how do you query by a second attribute?".
+    explain_it:
+      - List the access patterns with frequency before naming a database.
+      - Show keys and indexes that serve each pattern.
+      - Name the invariant and the store that enforces it.
+      - Justify every additional store by a pattern the primary cannot serve.
+      - State what is denormalised and how it stays in sync.
+    example:
+      language: sql
+      code: |-
+        CREATE TABLE seat (
+            event_id   BIGINT NOT NULL,
+            seat_id    TEXT   NOT NULL,
+            section    TEXT   NOT NULL,
+            status     TEXT   NOT NULL CHECK (status IN ('AVAILABLE', 'HELD', 'SOLD')),
+            hold_id    BIGINT,
+            held_until TIMESTAMPTZ,
+            PRIMARY KEY (event_id, seat_id)
+        );
+        CREATE INDEX seat_by_section ON seat (event_id, section, status);
+
+        -- Hold a seat atomically: succeeds for exactly one concurrent caller.
+        UPDATE seat
+           SET status = 'HELD', hold_id = :hold_id, held_until = now() + interval '10 minutes'
+         WHERE event_id = :event_id AND seat_id = :seat_id
+           AND (status = 'AVAILABLE' OR (status = 'HELD' AND held_until < now()));
+        -- 1 row updated: held. 0 rows: someone else has it.
+      explanation: The invariant lives in one row and one conditional UPDATE, so no read-then-write race is possible; the composite index serves the browse query.
+    internals: |-
+      Why wide-column stores write fast: engines such as Cassandra use a log-structured merge tree. A write appends to a commit log and an in-memory table, which is later flushed to immutable sorted files (SSTables) and compacted in the background. Writes are sequential; reads may consult several files, helped by Bloom filters. Relational engines such as PostgreSQL and InnoDB update B-tree pages in place (with a write-ahead log), which favours reads and range scans and costs more random I/O per write.
+    edge_cases:
+      - "A document grows without bound (all comments embedded in a post): MongoDB caps a document at 16 MB, and rewriting large documents is slow; move the unbounded list to its own collection."
+      - Many-to-many relationships are natural in relational stores and awkward in document or wide-column stores, which need one table per direction.
+      - "Item size limits: DynamoDB items are capped at 400 KB, another reason blobs belong in object storage."
+    misconceptions:
+      - "\"NoSQL does not scale reads better by magic\"; relational read replicas and caches handle most read scaling. The real difference is how writes and data size partition."
+      - "Schema-less does not mean no schema; it means the schema lives in application code and every reader must handle old shapes."
+- key: sd.data_modeling.worked
+  type: worked_example
+  title: "Worked example: one store per access pattern in an online shop"
+  skills: [sd.data_modeling, sd.storage_search]
+  minutes: 12
+  difficulty: MEDIUM
+  body:
+    problem: An online shop needs products, carts, orders, product images and a 'recently viewed' list. Choose a store and key for each, justifying every choice with an access pattern and an invariant.
+    steps:
+      - title: List the access patterns first
+        text: "Product page by id (very hot, read-mostly); search products by text (hot); cart get/update by user (frequent, can be lost only at great annoyance); place order (must be atomic with inventory); order history by user, newest first; product images (large blobs, global reads); recently viewed (last 20 product ids per user, losing it is acceptable)."
+      - title: Orders and inventory in a relational store
+        text: "Placing an order must decrement stock and insert the order and its lines atomically, so `order`, `order_line` and `inventory` live in one PostgreSQL database. A conditional `UPDATE inventory SET qty = qty - :n WHERE sku = :sku AND qty >= :n` enforces the no-oversell invariant. Order history uses an index on `(user_id, created_at DESC, order_id)`."
+        code:
+          language: sql
+          code: |-
+            BEGIN;
+            UPDATE inventory SET qty = qty - 2 WHERE sku = 'SKU-9' AND qty >= 2;   -- 0 rows → abort
+            INSERT INTO "order" (order_id, user_id, status, created_at) VALUES (:id, :uid, 'PLACED', now());
+            INSERT INTO order_line (order_id, sku, qty, price_cents) VALUES (:id, 'SKU-9', 2, 1999);
+            COMMIT;
+      - title: Products in the relational store, served from a cache and a search index
+        text: "The catalog is the source of truth in the relational database (or a document store if attributes vary wildly per category). Product pages are served cache-aside from Redis keyed `product:{id}`; text search goes to a search index fed by change events. Both are derived copies that can be rebuilt."
+      - title: Blobs and ephemeral lists
+        text: "Images go to object storage under content-addressed keys (`img/{sha256}.jpg`) served by a CDN; the product row stores only the key. Carts live in a key-value store keyed by user id with a TTL of a few weeks, persisted rather than cache-only because losing a cart costs sales. 'Recently viewed' is a capped Redis list per user (LPUSH then LTRIM to 20) that may be lost."
+    takeaways:
+      - Start from access patterns and invariants, not from a list of databases.
+      - The invariant (no oversell) decides which data must share one transactional store.
+      - Caches and search indexes are derived copies; say what feeds them and that they can be rebuilt.
+      - Blobs go to object storage; databases hold their keys.
+- key: sd.data_modeling.check
+  type: concept_check
+  title: "Concept check: storage choice and keys"
+  skills: [sd.data_modeling]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Choose by access pattern and invariant, not by popularity.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "A service must ensure each username is unique across 300 million users. Which mechanism is the most reliable?"
+        options:
+          - Check with SELECT whether the name exists, then INSERT
+          - A unique constraint or unique index in the store that holds the user record
+          - A cache of taken names checked before insert
+          - A nightly job that finds and renames duplicates
+        answer: [1]
+        explanation: "Only a constraint enforced by the store is atomic under concurrency. SELECT-then-INSERT races: two requests both see 'free' and both insert. A cache is a stale copy, and a nightly cleanup lets duplicates exist for hours."
+      - id: q2
+        kind: single
+        prompt: "A wide-column table stores sensor readings with PRIMARY KEY ((device_id), ts). What is the main risk for a device that reports every second for years?"
+        options:
+          - Reads by device become joins
+          - The partition for that device grows without bound, becoming slow to read, repair and compact
+          - Readings are stored unsorted
+          - Writes need a distributed transaction
+        answer: [1]
+        explanation: "All rows with the same partition key live together on the same replicas. An unbounded partition becomes huge; add a time bucket, PRIMARY KEY ((device_id, day), ts). Clustering columns keep rows sorted by ts, so 'unsorted' is wrong."
+      - id: q3
+        kind: multi
+        prompt: Which data should normally go to object storage rather than a database row?
+        options:
+          - User-uploaded profile photos
+          - The order total of a purchase
+          - Nightly database backups
+          - Video files and their transcoded renditions
+          - The mapping from photo id to its owner
+        answer: [0, 2, 3]
+        explanation: "Large, immutable blobs belong in object storage, with their key stored in a database. The order total and the photo-to-owner mapping are small, queried facts that need indexes and transactions, so they stay in the database."
+      - id: q4
+        kind: single
+        prompt: Orders are queried by user, newest first, with cursor pagination. Which index serves it best in a relational store?
+        options:
+          - "(created_at)"
+          - "(user_id)"
+          - "(user_id, created_at DESC, order_id)"
+          - "(order_id, user_id)"
+        answer: [2]
+        explanation: "The equality column comes first, then the sort column, then a tie-breaker for the cursor, so the query is a single ordered range scan. (user_id) alone forces a sort of all that user's orders; (created_at) alone scans every user's orders."
+      - id: q5
+        kind: multi
+        prompt: When is a document store a better primary than a relational one?
+        options:
+          - Each record is read and written as one self-contained aggregate (a product with category-specific attributes)
+          - Business rules span many entities and need multi-row transactions with joins
+          - Attribute sets vary widely between records and evolve often
+          - The team needs ad-hoc analytical queries across all entities
+        answer: [0, 2]
+        explanation: "Documents fit aggregates read as a whole and highly variable attributes. Cross-entity transactions and ad-hoc joins are where relational stores are strongest; document stores either lack them or make them expensive."
+      - id: q6
+        kind: short
+        prompt: Why is "SQL does not scale, so use NoSQL" a weak argument in a design round, and what would you say instead?
+        model_answer: "Because most read scaling comes from caches and read replicas that relational stores support well, and many systems never exceed one well-tuned primary. The real questions are write rate, data size per node and access patterns. Say: at our estimated 3,000 writes/s and 2 TB a relational primary suffices with replicas; if writes reach hundreds of thousands per second with simple key-based access, a partitioned wide-column or key-value store fits better, at the cost of joins and multi-row transactions."
+        explanation: Interviewers look for the numbers and access patterns behind the choice, not the label.
+- key: sd.data_modeling.booking_case
+  type: architecture_case
+  title: "Drill: data model for a seat booking system"
+  skills: [sd.data_modeling, db.transactions_acid]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: SD_DESIGN, time_limit_seconds: 1200}
+  body:
+    prompt: |-
+      Design only the data model and storage choice for a concert seat booking system: events, venues with up to 80,000 seats, ten-minute seat holds, confirmed bookings and payments, and a fan's booking history. Within 20 minutes give the stores, the tables or collections with keys and indexes, how a seat is guaranteed to be sold once, how expired holds are released, and how the model behaves at 1 million fans hitting one on-sale.
+    requirements:
+      functional:
+        - Browse seats of an event by section with availability
+        - Hold seats for ten minutes, then confirm with payment
+        - List a fan's bookings newest first
+      non_functional:
+        - A seat is never sold twice
+        - Seat-map reads may be a few seconds stale
+        - On-sale peaks of tens of thousands of hold attempts per second for one event
+    approach:
+      - "Relational primary for events, seats, holds, bookings and payments, because the seat invariant needs atomic conditional updates and the booking must commit with its payment record."
+      - "`seat (event_id, seat_id)` primary key with status, hold_id and held_until; index `(event_id, section, status)` for the seat map."
+      - "Hold with one conditional UPDATE per seat (or a multi-seat UPDATE inside a transaction that aborts unless all rows changed)."
+      - "Expiry is lazy: a HELD seat with held_until in the past counts as available in the hold condition; a periodic sweeper resets them for the seat map."
+      - "`booking` with a unique constraint on `(event_id, seat_id)` as a second guard, and `payment` keyed by an idempotency key."
+      - "Seat-map reads come from a cache or a materialised availability summary per section refreshed every few seconds, not from the primary."
+      - "On-sale: contention is on one event's rows, so add admission control (waiting room) and keep the hold transaction short; partition by event_id later if many large on-sales overlap."
+    reference: |-
+      The core of a strong answer is that the invariant lives in one relational store and is enforced by a conditional write plus a unique constraint, not by application checks; reads are served from a derived, slightly stale view; and the on-sale bottleneck is row contention on one event, solved by admission control rather than by switching databases.
+    rubric:
+      - {key: store_choice, label: "Chooses a transactional store for seats and bookings and justifies it by the invariant", points: 2}
+      - {key: keys_indexes, label: "Gives primary keys and the composite index that serves the seat-map query", points: 2}
+      - {key: invariant, label: "Enforces single sale with a conditional update and a unique constraint, not read-then-write", points: 3}
+      - {key: expiry, label: "Handles hold expiry without relying on a timer that might not fire", points: 2}
+      - {key: read_path, label: "Serves the seat map from a cache or summary and states the staleness", points: 2}
+      - {key: hot_event, label: "Identifies contention on one event as the on-sale bottleneck and proposes admission control", points: 2}
+    follow_ups:
+      - prompt: Traffic grows ten times because many large on-sales happen at once. What changes in the model?
+        look_for: Partition (shard) by event_id so each event's seats are on one shard; per-event transactions stay single-shard; a directory of event to shard.
+      - prompt: The primary fails during an on-sale. What can go wrong with confirmed bookings?
+        look_for: With asynchronous replication a failover can lose recently committed bookings; synchronous or semi-synchronous replication for this table, or reconcile against payment records.
+      - prompt: "Product wants 'best available' seat selection instead of picking seats. Does the model change?"
+        look_for: Need an ordered query over available seats with SELECT ... FOR UPDATE SKIP LOCKED or a per-section allocator to avoid everyone contending for the same best seats.
+- key: sd.data_modeling.interview
+  type: interview_question
+  title: "Interview question: should orders move to a document store?"
+  skills: [sd.data_modeling]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: "A team stores orders, order lines, inventory and payments in PostgreSQL. Order volume is 400 per second at peak and the database is 1.5 TB. Someone proposes moving everything to a document store 'for scale'. Evaluate the proposal: what you would ask, what you would recommend, and what would make you change your mind."
+    key_points:
+      - Asks what problem is actually observed (latency, CPU, storage, write throughput, schema churn) before choosing a remedy.
+      - "Notes that 400 writes per second and 1.5 TB are well within a single tuned relational primary, with read replicas for reads."
+      - "Names the invariant at risk: placing an order must atomically reserve inventory and record payment; splitting it across documents loses easy multi-entity transactions."
+      - Suggests targeted fixes first (indexes, query fixes, read replicas, caching product reads, archiving old orders, partitioning large tables).
+      - "States the trigger for change: sustained write rates or data sizes that exceed one primary, at which point shard by a key such as user or region, or move specific append-only data to a different store."
+    model_answer: "First I ask what hurts: slow queries, write saturation, storage cost, or schema changes. At 400 writes per second and 1.5 TB a single relational primary is comfortable, so the likely fixes are query and index work, read replicas for history and reporting, caching for product reads, and archiving old orders. Moving to documents would make the order aggregate one write, but inventory and payments span aggregates, and the no-oversell invariant would need application-level coordination. I would change my mind if writes grew by two orders of magnitude or the data no longer fit one node, and even then I would first shard PostgreSQL by user or region, or move only append-only data like order events to a store built for it."
+    pitfalls:
+      - Accepting 'for scale' without numbers.
+      - Ignoring the cross-entity transaction.
+      - Claiming document stores have no transactions at all; several support multi-document transactions, with costs and limits.
+    follow_ups:
+      - prompt: "Which single metric would you look at first to decide whether the primary is the bottleneck?"
+        look_for: CPU and I/O saturation on the primary, plus p99 latency of the top queries and lock waits; not average latency.
+      - prompt: "If you did shard orders, what key would you use and why?"
+        look_for: user_id (or customer region) because the dominant queries are per user and order placement touches one user; inventory may need its own partitioning by SKU.
+- key: sd.data_modeling.cards
+  type: revision_card
+  title: "Recall: storage families"
+  skills: [sd.data_modeling]
+  minutes: 5
+  body:
+    cards:
+      - front: First step before choosing a database?
+        back: List the access patterns with frequency, latency and invariants.
+      - front: Wide-column partition key vs clustering columns?
+        back: Partition key picks the node and groups rows; clustering columns sort rows inside the partition.
+      - front: Where do images and videos go?
+        back: Object storage; the database row keeps the key and metadata.
+      - front: How to enforce 'sold once' or 'unique username'?
+        back: A constraint or conditional write in one store, never read-then-write in the app.
+      - front: Main cost of denormalisation?
+        back: Copies that must be kept in sync by a named component.
+
+# ---------------------------------------------------------------------------------------------- high-level decomposition
+- key: sd.high_level_decomposition.lesson
+  type: lesson
+  title: From requirements to a high-level architecture
+  skills: [sd.high_level_decomposition]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Draw the read path and the write path separately with a small set of standard components, number the steps, and split services only where data ownership or scaling needs differ.
+    what: |-
+      The high-level design is the diagram you defend for the rest of the round: clients, entry points, services, data stores and asynchronous pipelines, with the data flow between them. The standard building blocks:
+
+      - **Edge**: DNS, a CDN for static and cacheable content, a load balancer or API gateway (TLS termination, routing, authentication, rate limiting).
+      - **Stateless application services** that scale horizontally behind the load balancer.
+      - **Stateful stores**: the primary database, caches, object storage, a search index.
+      - **Asynchronous machinery**: a queue or log and worker pools for slow, retryable or fan-out work.
+    why: |-
+      A clear decomposition makes every later conversation concrete: the interviewer can point at a box and ask "what if this fails?" or "what if this is ten times busier?". Without it, deep dives float. It also exposes the two most common scaling levers early: keeping services stateless so they can be cloned, and moving slow work off the request path.
+    when: |-
+      After requirements, estimates, API and a first data model, around minute 15 of a 45-minute round. Keep it to 6–10 boxes; detail comes in the deep dive.
+    how: |-
+      1. **Write path first**: trace the main state-changing request from client to durable storage and back. Number the steps.
+      2. **Read path second**: trace the hottest read. Add a cache or CDN only where the estimates say the store cannot serve the load or latency.
+      3. **Move slow or fan-out work off the request path**: anything that takes seconds (transcoding, sending emails, fan-out to followers) goes through a queue to workers; the request returns once the work is durably queued.
+      4. **Split services by reason, not by noun**: split when components have different data ownership, very different scaling profiles (an upload service handling large bodies versus a metadata API), different availability needs, or different teams. Each service owns its data; others go through its API or its events.
+      5. **Choose synchronous versus asynchronous calls**: synchronous when the caller needs the answer to respond; asynchronous when it only needs the work to happen eventually.
+      6. **Walk one request end to end** aloud, checking every requirement is served.
+    mental_model: |-
+      Think of the system as two pipelines meeting at the data: the write pipeline makes data durable and correct; the read pipeline makes it fast. Most components exist to protect one pipeline from the other (a queue absorbs write bursts; a cache shields the database from reads). If you cannot say which pipeline a box serves and which number justified it, remove it.
+    tradeoffs: |-
+      Fewer services mean fewer network hops, simpler deployments and easy transactions, but one deploy unit and shared scaling. More services allow independent scaling and ownership but add latency per hop (about a millisecond within a data centre, more at p99), partial failures, and data consistency problems across service boundaries. Asynchronous processing smooths load and isolates failures but adds eventual consistency, duplicate delivery and harder debugging.
+    mistakes:
+      - Drawing twenty microservices for a system that a handful of components would serve.
+      - "A 'distributed monolith': services that share one database schema or call each other synchronously in long chains."
+      - Stateful application servers (sessions in memory) that cannot be scaled or replaced freely.
+      - Doing seconds-long work inside the HTTP request.
+      - Arrows without direction or meaning; unlabelled boxes such as 'backend'.
+      - Adding a cache, queue and CDN by habit, with no number that requires them.
+    interview: |-
+      Present the diagram by walking a request: "1. client calls the API through the load balancer, 2. API writes the post to the database, 3. API publishes an event, 4. fan-out workers update follower timelines, 5. reads hit the timeline cache." Then invite the deep dive: "the interesting parts are the fan-out workers and the cache; which would you like me to go into?" Interviewers check that each requirement maps to a path and that you can justify each component.
+    explain_it:
+      - Walk the write path with numbered steps.
+      - Walk the hottest read path and point to what makes it fast.
+      - Say which work is asynchronous and why.
+      - Justify each service boundary by data ownership or scaling profile.
+      - Name the component you expect to be the first bottleneck.
+    example:
+      language: text
+      code: |-
+        Write path (upload a document for conversion)
+          1. Client  -> API: POST /jobs                 -> API returns pre-signed upload URL + job_id
+          2. Client  -> Object storage: PUT file         (bytes never pass through the API)
+          3. Storage -> Queue: "object created" event
+          4. Worker  <- Queue: convert, write PDF to object storage, mark job DONE in DB
+        Read path
+          5. Client  -> API: GET /jobs/{id}             -> status from DB (cached for 1-2 s)
+          6. Client  -> CDN/Object storage: GET result  via short-lived signed URL
+      explanation: Large bytes bypass the API, slow work runs in workers through a queue, and the API stays stateless and cheap.
+    edge_cases:
+      - Work that must complete before the user sees success (payment authorisation) cannot be made asynchronous; only its side effects (receipt email) can.
+      - "A synchronous chain of N services multiplies failure: if each is 99.9% available, five in series give roughly 99.5%."
+      - Background workers need their own scaling signal (queue depth or age of oldest message), not request rate.
+    misconceptions:
+      - "Microservices are an organisational scaling tool first; they do not make a system faster, and each hop adds latency."
+      - "Stateless services still have state; it lives in stores, and that is what makes the services replaceable."
+- key: sd.high_level_decomposition.visual
+  type: visual_explanation
+  title: "Visual: growing a design one justified box at a time"
+  skills: [sd.high_level_decomposition, sd.caching, sd.queues_async]
+  minutes: 8
+  body:
+    summary: The same service in three stages; each new box is added because a number or a requirement forces it.
+    frames:
+      - caption: "Stage 1: one stateless API behind a load balancer and one relational database. Enough for thousands of requests per second if queries are indexed."
+        diagram: |-
+          client ──> [ load balancer ] ──> [ API × N (stateless) ] ──> ( PostgreSQL primary )
+      - caption: "Stage 2: reads outgrow the database (estimate: 30,000 reads/s). Add a cache for hot reads and read replicas for the rest; writes still go to the primary."
+        diagram: |-
+          client ──> [ LB ] ──> [ API × N ] ──┬──> { cache }         hit: ~1 ms
+                                             ├──> ( replica × 2 )   miss, may lag
+                                             └──> ( primary )       all writes
+      - caption: "Stage 3: a slow side effect (fan-out, email, transcode) blocks requests. The API writes and publishes an event; workers do the slow part and can be scaled on queue depth."
+        diagram: |-
+          client ──> [ LB ] ──> [ API × N ] ──> ( primary ) ──> outbox ──> [[ queue ]]
+                                    │                                        │
+                                    └──> { cache } <── update ── [ workers × M ] <──┘
+- key: sd.high_level_decomposition.check
+  type: concept_check
+  title: "Concept check: decomposition decisions"
+  skills: [sd.high_level_decomposition]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Each question asks why a box exists or where a boundary belongs.
+    questions:
+      - id: q1
+        kind: single
+        prompt: Users upload 200 MB videos. Where should the bytes go?
+        options:
+          - Through the API servers into the database
+          - Through the API servers into object storage
+          - Directly from the client to object storage using a pre-signed URL issued by the API
+          - Into the message queue for workers to store
+        answer: [2]
+        explanation: "The API only authorises and issues a short-lived URL, so large bodies never tie up API workers or bandwidth. Proxying through the API works but wastes capacity; databases and queues are the wrong place for large blobs (queues usually cap message size well below that)."
+      - id: q2
+        kind: single
+        prompt: Two services read and write the same database tables directly. What is the main problem?
+        options:
+          - It is slower than one service
+          - They are coupled through the schema, so neither can change it or scale independently; it is a distributed monolith
+          - Databases cannot accept two clients
+          - It violates REST
+        answer: [1]
+        explanation: "Shared tables make the schema a hidden API that both teams must coordinate on. The fix is one owner per dataset, with others using its API or its events. Speed and REST are beside the point."
+      - id: q3
+        kind: multi
+        prompt: Which tasks belong behind a queue rather than inside the request?
+        options:
+          - Sending a confirmation email after an order
+          - Checking the user's password at login
+          - Generating thumbnails for an uploaded photo
+          - Reserving the last unit of stock at checkout
+          - Fanning a new post out to 10,000 follower timelines
+        answer: [0, 2, 4]
+        explanation: "Email, thumbnails and fan-out are slow, retryable side effects the user need not wait for. Login and stock reservation decide the response itself, so they must complete synchronously."
+      - id: q4
+        kind: single
+        prompt: Five services are called in series, each 99.9% available and failing independently. The availability of the chain is closest to…
+        options: ["99.9%", "99.5%", "99%", "95%"]
+        answer: [1]
+        explanation: "Multiply: 0.999⁵ ≈ 0.995. Series dependencies multiply unavailability; that is why long synchronous chains are avoided and why some calls get fallbacks."
+      - id: q5
+        kind: single
+        prompt: Why should application servers keep no session state in memory?
+        options:
+          - Memory is too expensive
+          - So any instance can serve any request, and instances can be added, removed or replaced without losing user state
+          - Because load balancers cannot route to them otherwise
+          - It makes requests faster
+        answer: [1]
+        explanation: "Statelessness is what makes horizontal scaling and failover trivial. Sticky sessions can route around in-memory state, but a crash still loses it and uneven load follows."
+      - id: q6
+        kind: short
+        prompt: Give two legitimate reasons to split a component into its own service, and one bad reason.
+        model_answer: "Good: it owns a distinct dataset with its own invariants (payments), or it has a very different scaling or availability profile (an upload or transcoding tier versus a metadata API), or a separate team owns it. Bad: 'every noun gets a service' or 'microservices are modern', which adds network hops and consistency problems without solving anything."
+        explanation: Service boundaries should follow data ownership and scaling needs.
+- key: sd.high_level_decomposition.case
+  type: architecture_case
+  title: "Drill: high-level design for an online code judge"
+  skills: [sd.high_level_decomposition, sd.queues_async]
+  minutes: 25
+  difficulty: MEDIUM
+  observation: {kind: SD_DESIGN, time_limit_seconds: 1500}
+  body:
+    prompt: |-
+      Produce the high-level architecture (no deep dive) for an online judge where users submit code to a problem and receive a verdict. Assume 2 million submissions per day with contest peaks of 5,000 submissions per second for 10 minutes; each run takes 1–10 seconds in a sandbox. Within 25 minutes draw the components, number the write and read paths, mark what is synchronous and asynchronous, and name the first bottleneck.
+    requirements:
+      functional:
+        - Submit code for a problem
+        - See the verdict and per-test results
+        - View problem statements and a contest leaderboard
+      non_functional:
+        - A submission is never lost once accepted
+        - Verdict typically within 10–20 seconds; may queue during contest peaks
+        - Untrusted code cannot affect other users or the platform
+    approach:
+      - "Edge: CDN for problem statements and static assets, load balancer to a stateless submission API."
+      - "Write path: API validates, stores the submission (code in object storage or a DB row if small) with status QUEUED, and enqueues a job; returns submission_id immediately."
+      - "Workers pull jobs, run code in isolated sandboxes (containers or micro-VMs with CPU, memory and network limits), write results and set status to DONE."
+      - "Read path: client polls GET /submissions/{id} or receives a push over WebSocket or server-sent events; leaderboard served from a cache or a sorted set updated by workers."
+      - "Asynchronous: the run; synchronous: accepting and persisting the submission."
+      - "Scaling: workers autoscale on queue depth and age of oldest job; the contest peak queues rather than fails."
+      - "First bottleneck: sandbox worker capacity during contests (5,000/s × ~5 s ≈ 25,000 concurrent runs)."
+    estimates: |-
+      Average 2 × 10⁶ / 10⁵ ≈ 20 submissions per second; contest peak 5,000 per second. With about 5 seconds per run, Little's law gives about 25,000 runs in flight at peak versus about 100 on average, so worker capacity must burst or the queue must absorb the backlog.
+    rubric:
+      - {key: paths, label: "Numbered write and read paths that cover all functional requirements", points: 3}
+      - {key: async, label: "Runs code asynchronously through a queue and returns an id immediately", points: 2}
+      - {key: durability, label: "Persists the submission before acknowledging so it is never lost", points: 2}
+      - {key: isolation, label: "Sandboxes untrusted code with resource and network limits", points: 2}
+      - {key: scaling_signal, label: "Scales workers on queue depth or job age, not request rate", points: 2}
+      - {key: bottleneck, label: "Names worker capacity at contest peaks as the first bottleneck with a number", points: 2}
+    follow_ups:
+      - prompt: Contest traffic grows ten times. What do you change?
+        look_for: Pre-warm worker pools before scheduled contests, priority queues (contest over practice), per-user submission limits, and shedding practice traffic.
+      - prompt: A worker node dies in the middle of running a submission. What happens?
+        look_for: The job's lease or visibility timeout expires and it is redelivered; runs are idempotent by submission_id; the result write is conditional so a late duplicate cannot overwrite.
+      - prompt: How would you know verdict latency is degrading before users complain?
+        look_for: Metrics on queue depth, age of oldest job, run duration percentiles and end-to-end verdict latency with an alert on the SLO.
+- key: sd.high_level_decomposition.interview
+  type: interview_question
+  title: "Interview question: monolith or services for a new product?"
+  skills: [sd.high_level_decomposition, sd.tradeoff_articulation]
+  minutes: 10
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 600}
+  body:
+    prompt: "A team of six engineers is starting a new marketplace product with an uncertain domain. One engineer proposes twelve microservices from day one. Make a recommendation and defend it, including what would make you split later."
+    key_points:
+      - Recommends a modular monolith (one deployable, clear internal modules with owned data) for a small team and an uncertain domain.
+      - "Names the costs of early services: network hops, partial failures, distributed transactions, deployment and observability overhead, and boundaries drawn before the domain is understood."
+      - Keeps the door open with module boundaries, no cross-module table access, and asynchronous events between modules.
+      - "Names concrete triggers for splitting: a component with a very different scaling profile, independent release cadence or team ownership, or a different availability or compliance requirement."
+      - Mentions extracting truly different workloads early anyway (media processing, search) when they are obviously separate.
+    model_answer: "With six engineers and a domain still moving, I would build a modular monolith: one deployable, modules for listings, orders, payments and users, each owning its tables, communicating through in-process interfaces and domain events. Twelve services would add network latency, partial failures and cross-service consistency problems, and the boundaries would likely be wrong. I would still run obviously different workloads separately, such as image processing workers. I would split a module when it needs to scale very differently, when a separate team owns it with its own release cadence, or when it has a stricter availability or compliance need, like payments."
+    pitfalls:
+      - Treating 'microservices' or 'monolith' as universally right.
+      - Ignoring team size and domain maturity.
+    follow_ups:
+      - prompt: "A year later, search traffic is 50 times order traffic. What do you extract and how?"
+        look_for: Extract search as its own service with its own index fed by change events from the monolith (outbox or CDC); keep orders in the core.
+      - prompt: "How do you stop modules inside a monolith from coupling through the database?"
+        look_for: Per-module schemas or table ownership, no cross-module joins, enforced by code review or architecture tests; communication through interfaces and events.
+- key: sd.high_level_decomposition.cards
+  type: revision_card
+  title: "Recall: decomposition"
+  skills: [sd.high_level_decomposition]
+  minutes: 5
+  body:
+    cards:
+      - front: Which path to draw first?
+        back: The main write path, numbered step by step, then the hottest read path.
+      - front: When does work go behind a queue?
+        back: When it is slow, retryable or fan-out and the user does not need its result to get a response.
+      - front: Good reasons to split a service?
+        back: Distinct data ownership, different scaling or availability profile, separate team.
+      - front: What is a distributed monolith?
+        back: Services coupled by a shared database or long synchronous call chains.
+      - front: Availability of five 99.9% services in series?
+        back: About 99.5% (multiply the availabilities).
+
+# ---------------------------------------------------------------------------------------------- object storage, search, geo, IDs
+- key: sd.storage_search.lesson
+  type: lesson
+  title: Object storage, search indexes, geo indexes and ID generation
+  skills: [sd.storage_search]
+  minutes: 30
+  difficulty: MEDIUM
+  body:
+    summary: Specialised stores for blobs, full-text search and nearby search, plus how to mint unique IDs without a central counter; each is a derived or side store next to the primary database.
+    what: |-
+      Four building blocks that appear in many designs:
+
+      - **Object storage**: a flat namespace of immutable objects (bytes plus metadata) addressed by bucket and key, accessed over HTTP (`PUT`, `GET`, `DELETE`, list by prefix).
+      - **Inverted index**: the structure behind full-text search. For each term it stores a **postings list** of the documents (and positions) that contain it.
+      - **Geo index**: a way to find points near a location quickly, using geohashes, quadtrees or similar spatial indexes.
+      - **Distributed ID generation**: producing unique, ideally roughly time-ordered identifiers on many machines without a single counter.
+    why: |-
+      A relational table cannot cheaply answer "documents containing 'wireless' and 'headphones' ranked by relevance" (a `LIKE '%term%'` scan reads every row) or "restaurants within 2 km" (latitude and longitude ranges on two independent indexes are inefficient), and storing petabytes of images in rows is expensive and slow. A single auto-increment counter becomes a bottleneck and a single point of failure once writes are spread across shards or regions.
+    when: |-
+      - Object storage: any blob (images, video, uploads, exports, backups, logs).
+      - Search index: text search, faceting, typo tolerance, relevance ranking.
+      - Geo index: nearby search, ride or courier matching, location-based feeds.
+      - Distributed IDs: sharded data, multi-region writes, IDs created on clients or many writers.
+    how: |-
+      **Object storage.** Keep metadata (owner, size, content type, state) in the database and the bytes in a bucket under a key such as `uploads/{user_id}/{uuid}`. Clients upload and download directly using short-lived **pre-signed URLs**; large files use **multipart upload** (parts in parallel, resumable). Lifecycle rules move old objects to cheaper, slower tiers or delete them. Amazon S3 has offered strong read-after-write consistency for objects since late 2020; older guides that say otherwise are outdated.
+
+      **Inverted index.** Indexing **tokenises** text, normalises tokens (lowercase, stemming, stop words) and appends the document id to each term's postings list. A query intersects or unions postings lists and ranks matches, typically with BM25 (the default similarity in Elasticsearch and OpenSearch). Elasticsearch makes new documents searchable after a periodic refresh (one second by default), so search is near-real-time. The index is a **derived store**: the database stays the source of truth and changes flow to the index through an outbox, change data capture or a queue, and the index can be rebuilt.
+
+      **Geohash.** Interleave the bits of longitude and latitude and encode them in base 32; each character adds 5 bits. Nearby points usually share a prefix: 6 characters is a cell of roughly 1.2 km × 0.6 km, 7 characters roughly 150 m × 150 m. To search near a point, compute its cell at a precision matching the radius and query that cell **plus its 8 neighbours**, then filter by exact distance. A **quadtree** recursively splits a region into four children until each leaf holds at most K points, so dense cities get small cells and empty areas stay coarse. Databases offer this built in: PostGIS with GiST indexes, Redis `GEOADD`/`GEOSEARCH` (a sorted set scored by a geohash), Elasticsearch `geo_point`.
+
+      **ID generation.**
+
+      - Auto-increment: simple, compact, ordered; a bottleneck across shards and leaks volume.
+      - UUIDv4: 122 random bits, generated anywhere, no coordination; random order fragments B-tree indexes.
+      - UUIDv7 (RFC 9562): a 48-bit millisecond timestamp prefix plus random bits, so IDs sort by creation time and insert near the end of an index.
+      - Snowflake-style 64-bit IDs: 41 bits of milliseconds since a custom epoch (about 69 years), 10 bits of machine id, 12 bits of per-millisecond sequence (4,096 IDs per millisecond per machine). Compact, time-ordered, needs unique machine ids and a clock that does not go backwards.
+    mental_model: |-
+      The primary database is the ledger; everything here is either a warehouse next to it (object storage holds the bulky goods, the ledger holds the receipts) or an index built from it (search and geo indexes are maps you can redraw from the ledger at any time). IDs are the labels everyone must agree on without phoning a central office.
+    tradeoffs: |-
+      Object storage is cheap and durable but has tens of milliseconds of first-byte latency and no queries; put a CDN in front for hot reads. A search index gives relevance and speed but is eventually consistent with the database and adds a pipeline to operate. Geohashes are simple and fit in any sorted key-value store but have edge effects and fixed cell sizes; quadtrees adapt to density but must be rebuilt or rebalanced as points move. Random UUIDs need no coordination but are 128 bits and index-unfriendly; Snowflake IDs are compact and sortable but depend on machine-id assignment and clock discipline.
+    mistakes:
+      - Streaming uploads through application servers instead of pre-signed direct uploads.
+      - Treating the search index as the source of truth, so a lost index means lost data.
+      - "`LIKE '%term%'` for user-facing search at scale."
+      - Searching only the geohash cell of the query point and missing neighbours just across the border.
+      - Random UUIDv4 primary keys on a write-heavy B-tree table without considering index locality.
+      - Snowflake generators that ignore the clock moving backwards (NTP step) and emit duplicates.
+    interview: |-
+      These usually appear as sub-steps: "where do the photos go?", "how does search stay in sync?", "find drivers within 3 km", "how do you generate IDs across shards?". Give the mechanism, one number (cell size, refresh delay, bits per field) and the trade-off. Interviewers probe the sync path to the search index and the boundary case of geohash cells.
+    explain_it:
+      - Blobs in object storage, metadata in the database, direct transfer via pre-signed URLs.
+      - The search index is derived, fed by change events, near-real-time.
+      - Geohash prefix plus 8 neighbours, then exact distance filtering.
+      - ID scheme with its bit layout or ordering property and its failure mode.
+    complexity: "Inverted index query cost grows with the lengths of the postings lists involved, not the number of documents. A geohash nearby query reads 9 cells: O(points in those cells). Quadtree lookup is O(depth) to find the leaf."
+    edge_cases:
+      - "Geohash cells near the poles and the antimeridian behave badly; most products can ignore the poles but not cells that straddle a city boundary."
+      - "Deleting from an inverted index is usually a tombstone; space is reclaimed later by segment merges."
+      - "A hot object (a viral image) needs a CDN; object stores also have per-prefix request-rate limits."
+- key: sd.storage_search.check
+  type: concept_check
+  title: "Concept check: blobs, search, geo and IDs"
+  skills: [sd.storage_search]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Mechanisms and their sharp edges.
+    questions:
+      - id: q1
+        kind: single
+        prompt: Why does a nearby search using geohashes query the cell of the point plus its eight neighbours?
+        options:
+          - To make results more random
+          - Because two points a few metres apart can fall in adjacent cells with different prefixes
+          - Because geohash cells overlap
+          - To load-balance across nine servers
+        answer: [1]
+        explanation: "Shared prefix implies proximity, but proximity does not imply a shared prefix: a point near the edge of its cell is close to points in the neighbouring cells. Cells do not overlap; that is exactly why neighbours are needed."
+      - id: q2
+        kind: single
+        prompt: "A product search must reflect a price change. The database commits the change; the search index lags a few seconds. Which statement is right?"
+        options:
+          - The index is the source of truth, so the database is wrong
+          - This is expected for a derived index fed asynchronously; the product page should read the price from the database or cache
+          - Search indexes are always strongly consistent with the database
+          - Use a distributed transaction across database and index for every write
+        answer: [1]
+        explanation: "Search is near-real-time and derived. Show critical values (price at checkout) from the source of truth. Two-phase commit across a database and a search cluster is rarely supported and would couple their availability."
+      - id: q3
+        kind: multi
+        prompt: Which are properties of a Snowflake-style 64-bit ID (41-bit time, 10-bit machine, 12-bit sequence)?
+        options:
+          - Roughly sortable by creation time
+          - Up to 4,096 IDs per millisecond per machine
+          - Requires no unique machine ids
+          - Can produce duplicates if the clock moves backwards and the generator does not guard against it
+          - Contains 122 random bits
+        answer: [0, 1, 3]
+        explanation: "The timestamp prefix orders IDs; 12 sequence bits give 4,096 per millisecond. Uniqueness depends on unique machine ids and a monotonic clock. 122 random bits describes UUIDv4."
+      - id: q4
+        kind: single
+        prompt: Users upload files up to 5 GB. Which flow is best?
+        options:
+          - POST the file to the API, which writes it to the database
+          - API issues pre-signed multipart upload URLs; the client uploads parts directly to object storage; the API records metadata when notified of completion
+          - Upload to a queue, and workers write it to storage
+          - Upload to the CDN, which stores it permanently
+        answer: [1]
+        explanation: "Direct multipart upload is parallel and resumable and keeps API servers out of the byte path. Queues cap message sizes far below gigabytes; a CDN is a cache, not durable storage."
+      - id: q5
+        kind: single
+        prompt: Why is UUIDv4 a questionable primary key for a write-heavy table in a B-tree index?
+        options:
+          - It is not unique
+          - Random values insert all over the index, causing page splits and poor cache locality compared with time-ordered keys
+          - B-trees cannot index strings
+          - It is too short
+        answer: [1]
+        explanation: "Inserts land on random leaf pages, so more pages must be in memory and splits are frequent. Time-ordered IDs (UUIDv7, Snowflake) append near the right edge. Uniqueness is not the problem."
+      - id: q6
+        kind: short
+        prompt: Explain how an inverted index answers the query 'red shoes' and why it is faster than scanning.
+        model_answer: "Tokenise and normalise the query into terms 'red' and 'shoe'. Fetch each term's postings list (sorted document ids), intersect them (or union for OR semantics), score the candidates with BM25 using term frequency, document frequency and length, and return the top K. It only touches documents containing the terms, while a scan reads every document."
+        explanation: Cost depends on postings-list lengths, not collection size.
+- key: sd.storage_search.nearby_case
+  type: architecture_case
+  title: "Drill: nearby search for restaurants"
+  skills: [sd.storage_search, sd.data_modeling]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: SD_DESIGN, time_limit_seconds: 1200}
+  body:
+    prompt: |-
+      Design only the 'restaurants near me' component: 5 million restaurants worldwide, 20,000 searches per second at peak, results within a chosen radius (500 m to 10 km), sorted by distance, filterable by cuisine and open-now. Restaurant locations change rarely. Within 20 minutes choose the index, the cell precision per radius, the query plan, the storage layout and how updates flow, and handle a dense city centre.
+    requirements:
+      functional:
+        - Search restaurants within a radius of a point
+        - Filter by cuisine and open-now, sort by distance
+        - Restaurants are added or edited a few thousand times per day
+      non_functional:
+        - p99 under 150 ms
+        - 20,000 searches per second at peak
+        - A new restaurant is searchable within minutes
+    approach:
+      - "Restaurants are the source of truth in the primary database; the geo index is derived and rebuilt from it."
+      - "Index each restaurant by geohash (for example precision 6 and 5 stored as columns or keys) or use a built-in geo index (PostGIS GiST, Redis GEO, Elasticsearch geo_point)."
+      - "Pick precision from the radius: about 1 km radius → precision 6 cell plus 8 neighbours; 10 km → precision 5 (cells about 5 km)."
+      - "Query the 9 cells, filter by exact haversine distance and by cuisine/open-now, sort by distance, return top K."
+      - "Dataset is small (5 million × ~200 bytes ≈ 1 GB), so the whole index fits in memory and can be replicated to many read nodes; 20,000 QPS is a read-scaling problem, not a sharding one."
+      - "Dense centres: cap results, use a finer precision or a quadtree with leaf capacity K; sparse areas widen the radius progressively."
+      - "Updates flow through change events to the index within minutes."
+    estimates: |-
+      5 × 10⁶ restaurants × about 200 bytes ≈ 1 GB, small enough to keep in memory on every read node. At 20,000 QPS and an assumed 2,000 queries per second per node, about 10 nodes plus headroom.
+    rubric:
+      - {key: index_choice, label: "Chooses a geo index (geohash, quadtree or built-in) and explains how it finds candidates", points: 3}
+      - {key: neighbours, label: "Queries neighbouring cells and filters by exact distance", points: 2}
+      - {key: precision, label: "Links cell precision to the requested radius with approximate cell sizes", points: 2}
+      - {key: sizing, label: "Estimates the index fits in memory and treats QPS as read replication", points: 2}
+      - {key: density, label: "Handles dense areas (finer cells, quadtree, caps) and sparse areas (expanding radius)", points: 2}
+      - {key: freshness, label: "Keeps the index derived from the database with a stated update path and delay", points: 1}
+    follow_ups:
+      - prompt: Scale grows ten times to 200,000 searches per second. What changes?
+        look_for: More read replicas of the in-memory index, caching popular cells (city centres), regional deployment so queries stay local; sharding by region only if memory becomes a limit.
+      - prompt: Now the points are 2 million couriers whose locations change every 4 seconds. What breaks in your design?
+        look_for: Write rate of about 500,000 per second; rebuild-based indexes fail; use an in-memory store keyed by cell that is updated in place (moving a courier between cells), partitioned by region, with TTLs so stale couriers disappear.
+      - prompt: A node holding the index fails. What do users see?
+        look_for: The load balancer removes it after failed health checks; replicas serve; the replacement loads a snapshot and catches up from the change stream before taking traffic.
+- key: sd.storage_search.id_interview
+  type: interview_question
+  title: "Interview question: generate IDs across shards"
+  skills: [sd.storage_search, sd.database_scaling]
+  minutes: 10
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 600}
+  body:
+    prompt: "Orders are moving from one database to 16 shards. Today the order id is an auto-increment integer exposed in URLs. Propose an ID scheme, explain its structure, and state what can go wrong."
+    key_points:
+      - "Explains why per-shard auto-increment collides (or needs offsets) and leaks business volume."
+      - "Proposes a time-ordered scheme: Snowflake-style 64-bit (timestamp, machine or shard id, sequence) or UUIDv7."
+      - "Gives the layout and a capacity number (for example 41-bit milliseconds ≈ 69 years, 12-bit sequence = 4,096 per millisecond per generator)."
+      - "Names failure modes: clock moving backwards, duplicate machine ids, sequence exhaustion within a millisecond, and how each is handled (wait, refuse, lease machine ids)."
+      - Notes migration of existing ids (keep old ones, start new scheme above the old maximum or in a distinct range).
+    model_answer: "Per-shard auto-increment would collide unless I use offsets and steps, which is brittle when the shard count changes, and sequential ids reveal order volume. I would use a Snowflake-style 64-bit id: 41 bits of milliseconds since a custom epoch, 10 bits of generator id, 12 bits of sequence. Ids are unique without coordination, sortable by time, and fit a BIGINT. Generator ids are leased from a coordination store so two processes never share one. If the clock goes backwards the generator waits until it catches up or refuses; if the sequence is exhausted in a millisecond it waits for the next. Existing ids stay as they are, and new ids are guaranteed larger because the timestamp component dominates."
+    pitfalls:
+      - Proposing a central ticket server without addressing its availability and throughput.
+      - Forgetting the clock-skew failure mode.
+    follow_ups:
+      - prompt: Why not just use UUIDv4?
+        look_for: It works without coordination, but 128 bits, random insert order hurts B-tree locality, not sortable by time; UUIDv7 fixes ordering.
+      - prompt: "Can the shard be derived from the id?"
+        look_for: Embed a logical shard id in the id bits, or route with a lookup table; trade-off with resharding flexibility (prefer logical shards mapped to physical nodes).
+- key: sd.storage_search.cards
+  type: revision_card
+  title: "Recall: storage and search building blocks"
+  skills: [sd.storage_search]
+  minutes: 5
+  body:
+    cards:
+      - front: How do clients upload large files?
+        back: Directly to object storage via pre-signed (multipart) URLs; the API stores metadata.
+      - front: What is a postings list?
+        back: For one term, the sorted list of documents (and positions) containing it.
+      - front: Approximate size of a 6-character geohash cell?
+        back: About 1.2 km × 0.6 km.
+      - front: Why query 8 neighbouring cells?
+        back: Nearby points across a cell border do not share the prefix.
+      - front: Snowflake ID layout?
+        back: 41-bit ms timestamp, 10-bit machine id, 12-bit sequence.
+      - front: Is the search index the source of truth?
+        back: No; it is derived from the database and can be rebuilt.

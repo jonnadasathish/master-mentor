@@ -1,0 +1,729 @@
+# Learning content: flagship projects URL Shortener, Notification Platform and Job Queue.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- URL shortener
+- key: proj.url_shortener.project
+  type: project
+  title: "Flagship project: URL Shortener with click analytics"
+  skills:
+    - project.architecture_walkthrough
+    - project.tradeoffs_decisions
+    - project.metrics_impact
+    - sd.api_design
+    - engineering.api_engineering
+    - network.http
+    - sd.data_modeling
+    - db.indexing
+    - sd.capacity_estimation
+    - sd.caching
+    - engineering.caching_practice
+    - engineering.performance_profiling
+    - sd.queues_async
+    - sd.idempotency_retries
+    - sd.rate_limiting
+    - security.web_basics
+    - sd.security_design
+    - testing.unit_integration
+    - sd.observability
+    - engineering.tooling
+  minutes: 180
+  difficulty: HARD
+  body:
+    summary: |-
+      A URL shortener with custom aliases, expiry, abuse controls and click analytics, built with FastAPI, MySQL and Redis. It is small enough to finish but read-heavy enough to make caching, ID generation, asynchronous analytics and rate limiting real decisions you have to defend with numbers.
+
+      Each milestone is one focused session of up to three hours. Record the defense when you can answer every defense question out loud without notes.
+    stack:
+      - "Backend: Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2 with Alembic"
+      - "Data: MySQL 8 (InnoDB) for links and aggregated clicks; Redis for the redirect cache, rate limits and a click-event stream"
+      - "Workers: a Python consumer process reading Redis Streams with a consumer group"
+      - "Delivery: Docker, docker compose, GitHub Actions; deployable to any container platform (for example ECS behind a load balancer)"
+      - "Load testing: k6 or Locust"
+    requirements:
+      functional:
+        - Create a short link for a long URL, optionally with a custom alias and an expiry time; authenticated by API key.
+        - Redirect a short code to its long URL; expired, disabled or unknown codes return 404 (or 410 for expired, by decision).
+        - The owner can list their links, disable a link and read click counts per day.
+        - Only http and https destinations are accepted; destinations on a blocklist of abusive domains are rejected.
+        - Link creation is rate-limited per API key.
+      non_functional:
+        - Redirect p99 under 50 ms at the target load on the deployed environment, measured with a load test.
+        - Redirects keep working when the analytics pipeline is down; click counting may lag but must not block redirects.
+        - Short codes are unique and not trivially enumerable.
+        - Capacity target for the design discussion is 100 million new links a month with a 100 to 1 read-to-write ratio; the build itself is load-tested at a smaller, stated scale.
+    architecture: |-
+      **Write path.** `POST /api/v1/links` validates the URL, checks the blocklist and the rate limit, allocates a code and inserts the row. Codes come from a numeric ID encoded in base62. Each API instance reserves a block of IDs (for example 1,000 at a time) from a MySQL counter row, so code allocation needs one database round-trip per block, not per link. The ID is permuted with a reversible scramble before encoding so consecutive links do not get consecutive codes. Custom aliases are inserted directly and rely on the unique index on `code`.
+
+      **Read path.** `GET /{code}` checks Redis first (`link:{code}` holds the destination and expiry); on a miss it reads MySQL by primary key and fills the cache. Unknown codes are cached briefly as a negative entry so a scanner cannot hammer MySQL. The response is a 302 so every click reaches the service and the destination can be changed or disabled; a 301 would be cached by browsers and those clicks would never be counted.
+
+      **Analytics.** The redirect handler appends a small event (code, timestamp, referrer host, country if known) to a Redis Stream with `XADD` and a bounded `MAXLEN`, then returns. A consumer group reads events, aggregates counts per code per day in memory for a few seconds and upserts them into `daily_clicks`, acknowledging events only after the upsert commits. Delivery is at least once, so a small overcount after a consumer crash is possible; the design accepts it and says so.
+
+      **Estimates to defend.** 100 million links a month is about 40 writes per second on average; at 100 to 1, about 4,000 redirects per second, with peaks several times higher. Seven base62 characters give 62⁷, about 3.5 trillion codes; six give about 56.8 billion, which would last roughly 47 years at that rate. At about 500 bytes per row, a year of links is about 600 GB before indexes, so one MySQL primary with read caching is enough; partitioning by code is the step after that.
+    schema:
+      language: sql
+      code: |-
+        -- MySQL 8.0 (InnoDB)
+        CREATE TABLE api_keys (
+          id         BIGINT PRIMARY KEY AUTO_INCREMENT,
+          owner      VARCHAR(255) NOT NULL,
+          key_hash   CHAR(64) NOT NULL UNIQUE,          -- store a hash of the API key, never the key
+          created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+        );
+        CREATE TABLE id_blocks (
+          name    VARCHAR(32) PRIMARY KEY,               -- one row: 'links'
+          next_id BIGINT NOT NULL
+        );
+        CREATE TABLE links (
+          id          BIGINT PRIMARY KEY,
+          code        VARCHAR(32) NOT NULL,
+          long_url    VARCHAR(2048) NOT NULL,
+          api_key_id  BIGINT NOT NULL REFERENCES api_keys(id),
+          is_custom   BOOLEAN NOT NULL DEFAULT FALSE,
+          disabled    BOOLEAN NOT NULL DEFAULT FALSE,
+          expires_at  DATETIME(6) NULL,
+          created_at  DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+          UNIQUE KEY uq_links_code (code),
+          KEY ix_links_owner (api_key_id, created_at, id)
+        );
+        CREATE TABLE daily_clicks (
+          link_id BIGINT NOT NULL REFERENCES links(id),
+          day     DATE NOT NULL,
+          clicks  BIGINT NOT NULL DEFAULT 0,
+          PRIMARY KEY (link_id, day)
+        );
+        -- Consumer upsert:
+        -- INSERT INTO daily_clicks (link_id, day, clicks) VALUES (%s, %s, %s)
+        --   ON DUPLICATE KEY UPDATE clicks = clicks + VALUES(clicks);
+      explanation: "Block allocation is `UPDATE id_blocks SET next_id = LAST_INSERT_ID(next_id + 1000) WHERE name = 'links'` followed by `SELECT LAST_INSERT_ID()`, which is atomic per connection. MySQL 8.0.20+ deprecates VALUES() in ON DUPLICATE KEY UPDATE in favour of a row alias; either works on 8.0."
+    apis:
+      - "POST /api/v1/links — body {url, alias?, expires_at?}; header X-API-Key; 201 with {code, short_url}; 409 if the alias is taken; 422 for an invalid or blocked URL; 429 when rate-limited"
+      - "GET /{code} — 302 with Location to the long URL; 404 for unknown or disabled codes; 410 for expired links if you choose to distinguish them"
+      - "GET /api/v1/links?cursor=&limit= — the caller's links, newest first, keyset pagination"
+      - "PATCH /api/v1/links/{code} — disable or change expiry; deletes the cache entry after commit"
+      - "GET /api/v1/links/{code}/clicks?from=&to= — daily counts from daily_clicks"
+      - "GET /healthz and GET /readyz"
+    milestones:
+      - key: core_api
+        title: Create and redirect with correct HTTP semantics
+        goal: Build link creation and redirects with strict URL validation and the right status codes, before any optimisation.
+        deliverables:
+          - POST /api/v1/links and GET /{code} with Pydantic validation (scheme allowlist, maximum length, normalised host).
+          - A written decision on 301 versus 302 (or 307/308) with the analytics and cache consequences.
+          - API key authentication with keys stored as hashes, and custom aliases protected by the unique index (409 on conflict).
+          - API tests for valid, invalid, blocked, duplicate-alias, unknown and expired cases.
+        skills: [sd.api_design, engineering.api_engineering, network.http]
+        minutes: 150
+        rubric:
+          - {key: redirect_status, label: "Chooses the redirect status deliberately and explains browser caching of 301", points: 3}
+          - {key: validation, label: "Rejects non-http(s) schemes, oversized URLs and blocked domains", points: 3}
+          - {key: alias_conflict, label: "Alias conflicts are caught by the unique index, not a check-then-insert race", points: 2}
+          - {key: tests, label: "Each status code path has a test", points: 2}
+      - key: code_generation
+        title: Short-code generation and capacity estimate
+        goal: Generate unique, non-sequential codes without a database round-trip per link, and back the code length with arithmetic.
+        deliverables:
+          - Base62 encode and decode functions with a round-trip property test.
+          - ID block allocation per process from the id_blocks row, plus a reversible scramble so codes are not consecutive.
+          - "A one-page estimate: writes and reads per second, code space for 6 and 7 characters, storage per year."
+          - A comparison with random codes plus collision retry, stating when each is better.
+        skills: [sd.data_modeling, db.indexing, sd.capacity_estimation]
+        minutes: 120
+        rubric:
+          - {key: uniqueness, label: "Uniqueness is guaranteed by construction or by the unique index, with the race explained", points: 3}
+          - {key: estimate, label: "The estimate shows the arithmetic and derives the code length from it", points: 3}
+          - {key: not_enumerable, label: "Codes are not trivially enumerable and the remaining risk is stated", points: 2}
+          - {key: roundtrip_test, label: "Encoding round-trips for edge values (0, 61, 62, large ids)", points: 2}
+      - key: redirect_cache
+        title: Redis redirect cache and measured latency
+        goal: Make redirects fast with a cache-aside layer, negative caching and correct invalidation, and prove the effect with a load test.
+        deliverables:
+          - Cache-aside lookup for codes with a TTL, expiry respected from the cached value, and deletion on disable or update after commit.
+          - Short-lived negative caching for unknown codes.
+          - "A load test before and after: redirect p50, p95, p99, cache hit ratio and MySQL queries per second at a stated request rate and hardware."
+          - A profile (py-spy or similar) of the redirect handler showing where the remaining time goes.
+        skills: [sd.caching, engineering.caching_practice, engineering.performance_profiling]
+        minutes: 150
+        rubric:
+          - {key: invalidation, label: "Disabling a link stops redirects within a stated bound", points: 3}
+          - {key: negative_cache, label: "Unknown codes do not reach MySQL on every request", points: 2}
+          - {key: measured, label: "Before-and-after percentiles and hit ratio are reported with conditions", points: 3}
+          - {key: profile, label: "Profile output identifies the next bottleneck", points: 2}
+      - key: click_analytics
+        title: Asynchronous click analytics with Redis Streams
+        goal: Count clicks without slowing redirects, with at-least-once processing and a stated accuracy guarantee.
+        deliverables:
+          - XADD of a click event in the redirect path with a bounded stream length; the redirect does not fail if XADD fails.
+          - A consumer group worker that batches events, upserts daily_clicks and acknowledges only after commit.
+          - Recovery of pending entries from a crashed consumer (XPENDING and XCLAIM or XAUTOCLAIM).
+          - A written statement of the counting guarantee (possible small overcount on crash, never blocked redirects).
+        skills: [sd.queues_async, sd.idempotency_retries]
+        minutes: 150
+        rubric:
+          - {key: off_path, label: "Redirect latency and availability do not depend on the analytics pipeline", points: 3}
+          - {key: ack_after_commit, label: "Events are acknowledged only after the aggregate is committed", points: 3}
+          - {key: recovery, label: "Pending events of a dead consumer are reclaimed", points: 2}
+          - {key: guarantee_stated, label: "The overcount or undercount risk is stated honestly", points: 2}
+      - key: abuse_controls
+        title: Rate limiting and abuse controls
+        goal: Protect the service and its users from abuse with rate limits, a domain blocklist and safe handling of destinations.
+        deliverables:
+          - Per-API-key rate limit on link creation in Redis (fixed window with INCR and EXPIRE, or a token bucket in a Lua script), returning 429 with Retry-After.
+          - Per-IP limits on redirects for scanners, with the false-positive risk for shared IPs discussed.
+          - A destination blocklist check at creation and at redirect time, so a domain blocked later stops redirecting.
+          - A short threat note covering phishing through short links, enumeration and API key leakage.
+        skills: [sd.rate_limiting, security.web_basics, sd.security_design]
+        minutes: 120
+        rubric:
+          - {key: limiter_correct, label: "The limiter is atomic in Redis and its window edge behaviour is explained", points: 3}
+          - {key: blocklist_both, label: "Blocked destinations are rejected at creation and at redirect", points: 2}
+          - {key: threats, label: "The threat note names concrete abuse cases and the control for each", points: 3}
+          - {key: fail_mode, label: "Behaviour when Redis is unavailable is decided and justified", points: 2}
+      - key: ship_and_observe
+        title: Tests, container build and observability
+        goal: Make the service shippable and debuggable with a CI pipeline, a container image and metrics that show its health.
+        deliverables:
+          - Unit tests for encoding, validation and the limiter; integration tests against MySQL and Redis in containers.
+          - A multi-stage Dockerfile and a CI workflow that runs lint, type checks and tests and builds the image.
+          - Metrics for redirect rate and latency percentiles, cache hit ratio, 404 rate, stream length and consumer lag.
+          - An alert list with thresholds (for example consumer lag above 5 minutes, redirect p99 above target).
+        skills: [testing.unit_integration, sd.observability, engineering.tooling]
+        minutes: 150
+        rubric:
+          - {key: tests_real_deps, label: "Integration tests run against real MySQL and Redis", points: 3}
+          - {key: ci, label: "CI blocks merges on failing lint, types or tests", points: 2}
+          - {key: metrics, label: "Metrics cover latency, errors, cache and analytics lag", points: 3}
+          - {key: alerts, label: "Alerts have thresholds tied to the stated targets", points: 2}
+    testing:
+      - "Property test: decode(encode(n)) == n for random and boundary ids; codes contain only base62 characters."
+      - "Concurrency: many parallel creations with the same custom alias produce exactly one 201 and the rest 409."
+      - "Cache: disable a link and assert redirects stop within the stated bound; unknown codes are served from the negative cache."
+      - "Analytics: kill the consumer mid-batch, restart, and compare counts against the number of redirects (difference within the stated bound)."
+      - "Rate limits: exceed the limit and assert 429 with Retry-After; the counter resets after the window."
+      - "Load: k6 script for a 100 to 1 redirect-to-create mix reporting percentiles and the error rate."
+    deployment:
+      - "One image for the API and the analytics consumer, started with different commands; images tagged by commit SHA in CI."
+      - "API instances are stateless behind a load balancer; the consumer runs as a separate service with one or more members of the consumer group."
+      - "MySQL and Redis managed services (for example RDS and ElastiCache) in private networks; secrets from the platform's secret store."
+      - "Migrations run before the new version receives traffic; schema changes are backward compatible for one release."
+    observability:
+      - "Structured logs for creations and errors only; redirects are counted in metrics rather than logged line by line, to control volume."
+      - "Metrics: redirects per second, redirect p50, p95 and p99, cache hit ratio, 404 and 429 rates, stream length, pending entries and consumer lag."
+      - "Database: queries per second, slow-query log and connection count."
+      - "Alarms: redirect p99 above target for 5 minutes, consumer lag above 5 minutes, error rate above 1 percent."
+    failure_scenarios:
+      - "Redis is down: redirects fall back to MySQL by primary key; analytics events are dropped or buffered by decision; creation rate limiting fails open or closed by decision."
+      - "A viral link gets most of the traffic: one hot cache key; explain why a single Redis key handles it, and the local in-process cache option if it does not."
+      - "The analytics consumer crashes for an hour: the stream grows to its MAXLEN and the oldest events are trimmed; state the data loss and how lag alerts catch it first."
+      - "A scanner requests random codes: negative caching and per-IP limits keep MySQL safe."
+      - "Two instances allocate ID blocks at the same moment: the atomic UPDATE with LAST_INSERT_ID gives them disjoint ranges."
+      - "A phishing destination is reported: disabling the link and blocklisting the domain stop redirects within the cache bound."
+    defense_questions:
+      - Walk me through the write path and the read path, with the numbers that drive the design.
+      - Why 302 and not 301? What would you lose with 301?
+      - How do you generate codes? Why not random codes, and why not the raw auto-increment id?
+      - How many characters does a code need for 100 million links a month, and how did you work it out?
+      - How do you count clicks without slowing redirects, and how accurate are the counts?
+      - What happens when Redis goes down?
+      - How do you stop abuse, both scanners and phishing links?
+      - What breaks first at 10x traffic?
+      - Which number shows the cache was worth adding?
+# ---------------------------------------------------------------------------------------------- notification platform
+- key: proj.notifications.project
+  type: project
+  title: "Flagship project: Notification Platform (email, SMS, push, in-app)"
+  skills:
+    - project.architecture_walkthrough
+    - project.tradeoffs_decisions
+    - project.incident_debugging_story
+    - sd.api_design
+    - sd.data_modeling
+    - engineering.api_engineering
+    - sd.queues_async
+    - sd.idempotency_retries
+    - os.concurrency_practical
+    - sd.fault_tolerance
+    - sd.rate_limiting
+    - sd.realtime_delivery
+    - network.realtime_protocols
+    - testing.test_design
+    - testing.unit_integration
+    - sd.observability
+  minutes: 180
+  difficulty: HARD
+  body:
+    summary: |-
+      A notification service that other services call to notify a user over email, SMS, mobile push or in-app, honouring user preferences, quiet hours and per-user limits, and delivering through unreliable third-party providers with retries and no duplicates. Real providers are replaced by fake adapters that can be told to be slow, fail or time out, so every failure path can be exercised locally.
+
+      The defense focuses on delivery guarantees: what "exactly once" means when a provider can time out after sending, and how you keep urgent messages fast while bulk messages queue up.
+    stack:
+      - "Backend: Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2 with Alembic"
+      - "Data: MySQL 8 for notifications, deliveries, templates and preferences"
+      - "Queue: Celery with Redis as broker (SQS is the alternative to discuss), separate queues per priority"
+      - "Real time: Server-Sent Events or WebSockets for in-app notifications, Redis pub/sub to reach the right API instance"
+      - "Delivery: Docker, docker compose, GitHub Actions"
+    requirements:
+      functional:
+        - "A producer service sends a notification request: user, template, channels, template data and an idempotency key; the API answers 202 with a notification id."
+        - Templates are versioned and rendered per channel; missing template variables fail the request with 422 rather than sending a broken message.
+        - "User preferences per category and channel (for example marketing email off), and quiet hours in the user's own timezone that delay non-urgent messages."
+        - Per-user frequency caps for marketing messages (for example at most 3 per day).
+        - Each channel delivery has a status (QUEUED, SENT, FAILED, SUPPRESSED) visible through the API.
+        - In-app notifications appear live for connected users and are kept as an inbox with read and unread state.
+      non_functional:
+        - A repeated request with the same idempotency key never creates a second notification.
+        - Urgent messages (one-time passcodes) are dispatched within seconds even while a bulk marketing campaign is queued.
+        - A provider outage does not lose messages; they are retried with backoff and end in a visible failed state after a bounded number of attempts.
+        - No duplicate sends from the platform's own retries for providers that accept an idempotency key; for providers that do not, the residual duplicate risk is documented.
+        - End-to-end p95 from accept to provider call under 5 seconds for urgent messages at the test load.
+    architecture: |-
+      **Accept.** `POST /api/v1/notifications` validates the request, renders nothing yet, and in one MySQL transaction inserts the notification (unique on producer and idempotency key), one `deliveries` row per channel and an outbox row. It returns 202. A relay moves outbox rows onto the right Celery queue: `urgent`, `default` or `bulk`.
+
+      **Dispatch.** Workers are deployed per queue so bulk work can never occupy the workers that serve urgent messages. A worker loads the delivery, checks preferences, quiet hours and frequency caps (marking it SUPPRESSED or rescheduling it with an ETA), renders the template and calls the channel adapter. The delivery row is the idempotency guard: the worker atomically moves it from QUEUED to SENDING and only the worker that wins that update calls the provider.
+
+      **Failures.** Errors are classified: timeouts, connection errors, 5xx and 429 are retryable (429 honours Retry-After); 4xx validation errors such as an invalid phone number are permanent. Retries use exponential backoff with jitter and a cap; after the last attempt the delivery is FAILED and copied to a dead-letter table for inspection and manual replay. A per-provider circuit breaker stops calling a provider that is failing most requests and lets a probe through after a cool-down.
+
+      **The ambiguous timeout.** When a provider call times out, the message may or may not have been sent. If the provider accepts an idempotency key, the retry sends the same key and the provider deduplicates. If not, the platform chooses between possible duplicates (retry) and possible loss (do not retry) per category: retry for passcodes, do not retry for marketing.
+
+      **In-app.** In-app messages are stored in an inbox table first, then published on a Redis pub/sub channel per user. Each API instance holding SSE or WebSocket connections subscribes and forwards to the connected client. Redis pub/sub does not store messages, so a disconnected client catches up by reading the inbox after its last seen id on reconnect.
+    schema:
+      language: sql
+      code: |-
+        -- MySQL 8.0 (InnoDB)
+        CREATE TABLE notifications (
+          id              BIGINT PRIMARY KEY AUTO_INCREMENT,
+          producer        VARCHAR(64) NOT NULL,
+          idempotency_key VARCHAR(128) NOT NULL,
+          user_id         BIGINT NOT NULL,
+          category        ENUM('SECURITY','TRANSACTIONAL','MARKETING') NOT NULL,
+          template_key    VARCHAR(64) NOT NULL,
+          template_ver    INT NOT NULL,
+          data            JSON NOT NULL,
+          created_at      DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+          UNIQUE KEY uq_notif_idem (producer, idempotency_key),
+          KEY ix_notif_user (user_id, created_at)
+        );
+        CREATE TABLE deliveries (
+          notification_id BIGINT NOT NULL REFERENCES notifications(id),
+          channel         ENUM('EMAIL','SMS','PUSH','IN_APP') NOT NULL,
+          status          ENUM('QUEUED','SENDING','SENT','FAILED','SUPPRESSED') NOT NULL,
+          attempts        INT NOT NULL DEFAULT 0,
+          next_attempt_at DATETIME(6) NULL,
+          provider_msg_id VARCHAR(128) NULL,
+          last_error      VARCHAR(512) NULL,
+          updated_at      DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+          PRIMARY KEY (notification_id, channel),
+          KEY ix_deliveries_status (status, next_attempt_at)
+        );
+        CREATE TABLE templates (
+          template_key VARCHAR(64) NOT NULL,
+          version      INT NOT NULL,
+          channel      ENUM('EMAIL','SMS','PUSH','IN_APP') NOT NULL,
+          subject      VARCHAR(255) NULL,
+          body         TEXT NOT NULL,
+          PRIMARY KEY (template_key, version, channel)
+        );
+        CREATE TABLE preferences (
+          user_id     BIGINT NOT NULL,
+          category    ENUM('SECURITY','TRANSACTIONAL','MARKETING') NOT NULL,
+          channel     ENUM('EMAIL','SMS','PUSH','IN_APP') NOT NULL,
+          enabled     BOOLEAN NOT NULL,
+          PRIMARY KEY (user_id, category, channel)
+        );
+        CREATE TABLE user_settings (
+          user_id         BIGINT PRIMARY KEY,
+          timezone        VARCHAR(64) NOT NULL,          -- IANA name, e.g. Asia/Kolkata
+          quiet_start_min INT NULL,                      -- minutes after local midnight
+          quiet_end_min   INT NULL
+        );
+        CREATE TABLE inbox (
+          id         BIGINT PRIMARY KEY AUTO_INCREMENT,
+          user_id    BIGINT NOT NULL,
+          notification_id BIGINT NOT NULL UNIQUE,
+          title      VARCHAR(255) NOT NULL,
+          body       TEXT NOT NULL,
+          read_at    DATETIME(6) NULL,
+          created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+          KEY ix_inbox_user (user_id, id)
+        );
+      explanation: "The deliveries primary key (notification_id, channel) makes one delivery per channel a database fact; the status column is the claim that stops two workers sending the same delivery."
+    apis:
+      - "POST /api/v1/notifications — {user_id, category, template, channels, data, idempotency_key}; 202 with the notification id; a repeat with the same key returns the original id; 422 for unknown templates or missing variables"
+      - "GET /api/v1/notifications/{id} — the notification and the status of each channel delivery"
+      - "GET /api/v1/users/{id}/preferences and PUT /api/v1/users/{id}/preferences — category and channel switches, timezone and quiet hours"
+      - "GET /api/v1/inbox?after_id=&limit= — the current user's in-app inbox; POST /api/v1/inbox/{id}/read"
+      - "GET /api/v1/inbox/stream — Server-Sent Events stream of new in-app notifications for the current user"
+      - "POST /api/v1/admin/dead-letters/{notification_id}/{channel}/replay — re-queue a failed delivery (admin only, audited)"
+    milestones:
+      - key: accept_and_model
+        title: Accepting requests, templates and the data model
+        goal: Accept notification requests idempotently and store everything needed to deliver them, before any sending exists.
+        deliverables:
+          - The schema migrated on MySQL, with the uniqueness rules that make duplicates impossible.
+          - POST /api/v1/notifications that writes the notification, its deliveries and an outbox row in one transaction and returns 202.
+          - Versioned templates with strict rendering (a missing variable is an error, and output is escaped for HTML email).
+          - API tests for a repeated idempotency key, an unknown template and missing variables.
+        skills: [sd.api_design, sd.data_modeling, engineering.api_engineering]
+        minutes: 150
+        rubric:
+          - {key: idempotent_accept, label: "A repeated key returns the original notification and creates nothing new", points: 3}
+          - {key: one_transaction, label: "Notification, deliveries and outbox row commit together", points: 3}
+          - {key: strict_templates, label: "Rendering fails loudly on missing variables and escapes user data", points: 2}
+          - {key: status_202, label: "The API answers 202 and exposes delivery status for polling", points: 2}
+      - key: dispatch_workers
+        title: Priority queues and idempotent dispatch workers
+        goal: Deliver through channel adapters from separate priority queues, with a claim on each delivery so no two workers send it.
+        deliverables:
+          - An outbox relay that routes deliveries to the urgent, default or bulk queue.
+          - Worker services per queue, with concurrency settings chosen for I/O-bound provider calls.
+          - A claim step (UPDATE … SET status = 'SENDING' WHERE status = 'QUEUED', checking the affected row count) before every provider call.
+          - Fake email, SMS and push adapters that can be configured to succeed, fail, be slow or time out.
+        skills: [sd.queues_async, sd.idempotency_retries, os.concurrency_practical]
+        minutes: 180
+        rubric:
+          - {key: claim, label: "Only the worker that wins the status update calls the provider", points: 3}
+          - {key: isolation, label: "A full bulk queue does not delay urgent messages, shown by a test", points: 3}
+          - {key: concurrency_choice, label: "Worker concurrency model (threads, processes, async) is chosen and justified for I/O-bound work", points: 2}
+          - {key: fakes, label: "Fake adapters can simulate every failure mode used in tests", points: 2}
+      - key: retries_and_dlq
+        title: Retries, backoff, circuit breaker and dead letters
+        goal: Survive provider failures without losing or duplicating messages, and make permanent failures visible.
+        deliverables:
+          - Error classification into retryable and permanent, with 429 honouring Retry-After.
+          - Exponential backoff with jitter and a maximum number of attempts, stored on the delivery row.
+          - A per-provider circuit breaker with open, half-open and closed states and its thresholds documented.
+          - A dead-letter table and an audited admin replay endpoint.
+          - A written policy for the ambiguous timeout per category (retry with provider idempotency key, or do not retry).
+        skills: [sd.fault_tolerance, sd.idempotency_retries]
+        minutes: 150
+        rubric:
+          - {key: classification, label: "Permanent errors are not retried; transient ones are", points: 2}
+          - {key: backoff, label: "Backoff grows exponentially with jitter and is capped", points: 2}
+          - {key: breaker, label: "The breaker stops calls to a failing provider and recovers through a probe", points: 3}
+          - {key: ambiguity, label: "The timeout-after-send case is handled by an explicit, justified policy", points: 3}
+      - key: preferences_and_limits
+        title: Preferences, quiet hours and frequency caps
+        goal: Respect user choices and limits at dispatch time, in the user's own timezone, without blocking urgent security messages.
+        deliverables:
+          - Preference checks that mark deliveries SUPPRESSED with a reason; security messages ignore marketing opt-outs but still honour channel availability.
+          - Quiet hours computed with zoneinfo in the user's IANA timezone, rescheduling non-urgent deliveries to the end of the quiet period.
+          - A per-user daily cap for marketing messages implemented atomically (a Redis counter with expiry, or a counted query inside the claim).
+          - Tests for a quiet period that crosses midnight and for a daylight-saving transition in a timezone that has one.
+        skills: [sd.rate_limiting, sd.queues_async]
+        minutes: 150
+        rubric:
+          - {key: suppression, label: "Suppressed deliveries are recorded with a reason, never silently dropped", points: 2}
+          - {key: timezone, label: "Quiet hours use the user's timezone and handle midnight crossing", points: 3}
+          - {key: cap_atomic, label: "The frequency cap cannot be exceeded by concurrent workers", points: 3}
+          - {key: urgent_bypass, label: "Security messages are never delayed by quiet hours or caps", points: 2}
+      - key: in_app_realtime
+        title: In-app inbox and live delivery
+        goal: Show in-app notifications live to connected users across several API instances, with no loss when a client disconnects.
+        deliverables:
+          - The inbox table and endpoints for listing and marking as read.
+          - An SSE (or WebSocket) endpoint; each instance subscribes to Redis pub/sub and forwards messages for its connected users.
+          - Reconnect logic that sends the last seen id and receives missed messages from the inbox.
+          - A comparison of SSE, WebSockets and polling for this use case, and the per-connection resource cost.
+        skills: [sd.realtime_delivery, network.realtime_protocols]
+        minutes: 180
+        rubric:
+          - {key: store_first, label: "Messages are stored before publishing, so pub/sub loss is recoverable", points: 3}
+          - {key: multi_instance, label: "A user connected to any instance receives their messages", points: 3}
+          - {key: catch_up, label: "Reconnecting clients receive exactly the messages they missed", points: 2}
+          - {key: protocol_choice, label: "The SSE versus WebSocket choice is justified for one-way delivery", points: 2}
+      - key: test_and_observe
+        title: Failure-injection tests and delivery observability
+        goal: Prove the guarantees with failure-injection tests and make delivery health visible per provider and per queue.
+        deliverables:
+          - Integration tests with fake providers failing, timing out and rate-limiting, asserting final statuses and the number of provider calls.
+          - A test that kills a worker between claim and send and shows how the stuck SENDING delivery is recovered (a sweeper with a timeout).
+          - Metrics for queue depth and age of the oldest message per queue, send success rate per provider, retries, dead letters and end-to-end latency percentiles.
+          - The notification id propagated through logs from accept to provider call.
+        skills: [testing.test_design, testing.unit_integration, sd.observability]
+        minutes: 150
+        rubric:
+          - {key: failure_tests, label: "Each failure mode has a test asserting the final state and call count", points: 3}
+          - {key: stuck_recovery, label: "Deliveries stuck in SENDING are detected and recovered", points: 2}
+          - {key: metrics, label: "Metrics show queue age, provider success rate and latency percentiles", points: 3}
+          - {key: traceable, label: "One id traces a notification through every log line", points: 2}
+    testing:
+      - "Idempotency: the same request twice (sequentially and concurrently) creates one notification and one delivery per channel."
+      - "Provider failures: fake adapters return 500, 429 with Retry-After, invalid-recipient 400 and timeouts; assert retries, final statuses and call counts."
+      - "Priority isolation: enqueue 10,000 bulk messages, then one passcode; assert the passcode is dispatched within the target."
+      - "Preferences and time: a frozen clock with quiet hours across midnight and a daylight-saving change."
+      - "Crash recovery: kill a worker after the claim and before the send; the sweeper re-queues it and exactly one send follows for providers with idempotency keys."
+      - "Realtime: two API instances, client connected to one, message produced through the other; disconnect and reconnect to verify catch-up."
+    deployment:
+      - "One image; separate services for the API, the outbox relay and the workers of each queue, scaled independently."
+      - "Worker counts per queue sized from the measured provider latency and the target throughput."
+      - "Long-lived SSE or WebSocket connections need load balancer idle timeouts above the heartbeat interval."
+      - "Provider credentials in the platform's secret store; fake adapters only in local and test environments."
+    observability:
+      - "Per queue: depth, age of the oldest message, consume rate."
+      - "Per provider: calls, success rate, latency percentiles, 429s, circuit breaker state."
+      - "Per delivery outcome: SENT, FAILED, SUPPRESSED counts by category and channel; dead-letter count."
+      - "End-to-end latency from accept to SENT, p50 and p95 per priority."
+      - "Alarms: urgent queue oldest message above 30 seconds, breaker open for more than 5 minutes, dead letters growing."
+    failure_scenarios:
+      - "The SMS provider returns 500 for ten minutes: retries back off, the breaker opens, passcodes queue; explain whether you fail over to a second provider."
+      - "A provider call times out after the provider actually sent the message: show the policy per category and the duplicate risk."
+      - "A marketing campaign enqueues a million messages: urgent passcodes still go out within seconds because they have their own queue and workers."
+      - "A worker crashes after claiming a delivery: it stays SENDING until the sweeper re-queues it after the timeout."
+      - "Redis restarts: pub/sub messages in flight are lost, connected clients catch up from the inbox; queued Celery tasks are lost unless the outbox or broker persistence covers them."
+      - "A producer bug sends the same event with new idempotency keys: duplicates get through; discuss content-based deduplication windows."
+    defense_questions:
+      - Walk me through what happens from the producer's request to the SMS arriving.
+      - Can your platform guarantee exactly-once delivery? What exactly do you guarantee, and why?
+      - How do you stop a large marketing campaign from delaying one-time passcodes?
+      - Which errors do you retry, which do you not, and how do you back off?
+      - How do quiet hours work for a user in another timezone, and what happens on a daylight-saving change?
+      - Why SSE (or WebSockets) for in-app, and how does a message reach a user connected to a different instance?
+      - What happens if Redis restarts in the middle of the day?
+      - What metrics would tell you, before users complain, that SMS delivery is degraded?
+# ---------------------------------------------------------------------------------------------- job queue
+- key: proj.job_queue.project
+  type: project
+  title: "Flagship project: a database-backed Job Queue with workers"
+  skills:
+    - project.architecture_walkthrough
+    - project.tradeoffs_decisions
+    - project.incident_debugging_story
+    - project.metrics_impact
+    - sd.data_modeling
+    - db.indexing
+    - engineering.api_engineering
+    - db.locking_deadlocks
+    - os.concurrency_practical
+    - os.processes_threads
+    - sd.idempotency_retries
+    - sd.fault_tolerance
+    - sd.queues_async
+    - sd.distributed_coordination
+    - engineering.debugging
+    - testing.test_design
+    - sd.observability
+    - engineering.performance_profiling
+  minutes: 180
+  difficulty: HARD
+  body:
+    summary: |-
+      A job queue built on MySQL 8 with `SELECT … FOR UPDATE SKIP LOCKED`, a worker process with leases and heartbeats, retries with backoff, delayed and recurring jobs, priorities and graceful shutdown. Building the queue yourself, instead of using Celery, forces you to understand what every queue library hides: claiming without double processing, what happens when a worker dies, why delivery is at least once and how to shut down without losing work.
+
+      The defense asks you to compare your queue with Redis-based and managed queues and to say when you would not build one.
+    stack:
+      - "Python 3.12; the library and worker in plain Python with SQLAlchemy Core or a DB-API driver"
+      - "MySQL 8.0 (InnoDB; SKIP LOCKED is available from 8.0.1), or PostgreSQL 9.5+ with the same design"
+      - "FastAPI for a small admin API (enqueue, inspect, retry, cancel)"
+      - "Docker, docker compose with several worker containers, GitHub Actions"
+    requirements:
+      functional:
+        - Enqueue a job with a type, a JSON payload, a priority, an optional run-at time and an optional idempotency key.
+        - Workers claim ready jobs in priority order, run the registered handler and mark the job succeeded or failed.
+        - Failed jobs retry with exponential backoff up to a maximum number of attempts, then become DEAD.
+        - Recurring jobs run on a schedule (every N minutes, or at a daily time), exactly one enqueue per scheduled slot even with several schedulers running.
+        - An admin API lists jobs by state, shows a job's attempts and errors, retries a dead job and cancels a queued job.
+      non_functional:
+        - A job is never run by two workers at the same time while its lease is valid.
+        - A job whose worker dies is picked up again after its lease expires.
+        - Delivery is at least once; handlers are documented and tested as idempotent.
+        - Workers stop gracefully on SIGTERM within the platform's grace period without losing claimed jobs.
+        - At least 500 short jobs per second on one MySQL instance with 8 workers in the test environment (measure and report the real number).
+    architecture: |-
+      **Enqueue.** A row in `jobs` with status READY, `run_at`, priority and payload. The idempotency key has a unique index, so a repeated enqueue returns the existing job.
+
+      **Claim.** A worker runs a short transaction:
+
+      ```sql
+      SELECT id FROM jobs
+       WHERE status = 'READY' AND run_at <= NOW(6)
+       ORDER BY priority, run_at
+       LIMIT 10
+       FOR UPDATE SKIP LOCKED;
+      UPDATE jobs SET status = 'RUNNING', lease_token = %s, lease_until = NOW(6) + INTERVAL 60 SECOND,
+                      attempts = attempts + 1
+       WHERE id IN (...);
+      COMMIT;
+      ```
+
+      `SKIP LOCKED` makes concurrent workers skip rows another worker has locked instead of waiting, so claims do not serialise. The transaction is committed before the handler runs; the job is protected by the lease, not by a long-held lock.
+
+      **Run and complete.** While a job runs, a heartbeat thread extends `lease_until`. Completion is `UPDATE jobs SET status = 'SUCCEEDED' WHERE id = %s AND lease_token = %s`; if the row count is 0, the lease was lost and another worker owns the job, so this worker discards its result. The lease token acts as a fencing token for the job row.
+
+      **Failure.** On an exception the worker sets status READY with `run_at` moved forward by the backoff, or DEAD after the last attempt, recording the error. A reaper resets RUNNING jobs whose lease has expired back to READY. Because a worker can finish the side effect and die before marking success, every handler must be idempotent.
+
+      **Scheduling.** Schedulers compute the next slot for each recurring definition and insert a job with idempotency key `schedule:{name}:{slot}`; the unique index makes concurrent schedulers safe without leader election.
+
+      **Shutdown.** On SIGTERM the worker stops claiming, waits for running jobs up to a deadline shorter than the platform's grace period (ECS and Kubernetes both default to 30 seconds), and releases any job it cannot finish back to READY.
+
+      **Concurrency inside a worker.** Handlers that are I/O-bound run in a thread pool; CPU-bound handlers need a process pool, because standard CPython builds have a GIL that lets only one thread execute Python bytecode at a time.
+    schema:
+      language: sql
+      code: |-
+        -- MySQL 8.0 (InnoDB)
+        CREATE TABLE jobs (
+          id              BIGINT PRIMARY KEY AUTO_INCREMENT,
+          job_type        VARCHAR(64) NOT NULL,
+          payload         JSON NOT NULL,
+          priority        TINYINT NOT NULL DEFAULT 5,        -- 0 is most urgent
+          status          ENUM('READY','RUNNING','SUCCEEDED','DEAD','CANCELLED') NOT NULL,
+          run_at          DATETIME(6) NOT NULL,
+          attempts        INT NOT NULL DEFAULT 0,
+          max_attempts    INT NOT NULL DEFAULT 5,
+          lease_token     CHAR(36) NULL,
+          lease_until     DATETIME(6) NULL,
+          idempotency_key VARCHAR(128) NULL UNIQUE,
+          last_error      TEXT NULL,
+          created_at      DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+          finished_at     DATETIME(6) NULL,
+          KEY ix_jobs_claim (status, priority, run_at),
+          KEY ix_jobs_lease (status, lease_until)
+        );
+        CREATE TABLE job_attempts (
+          job_id      BIGINT NOT NULL REFERENCES jobs(id),
+          attempt     INT NOT NULL,
+          worker_id   VARCHAR(64) NOT NULL,
+          started_at  DATETIME(6) NOT NULL,
+          finished_at DATETIME(6) NULL,
+          outcome     ENUM('SUCCEEDED','FAILED','LEASE_LOST','RELEASED') NULL,
+          error       TEXT NULL,
+          PRIMARY KEY (job_id, attempt)
+        );
+        CREATE TABLE schedules (
+          name         VARCHAR(64) PRIMARY KEY,
+          job_type     VARCHAR(64) NOT NULL,
+          payload      JSON NOT NULL,
+          every_min    INT NULL,
+          daily_at_min INT NULL,                              -- minutes after midnight UTC
+          enabled      BOOLEAN NOT NULL DEFAULT TRUE
+        );
+      explanation: "ix_jobs_claim lets the claim query read READY rows in priority order; ix_jobs_lease serves the reaper. Succeeded jobs should be archived or deleted in batches, or the claim index fills with dead rows."
+    apis:
+      - "Library: enqueue(job_type, payload, priority=5, run_at=None, idempotency_key=None) returns the job id; register a handler with a decorator per job_type"
+      - "POST /admin/jobs — enqueue through HTTP; 201 with the id, or 200 with the existing id for a repeated idempotency key"
+      - "GET /admin/jobs?status=&job_type=&cursor= — list jobs by state with keyset pagination"
+      - "GET /admin/jobs/{id} — the job and its attempts with errors"
+      - "POST /admin/jobs/{id}/retry (DEAD to READY) and POST /admin/jobs/{id}/cancel (READY to CANCELLED); 409 on an invalid transition"
+      - "GET /admin/stats — counts per status, oldest READY job age, throughput over the last minute"
+    milestones:
+      - key: model_and_enqueue
+        title: Job model, enqueue and the claim index
+        goal: Model jobs and their states, enqueue idempotently and design the index that makes claiming cheap.
+        deliverables:
+          - The schema and migrations, with a state diagram of READY, RUNNING, SUCCEEDED, DEAD and CANCELLED and the allowed transitions.
+          - The enqueue function and admin endpoint with idempotency keys.
+          - EXPLAIN output of the claim query with 1 million SUCCEEDED rows and 10,000 READY rows, showing the index in use.
+        skills: [sd.data_modeling, db.indexing, engineering.api_engineering]
+        minutes: 120
+        rubric:
+          - {key: states, label: "States and transitions are explicit and enforced in the update statements", points: 3}
+          - {key: claim_index, label: "EXPLAIN shows the claim query uses the index without scanning finished jobs", points: 3}
+          - {key: idempotent_enqueue, label: "A repeated idempotency key returns the existing job", points: 2}
+          - {key: retention, label: "A retention plan for finished jobs is stated", points: 2}
+      - key: claiming_workers
+        title: Claiming with SKIP LOCKED, leases and worker concurrency
+        goal: Let many workers claim jobs concurrently without double claims or lock waits, and run handlers with the right concurrency model.
+        deliverables:
+          - The claim transaction with FOR UPDATE SKIP LOCKED, committed before handlers run.
+          - Lease tokens, a heartbeat that extends the lease, and completion guarded by the lease token.
+          - A worker with a thread pool for I/O-bound handlers and an option for a process pool for CPU-bound handlers, with the GIL reason written down.
+          - A test with 8 workers and 10,000 jobs where every job runs and no job has two overlapping RUNNING attempts.
+        skills: [db.locking_deadlocks, os.concurrency_practical, os.processes_threads]
+        minutes: 180
+        rubric:
+          - {key: skip_locked, label: "Explains why SKIP LOCKED avoids both double claims and lock waits", points: 3}
+          - {key: short_txn, label: "No database transaction or row lock is held while a handler runs", points: 2}
+          - {key: fencing, label: "A worker that lost its lease cannot mark the job complete", points: 3}
+          - {key: concurrency_model, label: "Threads versus processes is chosen per handler type with the GIL explained", points: 2}
+      - key: retries_and_recovery
+        title: Retries, dead jobs and crash recovery
+        goal: Make failures safe with backoff, a dead state and a reaper, and make at-least-once delivery explicit to handler authors.
+        deliverables:
+          - Exponential backoff with jitter on failure; DEAD after max_attempts, with the error stored per attempt.
+          - A reaper that returns RUNNING jobs with an expired lease to READY and records LEASE_LOST.
+          - A crash test that kills a worker with SIGKILL mid-job and shows the job completing on another worker after the lease expires.
+          - A handler-author guide with an idempotent handler example (a unique key on the side effect, or a check-then-act inside one transaction).
+        skills: [sd.idempotency_retries, sd.fault_tolerance]
+        minutes: 150
+        rubric:
+          - {key: backoff, label: "Retries back off with jitter and stop at a visible DEAD state", points: 2}
+          - {key: reaper, label: "Expired leases are recovered without a human", points: 3}
+          - {key: crash_test, label: "The SIGKILL test demonstrates recovery", points: 2}
+          - {key: at_least_once, label: "At-least-once delivery and the idempotency requirement are stated and demonstrated", points: 3}
+      - key: scheduling_priorities
+        title: Delayed jobs, recurring schedules and priorities
+        goal: Support run-at times, recurring schedules safe under several schedulers, and priorities that do not starve low-priority work.
+        deliverables:
+          - Delayed jobs through run_at, tested with a controllable clock.
+          - A scheduler that enqueues one job per schedule slot using the idempotency key schedule:name:slot, run as two instances in the test.
+          - Priority ordering with an aging rule (or a reserved share of claims) so low-priority jobs still run under sustained high-priority load.
+          - A note comparing this approach with leader election for the scheduler.
+        skills: [sd.queues_async, sd.distributed_coordination]
+        minutes: 150
+        rubric:
+          - {key: one_per_slot, label: "Two schedulers never enqueue the same slot twice", points: 3}
+          - {key: no_starvation, label: "Low-priority jobs make progress under sustained high-priority load, shown by a test", points: 3}
+          - {key: time_controlled, label: "Time-dependent logic is tested with an injected clock", points: 2}
+          - {key: coordination_tradeoff, label: "Unique-key deduplication versus leader election is compared", points: 2}
+      - key: graceful_shutdown
+        title: Graceful shutdown and deploy safety
+        goal: Stop workers during deploys without losing or duplicating work beyond the at-least-once contract.
+        deliverables:
+          - A SIGTERM handler that stops claiming, waits for running jobs up to a deadline and releases unfinished ones to READY.
+          - The deadline chosen against the platform's grace period, with the arithmetic written down.
+          - A test that sends SIGTERM during long jobs and checks every job ends SUCCEEDED or READY, none stuck in RUNNING.
+          - A debugging note on what you found when the first version did not shut down cleanly (threads, blocking calls, signal delivery).
+        skills: [os.processes_threads, engineering.debugging]
+        minutes: 120
+        rubric:
+          - {key: stop_claiming, label: "SIGTERM stops new claims immediately", points: 2}
+          - {key: deadline, label: "Running jobs finish or are released before the platform sends SIGKILL", points: 3}
+          - {key: shutdown_test, label: "The test proves no job is left RUNNING after shutdown", points: 3}
+          - {key: debug_note, label: "The note explains a real shutdown bug and its root cause", points: 2}
+      - key: measure_and_operate
+        title: Throughput measurement, metrics and admin operations
+        goal: Measure what the queue can do, find its bottleneck and make it operable.
+        deliverables:
+          - A benchmark reporting jobs per second and claim latency for 1, 4 and 8 workers and for batch sizes 1 and 10, with hardware stated.
+          - A profile of the worker and the database at the highest load, naming the bottleneck.
+          - "Metrics: jobs by status, oldest READY job age, claims per second, failures and retries per job type, lease losses."
+          - Admin endpoints for retry and cancel, each writing an audit entry.
+        skills: [engineering.performance_profiling, sd.observability, testing.test_design]
+        minutes: 180
+        rubric:
+          - {key: benchmark, label: "Throughput is measured across worker counts and batch sizes with conditions stated", points: 3}
+          - {key: bottleneck, label: "The bottleneck is identified with evidence, not assumed", points: 3}
+          - {key: metrics, label: "Oldest-ready age and lease losses are exposed and alarmed", points: 2}
+          - {key: admin_ops, label: "Retry and cancel enforce valid transitions and are audited", points: 2}
+    testing:
+      - "No double execution: 8 workers, 10,000 jobs, record start and end per attempt; assert no two attempts of a job overlap while both leases are valid."
+      - "Crash: SIGKILL a worker mid-job; the job is reaped and completes elsewhere; attempts show LEASE_LOST."
+      - "Lease loss: pause a worker past its lease (no heartbeat), let another worker take the job, resume the first; its completion update affects 0 rows."
+      - "Scheduling: two schedulers for an hour of simulated time enqueue exactly one job per slot."
+      - "Shutdown: SIGTERM during long jobs leaves no RUNNING rows."
+      - "Idempotent handlers: run each example handler twice with the same payload and compare side effects."
+    deployment:
+      - "Workers as a separate service from the admin API, same image; scale workers by queue age, not CPU alone."
+      - "Stop timeout configured above the worker's shutdown deadline (for example a 25-second drain with the 30-second default)."
+      - "Finished jobs archived or deleted in small batches by a scheduled job to keep the claim index small."
+      - "The database is shared state; size its connection limit for workers × pool size plus the API."
+    observability:
+      - "Gauges per status and job type; oldest READY job age (the main health signal for any queue)."
+      - "Counters: claims, successes, failures, retries, DEAD transitions, lease losses, reaped jobs."
+      - "Histograms: queue wait time (run_at to start) and run duration per job type."
+      - "Logs with job id, attempt and worker id on every line from claim to completion."
+      - "Alarms: oldest READY age above the job type's target, DEAD count rising, lease losses above zero for a sustained period."
+    failure_scenarios:
+      - "A worker is killed mid-job: the lease expires, the reaper re-queues the job and another worker runs it; the side effect may run twice, which is why handlers are idempotent."
+      - "A long garbage-collection pause or network stall delays heartbeats past the lease: another worker takes the job; the fencing check stops the first worker overwriting the result."
+      - "The database is unreachable for a minute: workers back off on claim errors instead of spinning; running jobs cannot complete and are reaped later."
+      - "A bad deploy makes one job type fail every time: it retries with backoff and goes DEAD without blocking other job types; alarms on DEAD rate."
+      - "Finished jobs pile up to tens of millions of rows: the claim query slows; show the archive job and the EXPLAIN before and after."
+      - "Two schedulers run during a deploy overlap: the unique slot key prevents a double enqueue."
+    defense_questions:
+      - Walk me through the life of one job from enqueue to success, including what happens if the worker dies.
+      - Why does SKIP LOCKED matter? What would happen with a plain FOR UPDATE, or with no lock at all?
+      - Can your queue guarantee exactly-once execution? What do you guarantee, and what must handlers do?
+      - How does a worker that lost its lease avoid overwriting the result of the worker that took over?
+      - How do you shut workers down during a deploy without losing work?
+      - Threads or processes for handlers, and why?
+      - When would you use Redis, SQS or Celery instead of building on the database?
+      - What throughput did you measure, and what was the bottleneck?

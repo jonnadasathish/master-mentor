@@ -1,0 +1,421 @@
+# Learning content: SQL vs NoSQL data models, replication and sharding basics, and Redis caching in practice (database angle).
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- SQL vs NoSQL
+- key: db.nosql_tradeoffs.lesson
+  type: lesson
+  title: "SQL vs NoSQL: choosing a data model by access pattern"
+  skills: [db.nosql_tradeoffs]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Relational databases optimise for flexible queries and strong invariants; document, key-value, wide-column and graph stores optimise for specific access patterns and scale-out, and you pay in query flexibility and consistency work.
+    what: |-
+      "NoSQL" is a family of non-relational data models, each built around a different access pattern:
+
+      - **Relational** (MySQL, PostgreSQL): normalised tables, joins, declarative SQL, multi-row ACID transactions, constraints.
+      - **Document** (MongoDB, also JSON columns in MySQL 8): self-contained JSON-like documents, nested data read in one fetch. MongoDB guarantees atomicity per document and has multi-document transactions since 4.0; a single document is limited to 16 MB.
+      - **Key-value** (Redis, DynamoDB at its core): get and put by key, extremely fast and simple to partition. DynamoDB adds a sort key per partition for ordered range queries; an item is limited to 400 KB.
+      - **Wide-column** (Cassandra, HBase): rows grouped by a **partition key** and sorted by **clustering columns** inside the partition; write-optimised log-structured storage; tables designed per query.
+      - **Graph** (Neo4j): nodes and edges with properties; efficient multi-hop traversals ("friends of friends who bought X").
+    why: |-
+      A single relational database scales vertically well into the terabytes and thousands of transactions per second, which covers most products. Some workloads outgrow it or fit it badly: writes at hundreds of thousands per second spread across regions, records whose shape varies wildly, time-ordered data read only by key, or deep relationship traversals that would need many self-joins. Specialised stores trade the general query engine for predictable performance and horizontal scale on their access pattern.
+    when: |-
+      - Default to **relational** for transactional business data (orders, payments, users, inventory) where invariants span rows and queries change over time.
+      - **Document** when an entity is read and written as a whole and its shape varies (product catalogue with category-specific attributes, CMS content), and relationships between documents are few.
+      - **Key-value** for sessions, caches, feature flags, rate-limit counters, idempotency records: lookups by a known key.
+      - **Wide-column** for very high write volumes with known queries per partition: message history per conversation, device telemetry per device per day, activity feeds.
+      - **Graph** when the query is the relationships (recommendations, fraud rings, access-control hierarchies).
+      - **Search engine** (Elasticsearch, OpenSearch) next to the primary store for full-text and faceted search; it is a derived index, not the source of truth.
+    how: |-
+      Model NoSQL **query-first**: list the access patterns, then shape the data so each pattern is one key lookup or one partition range read.
+
+      ```text
+      Cassandra-style table for "latest 50 messages of a conversation":
+        PRIMARY KEY ((conversation_id), sent_at, message_id)   -- partition key, then clustering columns
+        WITH CLUSTERING ORDER BY (sent_at DESC)
+        query: WHERE conversation_id = ? LIMIT 50   -> one partition, already sorted
+
+      Same data in MySQL:
+        messages(id PK, conversation_id, sent_at, body), INDEX (conversation_id, sent_at)
+        query: WHERE conversation_id = ? ORDER BY sent_at DESC LIMIT 50
+      ```
+
+      Both are fast; the difference appears at scale (the wide-column store spreads partitions over many nodes automatically) and in flexibility (MySQL can also answer "messages by user across conversations" with another index; Cassandra needs a second, denormalised table written on every insert).
+
+      Document modelling asks **embed or reference**: embed data read together and bounded in size (order lines inside an order); reference data that is shared, large or unbounded (a user's comments).
+    mental_model: |-
+      A relational database is a general-purpose library where any question can be answered with the right catalogue lookups. A NoSQL store is a set of pre-sorted filing cabinets, one per question you promised to ask: unbeatable for those questions, awkward for any new one.
+    tradeoffs: |-
+      - **Query flexibility**: SQL answers new questions with a new query and an index; query-first stores need new tables or secondary indexes and backfills.
+      - **Consistency**: most distributed NoSQL stores replicate asynchronously or with tunable quorums (Cassandra `ONE`, `QUORUM`, `ALL`); reads can be stale and multi-item transactions are limited or costly.
+      - **Scale-out**: partitioned stores add nodes and rebalance; a relational database scales out only by replicas (reads) or sharding (application or proxy work, for example Vitess for MySQL).
+      - **Schema**: schemaless writes move validation into the application; schema drift becomes a data-quality problem years later.
+      - **Storage engines**: B-trees (InnoDB) favour reads and in-place updates; LSM trees (Cassandra, RocksDB) favour writes, paying with compaction and read amplification.
+    mistakes:
+      - Choosing NoSQL "for scale" at a size one MySQL instance handles comfortably, then rebuilding joins and transactions in application code.
+      - Modelling a document store relationally (many small documents joined in code), getting the costs of both models.
+      - "Picking a partition key with skew (a celebrity user, `country = 'IN'`) and creating a hot partition."
+      - Unbounded growth inside one document or one partition (all events of a user forever in one row).
+      - Treating the search index as the source of truth.
+      - Ignoring that many NoSQL secondary indexes (for example DynamoDB global secondary indexes) are eventually consistent.
+    interview: |-
+      Questions come as "SQL or NoSQL for X and why", or inside a system design. Strong answers start from access patterns, consistency needs and scale numbers, choose the simplest store that meets them (often relational plus a cache), and name what the choice costs. Saying "NoSQL because it scales" without a partition key and a consistency story is a red flag.
+    explain_it:
+      - List the access patterns and their rates.
+      - State the consistency and transaction needs per entity.
+      - Choose the model and show the key or table design for each pattern.
+      - Name the costs (lost flexibility, eventual consistency, hot partitions) and when you would revisit.
+    internals: |-
+      Wide-column and many key-value stores place data by hashing the partition key onto a ring of nodes (consistent hashing) and replicate each partition to N nodes. With tunable consistency, a read sees the latest write when the read and write replica counts overlap (R + W > N, for example QUORUM writes and QUORUM reads with N = 3). Writes go to a commit log and an in-memory table, are flushed as immutable sorted files (SSTables) and merged by compaction; deletes are tombstones that cost reads until compaction removes them.
+    edge_cases:
+      - "MySQL 8 JSON columns with generated columns and indexes (multi-valued indexes from 8.0.17) cover many \"flexible attributes\" needs without a second database."
+      - "Cassandra lightweight transactions (compare-and-set via Paxos) exist but are much slower than normal writes."
+      - A key-value store with no range queries cannot paginate by time unless the key design includes it.
+    misconceptions:
+      - "NoSQL means no schema — the schema moves into the application and the key design; it still exists."
+      - "SQL databases cannot scale horizontally — read replicas and sharding (application-level or with proxies like Vitess) scale MySQL very far; they just need more engineering."
+- key: db.nosql_tradeoffs.replication_sharding
+  type: concept
+  title: "Concept: replication, partitioning and sharding basics"
+  skills: [db.nosql_tradeoffs, sd.database_scaling]
+  minutes: 12
+  difficulty: MEDIUM
+  body:
+    summary: Replication copies the same data for availability and read scale; partitioning and sharding split data so each node holds part of it, which scales writes but complicates queries and transactions.
+    explanation: |-
+      **Replication.** In MySQL, the source writes every committed transaction to its binary log; each replica pulls the binlog into a relay log (receiver thread) and applies it (applier threads). Standard replication is **asynchronous**: COMMIT returns before replicas have the change, so replicas lag and a failover can lose the last transactions. **Semi-synchronous** replication makes the source wait until at least one replica acknowledges **receipt** (not application) of the transaction. GTIDs identify transactions so replicas and failover tools can track position. Group Replication (InnoDB Cluster) adds consensus-based commit across members.
+
+      Read replicas scale reads, but a user who writes and then reads from a lagging replica sees stale data. Fixes: read your own recent writes from the primary, pin a session to the primary for a few seconds after a write, or wait until the replica has applied the write's GTID.
+
+      **Partitioning** (MySQL native partitioning) splits one table into partitions on one server by `RANGE`, `LIST`, `HASH` or `KEY`. Queries that filter on the partition key touch only matching partitions (pruning), and dropping a month of data is a fast `DROP PARTITION` instead of a huge `DELETE`. Every unique key, including the primary key, must contain the partitioning columns.
+
+      **Sharding** splits data across separate database servers by a **shard key**. Hash sharding spreads load evenly but makes range queries scatter to every shard; range sharding keeps ranges together but risks hot shards (all new orders on the latest shard). A directory or lookup service maps keys to shards and makes moving data possible. Cross-shard joins, transactions and unique constraints become application problems, and resharding needs a migration plan (consistent hashing or many small virtual shards reduce data movement).
+    points:
+      - Replication improves availability and read capacity; it does not scale writes.
+      - Asynchronous replicas lag; design for read-your-writes explicitly.
+      - "Semi-sync waits for a replica to receive the transaction, not to apply it."
+      - Native partitioning is one server; sharding is many servers.
+      - "Choose a shard key that matches the dominant query (tenant_id, user_id) and has no heavy skew."
+      - Cross-shard queries and transactions are the main ongoing cost of sharding.
+    example:
+      language: text
+      code: |-
+        Shard by tenant_id with 256 logical shards on 8 physical servers:
+          shard = hash(tenant_id) % 256          -> logical shard (fixed forever)
+          directory: logical shard -> server     -> 32 logical shards per server today
+        Adding servers moves whole logical shards; no row is re-hashed.
+        Query for one tenant: one shard.  Report across tenants: fan out to 8 servers and merge.
+      explanation: Many small logical shards mapped through a directory make rebalancing a matter of moving shards, not re-hashing every row.
+    misconceptions:
+      - "Read replicas fix write bottlenecks — every replica applies every write, so they add read capacity only."
+      - "Sharding is just partitioning — partitions live on one server and keep local transactions; shards do not."
+- key: db.nosql_tradeoffs.check
+  type: concept_check
+  title: "Concept check: data models, replication and sharding"
+  skills: [db.nosql_tradeoffs]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Pick the model from the access pattern, not from popularity.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "An app stores chat messages: about 200,000 writes per second globally, always read as \"the latest 50 messages of one conversation\". Which design fits best?"
+        options:
+          - "Document store with one document per conversation holding every message"
+          - "Wide-column table partitioned by conversation_id, clustered by sent_at descending"
+          - Graph database with a node per message
+          - Single MySQL table without sharding
+        answer: [1]
+        explanation: "The access pattern is one partition range read, and the write volume needs automatic partitioning across many nodes, which wide-column stores are built for. One document per conversation grows without bound (and MongoDB caps documents at 16 MB). A single MySQL instance at this write rate would need sharding."
+      - id: q2
+        kind: single
+        prompt: "A product catalogue has category-specific attributes (shoe size, laptop RAM) and is read whole on the product page. Orders and payments live in MySQL. What is a reasonable first choice?"
+        options:
+          - A graph database for products
+          - "MySQL with a JSON attributes column (plus generated-column indexes for filters) or a document store for the catalogue"
+          - Redis as the system of record for products
+          - One column per possible attribute across all categories
+        answer: [1]
+        explanation: "Variable attributes read as a whole fit a document shape; MySQL 8 JSON columns give that without a second database, and a document store is reasonable if the catalogue is large and independent. A column per attribute is mostly NULL and changes with every new category; Redis is a cache, not a durable catalogue of record."
+      - id: q3
+        kind: multi
+        prompt: Which statements about MySQL asynchronous replication are true?
+        options:
+          - A read from a replica right after a write can return stale data
+          - Adding replicas increases write throughput
+          - Failing over to a replica can lose the last committed transactions
+          - Replicas apply changes from the source's binary log
+        answer: [0, 2, 3]
+        explanation: "COMMIT returns before replicas receive the change, so replicas lag and a failover may lose recent commits. Every replica must apply every write, so replicas add read capacity, not write capacity: the tempting option B is wrong."
+      - id: q4
+        kind: single
+        prompt: "Orders are sharded by hash(order_id). Which query becomes expensive?"
+        options:
+          - Fetch order 123
+          - All orders of customer 42
+          - Update the status of order 123
+          - Insert a new order
+        answer: [1]
+        explanation: "A customer's orders are spread across all shards, so the query fans out to every shard and merges. Sharding by customer_id (if most queries are per customer) keeps them together; single-order operations route by id either way."
+      - id: q5
+        kind: single
+        prompt: "With Cassandra-style tunable consistency and replication factor N = 3, which setting guarantees that a read sees the latest acknowledged write (no failures)?"
+        options: ["Write ONE, read ONE", "Write QUORUM, read QUORUM", "Write ONE, read QUORUM", "Write ANY, read ONE"]
+        answer: [1]
+        explanation: "QUORUM is 2 of 3, and 2 + 2 > 3, so the read and write replica sets overlap in at least one node holding the latest write. ONE + QUORUM = 1 + 2 = 3, which is not greater than N, so they may not overlap."
+      - id: q6
+        kind: short
+        prompt: A team wants to move their order system from MySQL to a document database "because it scales better". The database is 300 GB and handles 1500 writes per second. What do you ask and recommend?
+        model_answer: "Ask what is actually failing (latency, CPU, a specific query, storage), the growth rate and which invariants span documents (stock, payments). 300 GB and 1500 writes per second fit a well-indexed MySQL primary with replicas; fix slow queries, add read replicas and caching first. Orders need multi-row transactions and flexible reporting, which relational handles well. Revisit sharding (for example by customer or tenant) only when write volume or data size approaches what one primary can handle."
+        explanation: Choosing a store is driven by access patterns, invariants and measured limits, not by a general claim about scale.
+- key: db.nosql_tradeoffs.interview
+  type: interview_question
+  title: "Interview question: pick the store for four features"
+  skills: [db.nosql_tradeoffs, sd.data_modeling]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    prompt: |-
+      A marketplace backend currently uses one MySQL 8 database. Product managers propose four features. For each, say where the data should live (MySQL, a document store, a key-value store, a wide-column store, a graph database or a search index), sketch the key or table design, and state the consistency you need:
+
+      1. Login sessions for 5 million daily users, read on every request.
+      2. Order checkout with stock reservation and payment records.
+      3. A "people who bought this also bought" panel.
+      4. Free-text product search with filters on price and brand.
+    key_points:
+      - "Sessions in a key-value store (Redis) keyed by session id with a TTL; loss of a session means a re-login, so eventual durability is acceptable."
+      - "Checkout stays in MySQL: multi-row ACID transactions, constraints and conditional updates protect stock and money."
+      - "Recommendations: a precomputed co-purchase table (product_id -> ranked related ids) in MySQL or a key-value store is often enough; a graph database fits when queries are multi-hop and ad hoc."
+      - "Search uses a search index (Elasticsearch/OpenSearch) fed from MySQL by change events; MySQL stays the source of truth and the index is eventually consistent."
+      - "Justifies each choice by access pattern and consistency, and names an operational cost (another system to run, sync lag, cache loss)."
+    model_answer: |-
+      Sessions are lookups by a random key on every request with expiry: Redis with SET session:<id> ... EX 1800, replicated, accepting that a failover may log some users out. Checkout needs atomic multi-row updates and constraints, so it stays in MySQL with short transactions and idempotency keys. For "also bought", the online query is "top related products for product X", which is a precomputed list per product built by a batch job from order history; store it in MySQL or Redis; a graph database only earns its operational cost if analysts need ad hoc multi-hop traversals. Search needs relevance ranking and facets, which an inverted index provides; publish product changes from MySQL (outbox or binlog-based change data capture) to Elasticsearch and accept a second or so of lag. Every extra store is another system to back up, monitor and keep in sync, so I add only the ones the access pattern demands.
+    pitfalls:
+      - Moving checkout to an eventually consistent store.
+      - Choosing a graph database for a query that is a single precomputed lookup.
+      - Writing to MySQL and the search index in the same request without a reliable sync (dual writes drift).
+    follow_ups:
+      - prompt: Redis restarts and loses sessions. What is the user impact and how would you reduce it?
+        look_for: "Users are logged out; enable AOF or replication with automatic failover, or fall back to stateless signed tokens with short expiry; sessions are not money, so some loss is acceptable."
+      - prompt: How do you keep the search index consistent with MySQL without dual writes?
+        look_for: "Transactional outbox table written in the same MySQL transaction, or change data capture from the binlog, consumed idempotently into the index; periodic reconciliation or reindex jobs."
+- key: db.nosql_tradeoffs.cards
+  type: revision_card
+  title: "Recall: SQL vs NoSQL"
+  skills: [db.nosql_tradeoffs]
+  minutes: 5
+  body:
+    cards:
+      - front: Best fit for a wide-column store?
+        back: Very high write volume read by known partition key and sorted range, such as messages per conversation.
+      - front: How do you model data for a query-first store?
+        back: List access patterns first, then make each one a key lookup or one partition range read.
+      - front: Embed or reference in a document store?
+        back: Embed what is read together and bounded; reference what is shared, large or unbounded.
+      - front: When does a quorum read see the latest write?
+        back: When read and write replica counts overlap, R + W > N.
+      - front: Do read replicas scale writes?
+        back: No, every replica applies every write; they add read capacity and availability.
+      - front: Main ongoing cost of sharding?
+        back: Cross-shard queries, transactions and uniqueness become application problems.
+
+# ---------------------------------------------------------------------------------------------- caching in practice (Redis)
+- key: db.caching_practice.lesson
+  type: lesson
+  title: "Redis caching in practice: structures, TTLs, eviction and write strategies"
+  skills: [engineering.caching_practice, sd.caching]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: A cache in front of the database trades freshness for speed; choose the Redis structure, TTL, eviction policy and write strategy deliberately, and design for stale data and cache loss.
+    what: |-
+      Redis is an in-memory data-structure server. Commands on a key execute one at a time on the main thread (I/O threads in Redis 6+ only help with networking), so each command is atomic. The structures most used by backends:
+
+      - **String**: cached JSON blobs, counters (`INCR`), locks (`SET key token NX PX 30000`).
+      - **Hash**: an object's fields (`HSET user:42 name Asha plan pro`), updated field by field.
+      - **List**: simple queues (`LPUSH` / `BRPOP`), recent-items lists capped with `LTRIM`.
+      - **Set**: unique membership (who liked a post).
+      - **Sorted set**: leaderboards and time-ordered indexes (`ZADD`, `ZRANGE ... REV`), sliding-window rate limits.
+      - **Stream**, **HyperLogLog** (approximate unique counts in at most 12 KB per key), **bitmaps** for compact flags.
+
+      **TTL**: `SET key value EX 300` or `EXPIRE key 300`; expired keys are removed lazily on access and by a periodic sampling sweep. A plain `SET` on an existing key clears its TTL unless `KEEPTTL` (Redis 6+) is given.
+    why: |-
+      A primary-key read from MySQL costs about a millisecond and a share of database capacity; an aggregated page might need dozens of queries. Redis answers in well under a millisecond from memory, which cuts latency and, more importantly, keeps read load off the database so it can absorb writes. The price is a second copy of the data that can be stale, lost or inconsistent.
+    when: |-
+      Cache data that is read far more often than it changes and tolerates bounded staleness: product pages, user profiles, configuration, computed aggregates, permission sets. Do not cache data where a stale read is a correctness bug (stock at checkout, balances) unless the database re-checks at write time. Use Redis as a primary store only for data you can afford to lose or rebuild (sessions, rate-limit counters) unless persistence and failover are configured for it.
+    how: |-
+      **Cache-aside** (lazy loading), the default pattern:
+
+      ```python
+      def get_product(product_id: int) -> dict:
+          key = f"product:v3:{product_id}"
+          cached = redis.get(key)
+          if cached is not None:
+              return json.loads(cached)
+          row = db.fetch_product(product_id)               # miss: read the source of truth
+          ttl = 300 + random.randint(0, 60)                # jitter avoids synchronized expiry
+          redis.set(key, json.dumps(row), ex=ttl)
+          return row
+
+      def update_product(product_id: int, fields: dict) -> None:
+          db.update_product(product_id, fields)            # 1. write the database (commit)
+          redis.delete(f"product:v3:{product_id}")         # 2. invalidate, do not overwrite
+      ```
+
+      - **Read-through**: the cache layer itself loads from the database on a miss (same idea, hidden behind a library).
+      - **Write-through**: every write goes to the cache and the database synchronously, so the cache is always populated and fresh, at the cost of slower writes and caching data nobody reads.
+      - **Write-behind (write-back)**: write to the cache, flush to the database asynchronously; fast writes, but a crash loses unflushed data. Rarely appropriate for business records.
+
+      **Eviction** happens when `maxmemory` is reached, according to `maxmemory-policy`: `noeviction` (the default; writes fail with an out-of-memory error), `allkeys-lru`, `allkeys-lfu`, `volatile-lru`, `volatile-lfu`, `volatile-ttl`, `allkeys-random`, `volatile-random`. For a pure cache use `allkeys-lru` or `allkeys-lfu`. Redis LRU and LFU are approximations based on sampling a few keys.
+
+      **Persistence**: RDB snapshots (a forked child writes a point-in-time file; you lose changes since the last snapshot) and AOF (append-only log of writes; with `appendfsync everysec`, the default, you lose about a second). They can be combined. Replication to replicas is asynchronous, so a failover can lose acknowledged writes.
+    mental_model: |-
+      The database is the ledger; the cache is a sticky note copied from it. Sticky notes can be out of date, fall off or be thrown away when the desk is full. Every design question becomes: how stale can the note be, who throws it away when the ledger changes, and what happens when a thousand people look for the same missing note at once?
+    tradeoffs: |-
+      Longer TTLs raise the hit rate and the staleness window; shorter TTLs do the opposite and raise database load. Delete-on-write keeps data fresher than TTL alone but adds a write-path dependency on Redis (decide what happens if the delete fails: retry, or rely on the TTL as the bound). Caching whole objects is simple but invalidation is coarse; caching fragments is precise but multiplies keys. A shared Redis is another production dependency: if it is down, the database must survive the full read load, or requests must degrade.
+    mistakes:
+      - "Updating the cache with the new value instead of deleting it: two concurrent writers can leave the older value cached indefinitely."
+      - "Ignoring the cache-aside race: a reader misses, reads the old row, a writer commits and deletes the key, then the reader sets the old value; a TTL bounds the damage, versioned values or a short delayed second delete reduce it."
+      - "No TTL on cache keys, so stale data and memory growth have no bound."
+      - "Thundering herd (stampede): a hot key expires and thousands of requests hit the database at once. Use a short lock (`SET lock:key 1 NX EX 5`) so one request rebuilds, serve stale while refreshing, or refresh early."
+      - "Running `KEYS *` in production, which blocks the single command thread; use `SCAN`."
+      - Big keys (a multi-megabyte value or a hash with millions of fields) that block Redis on read or delete; split them or use `UNLINK`.
+      - Leaving the default noeviction policy on a cache and getting write errors when memory fills.
+      - Caching a miss for a non-existent id nowhere, so repeated lookups of missing ids always hit the database; cache a short-lived negative result.
+    interview: |-
+      Expect "how would you add caching to this endpoint", "how do you keep the cache consistent with the database", "what happens when a hot key expires" and "Redis persistence and eviction". Show the read and write paths explicitly, state the staleness you accept, handle the stampede and the Redis-down case, and say how you would measure success (hit rate, database QPS, p95).
+    explain_it:
+      - State the access pattern, the read/write ratio and the staleness the feature tolerates.
+      - Draw the read path and the write path (who populates, who invalidates).
+      - Choose structure, key naming, TTL and eviction policy.
+      - Cover failure cases (stampede, Redis down, stale race) and the metrics you will watch.
+    example:
+      language: text
+      code: |-
+        # Leaderboard with a sorted set: O(log n) updates, O(log n + k) top-k reads
+        ZINCRBY leaderboard:2026-10 50 user:42
+        ZRANGE leaderboard:2026-10 0 9 REV WITHSCORES
+        EXPIRE leaderboard:2026-10 3888000
+
+        # Mutex for stampede protection; the value is a random token so only the owner releases it
+        SET lock:product:7 9f2c1e NX EX 5
+      explanation: "Choosing the structure that matches the query (sorted set for ranking) keeps work on the server and the payload small. Release a lock only if it still holds your token (compare-and-delete in a Lua script), otherwise you may delete someone else's lock after yours expired. ZRANGE ... REV requires Redis 6.2 or later; older versions use ZREVRANGE."
+    complexity: "GET/SET/HGET/INCR are O(1); ZADD and ZINCRBY are O(log n); ZRANGE is O(log n + k); KEYS and SMEMBERS on big sets are O(n) and block other commands while they run."
+    internals: |-
+      Because commands run one at a time, a slow command delays every client; latency problems in Redis usually trace to O(n) commands, big keys, fork pauses during RDB or AOF rewrite on large datasets, or swapping. Redis Cluster splits the key space into 16384 hash slots spread across shards; commands touching several keys must use keys in the same slot, which hash tags (`{user:42}:cart`, `{user:42}:profile`) arrange.
+    edge_cases:
+      - A cached value serialized with an old schema after a deploy; version the key prefix (product:v3) so new code ignores old entries.
+      - TTL expiry is approximate to the millisecond and may be applied slightly after the deadline; never use it for exact timing.
+      - A replica promoted after failover may miss the last writes, so a lock or counter can be lost.
+    misconceptions:
+      - "Write-through keeps the cache perfectly consistent — without a transaction across Redis and MySQL a crash between the two writes still diverges them."
+      - "Redis is durable like a database — with default settings and asynchronous replication, recent writes can be lost on crash or failover."
+- key: db.caching_practice.check
+  type: concept_check
+  title: "Concept check: Redis caching patterns"
+  skills: [engineering.caching_practice]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Assume a single Redis primary with a replica in front of a MySQL source of truth.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "In cache-aside, after updating a product row in MySQL, what should the write path do to the cache?"
+        options:
+          - SET the new value into the cache before writing MySQL
+          - Delete the cache key after the database commit
+          - Nothing; the TTL will handle it
+          - Flush the whole cache
+        answer: [1]
+        explanation: "Deleting after commit makes the next read reload the fresh row. Setting the value can race with another writer and leave an older value cached; setting it before the commit caches data that may roll back. Relying on TTL alone is acceptable only if the staleness window is fine for the feature."
+      - id: q2
+        kind: single
+        prompt: "A Redis instance used purely as a cache reaches maxmemory with the default policy. What happens?"
+        options:
+          - The least recently used keys are evicted
+          - Writes that need memory fail with an out-of-memory error; reads still work
+          - Redis restarts
+          - Keys with the shortest TTL are evicted
+        answer: [1]
+        explanation: "The default maxmemory-policy is noeviction, so commands that would add memory are rejected. For a cache, set allkeys-lru or allkeys-lfu so Redis evicts instead. The tempting answer (LRU eviction) only happens if you configure it."
+      - id: q3
+        kind: multi
+        prompt: A product page key expires and 5000 concurrent requests miss at once. Which measures reduce the database impact?
+        options:
+          - Let one request rebuild under a short SET NX lock while others wait briefly or serve the stale value
+          - Add random jitter to TTLs so many hot keys do not expire together
+          - Refresh hot keys shortly before they expire
+          - Remove the TTL from all keys
+        answer: [0, 1, 2]
+        explanation: "A rebuild lock, jitter and early refresh all prevent a synchronized stampede. Removing TTLs avoids expiry but leaves stale data and memory growth unbounded, and the next invalidation of a hot key triggers the same stampede."
+      - id: q4
+        kind: single
+        prompt: "Which Redis structure best supports \"top 10 players this month, updated on every game\"?"
+        options: ["A list", "A hash", "A sorted set", "A string holding JSON"]
+        answer: [2]
+        explanation: "A sorted set keeps members ordered by score: ZINCRBY updates in O(log n) and the top 10 read is O(log n + 10). A JSON string would need read-modify-write of the whole list with races; a list or hash has no ordering by score."
+      - id: q5
+        kind: single
+        prompt: "With AOF enabled and appendfsync everysec (the default), what can a crash of the Redis server lose?"
+        options:
+          - Nothing
+          - About the last second of writes
+          - Everything since the last RDB snapshot
+          - The whole dataset
+        answer: [1]
+        explanation: "everysec fsyncs the append-only file about once per second, so roughly a second of writes can be lost. Losing everything since the last snapshot describes RDB-only persistence; appendfsync always loses nothing acknowledged but is much slower."
+      - id: q6
+        kind: short
+        prompt: Describe the race in cache-aside that can leave stale data in the cache after a write, and two ways to limit it.
+        model_answer: "A reader misses and reads the old row from MySQL; before it writes the cache, a writer commits the new row and deletes the key; the reader then sets the old value, which stays until the TTL expires. Limit it with a TTL that bounds the staleness, a delayed second delete after the write, storing a version or updated_at with the value and refusing to overwrite a newer version, or reading from the primary (not a lagging replica) when repopulating."
+        explanation: Delete-on-write narrows the window but does not close it; the TTL is the guaranteed bound.
+- key: db.caching_practice.interview
+  type: interview_question
+  title: "Interview question: add a cache to a slow profile endpoint"
+  skills: [engineering.caching_practice, sd.caching]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    prompt: |-
+      `GET /users/{id}/profile` runs five MySQL queries (user, plan, settings, team, permissions) and takes 120 ms at p95. It receives 3000 requests per second; profiles change a few times a day per user, but permission changes must take effect within 30 seconds. Design the caching: Redis structure and keys, TTLs, write path, eviction and persistence settings, failure handling and the metrics that prove it works.
+    key_points:
+      - "Cache-aside with a versioned key such as profile:v2:{id}, a String of serialized JSON (or a Hash if fields update separately)."
+      - "Write path deletes the key after each committed change to any of the five sources; TTL of at most 30 seconds (with jitter) for the permission part, or permissions cached separately with a short TTL and the rest longer."
+      - "Stampede protection for hot profiles (SET NX rebuild lock or serve stale while refreshing) and a negative cache for unknown ids."
+      - "allkeys-lru or allkeys-lfu eviction with maxmemory set; persistence optional because the cache can be rebuilt; the database must survive a cold cache or a Redis outage (timeouts, fallback, rate limits)."
+      - "Metrics: hit ratio, Redis latency, MySQL QPS and endpoint p95 before and after; alerts on hit-ratio drops."
+    model_answer: |-
+      I would cache the assembled profile under profile:v2:{id} as JSON with cache-aside. Permissions have a 30-second freshness requirement, so either the whole entry gets a 25 to 30 second TTL with jitter, or I split it: profile:v2:{id} with a one-hour TTL and perms:v1:{id} with a 30-second TTL. Every write to the user, plan, settings, team or permissions tables deletes the relevant keys after commit; if the delete fails, the TTL is the bound. Team-wide changes (a team's plan) need invalidating every member's key, which argues for caching the team separately. Hot profiles get a rebuild lock so only one request queries MySQL on expiry. Redis runs with maxmemory and allkeys-lru, no strict persistence, a short client timeout and a fallback to MySQL with a concurrency limit so a Redis outage degrades latency instead of overloading the database. Success is a hit ratio above about 90 percent, MySQL QPS for this endpoint dropping accordingly and p95 falling to a few milliseconds, all watched on dashboards.
+    pitfalls:
+      - Caching permissions for an hour, violating the 30-second requirement.
+      - No plan for Redis being down or empty (cold start at 3000 requests per second).
+      - Updating cached values in place on writes instead of deleting them.
+    follow_ups:
+      - prompt: An admin revokes a user's access and it must apply immediately, not within 30 seconds. What changes?
+        look_for: "Do not rely on cache for the revocation check: delete synchronously and treat a failed delete as an error, or check a small revocation list or the database on sensitive actions; caches give bounded, not zero, staleness."
+      - prompt: The service runs in three regions with a Redis per region. How do you invalidate?
+        look_for: "Publish invalidation events (pub/sub or a message bus, or binlog-based CDC) consumed in every region, keep short TTLs as the bound, and accept cross-region delay."
+- key: db.caching_practice.cards
+  type: revision_card
+  title: "Recall: Redis caching"
+  skills: [engineering.caching_practice]
+  minutes: 5
+  body:
+    cards:
+      - front: Cache-aside write path?
+        back: Commit to the database, then delete the cache key; the next read repopulates it.
+      - front: Default Redis maxmemory-policy and its effect?
+        back: noeviction; writes fail when memory is full, so caches should use allkeys-lru or allkeys-lfu.
+      - front: Write-through vs write-behind?
+        back: Write-through writes cache and database synchronously; write-behind flushes later and can lose data.
+      - front: Three defences against a cache stampede?
+        back: A rebuild lock with SET NX, TTL jitter and early refresh or serve-stale.
+      - front: RDB vs AOF persistence?
+        back: RDB is periodic snapshots; AOF logs every write, losing about a second with everysec.
+      - front: Why never run KEYS in production?
+        back: It is O(n) and blocks the single command thread; use SCAN.

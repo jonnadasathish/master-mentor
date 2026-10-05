@@ -89,7 +89,7 @@ def record_attempt(
     item = plans.open_battery_item(payload.battery_item_key)
     out = activity.record_attempt(payload, plan_item_id=item.id if item else None)
     if item is not None:
-        plans.close_battery_item(item, "ATTEMPT", out.id)
+        plans.close_with_observation(item, "ATTEMPT", out.id)
     return with_effects(session, clock, out)
 
 

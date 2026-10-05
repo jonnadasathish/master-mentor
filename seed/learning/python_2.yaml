@@ -1,0 +1,798 @@
+# Learning content, Python for interviews (2/4): built-in data structures, sorting with keys, and the cost of built-in operations.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- collections
+- key: py.collections.lesson
+  type: lesson
+  title: Choosing the right built-in container
+  skills: [python.collections, hashing.lookup_frequency]
+  minutes: 25
+  difficulty: EASY
+  body:
+    summary: Most interview solutions are one well-chosen container away from optimal; know what each one is underneath and what its operations cost.
+    what: |-
+      Python's standard containers and the `collections`, `heapq` and `bisect` modules cover almost every structure an interview needs:
+
+      - `list`: a dynamic array of references. Fast index and append at the end.
+      - `tuple`: an immutable sequence; hashable when its items are, so usable as a dict key.
+      - `dict`: a hash table from hashable keys to values; preserves **insertion order** (a language guarantee since 3.7).
+      - `set` / `frozenset`: hash tables of keys only; fast membership and set algebra.
+      - `collections.deque`: a double-ended queue with O(1) operations at both ends; optional `maxlen` makes it a bounded buffer.
+      - `heapq`: functions that keep a plain `list` as a binary **min-heap**.
+      - `bisect`: binary search and sorted insertion on a sorted list.
+      - `collections.Counter`: a dict subclass for counting; missing keys read as 0.
+      - `collections.defaultdict`: a dict that creates a default value for a missing key on `d[key]`.
+      - `collections.OrderedDict`: a dict with `move_to_end` and `popitem(last=False)`, handy for an LRU cache.
+    why: |-
+      The data structure decides the complexity. Membership in a list is O(n) but in a set O(1) on average; removing from the front of a list is O(n) but from a deque O(1); repeatedly finding the minimum of a list is O(n) each time but O(log n) with a heap. Picking the right container usually turns an O(n²) idea into O(n) or O(n log n) without any clever algorithm, and the idiomatic choice also makes the code shorter and less buggy.
+    when: |-
+      - "Need \"have I seen this?\" or \"does it exist?\": `set`."
+      - "Need to map a key to data, group or count: `dict`, `defaultdict(list)`, `Counter`."
+      - "Need FIFO (BFS, a task queue) or a sliding window: `deque`."
+      - "Need the smallest or largest repeatedly while items arrive (top-k, scheduling, Dijkstra, merging sorted streams): `heapq`."
+      - "Need to search or keep a sorted list with rare inserts: `bisect`."
+      - "Need a composite key (coordinates, a pair of ids): a `tuple` as dict key or set member."
+    how: |-
+      ```python
+      from collections import Counter, defaultdict, deque
+      import heapq, bisect
+
+      # Counting and grouping
+      counts = Counter("mississippi")           # Counter({'i': 4, 's': 4, 'p': 2, 'm': 1})
+      counts.most_common(2)                     # [('i', 4), ('s', 4)]
+      by_len: defaultdict[int, list[str]] = defaultdict(list)
+      for w in ["ab", "cd", "xyz"]:
+          by_len[len(w)].append(w)              # no "if key not in" boilerplate
+
+      # FIFO queue for BFS
+      q = deque([start])
+      while q:
+          node = q.popleft()                    # O(1); list.pop(0) would be O(n)
+
+      # Min-heap; push tuples (priority, tie_breaker, payload)
+      heap: list[tuple[int, int, str]] = []
+      heapq.heappush(heap, (3, 0, "low"))
+      heapq.heappush(heap, (1, 1, "urgent"))
+      heapq.heappop(heap)                       # (1, 1, 'urgent')
+      # Max-heap: push the negated priority
+
+      # Sorted list search
+      scores = [10, 20, 20, 30]
+      bisect.bisect_left(scores, 20)            # 1 (first index with value >= 20)
+      bisect.bisect_right(scores, 20)           # 3 (first index with value > 20)
+      ```
+
+      Average costs: dict/set get, set, delete and `in` are O(1); list index and append O(1) (append amortised), `insert(0, x)` and `pop(0)` O(n); deque appends and pops at either end O(1); `heappush`/`heappop` O(log n), `heapify` O(n), `heap[0]` O(1); `bisect` O(log n) but `insort` O(n) because the list must shift.
+    mental_model: |-
+      Ask two questions about every container: "what is it underneath?" and "which end or which key do I touch?". A list is a contiguous array, cheap at the end and expensive at the front. A dict or set is a table indexed by hash, cheap for exact-key access and useless for "smallest" or "range" questions. A heap is a partially sorted array that only knows its minimum. A sorted list with bisect knows order and ranges but pays O(n) per insert.
+    tradeoffs: |-
+      Hash containers trade memory for speed: a set of a million ints uses tens of megabytes. They need hashable keys and give no order by value. Heaps give O(log n) min/max but O(n) search or arbitrary delete. A sorted list with bisect gives O(log n) search and range queries but O(n) inserts; when inserts are frequent and you need order, a balanced tree (`sortedcontainers.SortedList`, a third-party package) or a heap with lazy deletion fits better. `Counter` and `defaultdict` are convenient but add hidden insertions.
+    mistakes:
+      - "Using `list.pop(0)` or `list.insert(0, x)` as a queue; each is O(n). Use `deque.popleft()` / `appendleft()`."
+      - "Reading a missing key from a `defaultdict` in a check (`if d[k]:`), which inserts it and can change `len(d)` or break iteration."
+      - "Pushing `(priority, obj)` into a heap where two priorities tie and `obj` does not support `<`: `TypeError`. Add a counter as a tie-breaker."
+      - "Expecting `heapq` to be a max-heap; it is always a min-heap, so negate numeric priorities."
+      - "Using a list as a dict key or set member; lists are unhashable. Convert to a tuple."
+      - "Using `bisect.insort` in a loop of n inserts and calling it O(n log n); it is O(n²) because of the shifting."
+    interview: |-
+      Interviewers expect you to name the container and its operation costs when you propose an approach ("I'll keep a set of visited cells, O(1) membership"), to use `deque` for BFS, a heap for top-k, and `Counter` for frequency problems without reinventing them. Follow-ups often probe the hidden costs: what `most_common` costs, why a heap of size k beats sorting for top-k, and what happens with unhashable keys.
+    explain_it:
+      - Name the container and why its structure fits the access pattern.
+      - State the cost of each operation you use (average and worst case for hash tables).
+      - Mention the hashability or ordering requirement it imposes.
+      - Say what you would switch to if the access pattern changed.
+    example:
+      language: python
+      code: |-
+        import heapq
+        from collections import Counter
+
+        def top_k_words(words: list[str], k: int) -> list[str]:
+            """The k most frequent words; ties broken alphabetically."""
+            counts = Counter(words)                                   # O(n)
+            # nsmallest keeps a heap of size k: O(m log k) for m distinct words
+            return heapq.nsmallest(k, counts, key=lambda w: (-counts[w], w))
+
+        top_k_words(["b", "a", "b", "c", "a", "b"], 2)                # ['b', 'a']
+      explanation: "Sorting all distinct words would cost O(m log m). A size-k heap is better when k is much smaller than m; when k is close to m, `sorted` is simpler and about as fast."
+    complexity: "dict/set: O(1) average, O(n) worst per operation. list: O(1) index and append, O(n) front operations and `in`. deque: O(1) at both ends, O(n) in the middle. heapq: O(log n) push/pop, O(n) heapify. bisect: O(log n) search, O(n) insort."
+    internals: |-
+      CPython's `dict` uses a compact layout: a dense array of entries in insertion order plus a sparse index table of hashes, which is why iteration follows insertion order and dicts use less memory than older versions. Collisions are resolved by open addressing, and the table resizes when it gets about two-thirds full, so inserts are amortised O(1). `deque` is a doubly linked list of fixed-size blocks, which gives O(1) ends but O(n) indexing towards the middle. A heap is a list where `heap[i] <= heap[2*i + 1]` and `heap[i] <= heap[2*i + 2]`.
+    edge_cases:
+      - "`Counter` arithmetic with `+` and `-` drops zero and negative counts; `Counter.subtract()` keeps them."
+      - "`d.get(k)` and `k in d` never trigger a defaultdict's factory; only `d[k]` does."
+      - "A deque with `maxlen` silently discards items from the opposite end when full."
+      - "Modifying a dict or set while iterating over it raises `RuntimeError`; iterate over `list(d)` instead."
+
+- key: py.collections.check
+  type: concept_check
+  title: "Concept check: built-in containers"
+  skills: [python.collections]
+  minutes: 10
+  difficulty: EASY
+  body:
+    intro: For each question, think about what the container is underneath before choosing.
+    questions:
+      - id: q1
+        kind: single
+        prompt: A BFS over 10⁶ nodes uses `queue = [start]` and `node = queue.pop(0)`. What is the problem and the fix?
+        options:
+          - "Nothing: pop(0) is O(1) on a Python list"
+          - "pop(0) shifts every remaining element, so BFS becomes O(n²); use collections.deque and popleft()"
+          - "Lists cannot hold more than 2³¹ items; use a generator"
+          - "pop(0) is O(log n); use heapq for O(1)"
+        answer: [1]
+        explanation: "A list is a contiguous array; removing index 0 moves every other reference one slot left, O(n) per pop. A deque has O(1) popleft. A heap would order nodes by value, which is not FIFO and costs O(log n)."
+      - id: q2
+        kind: single
+        prompt: What does this print?
+        code:
+          language: python
+          code: |-
+            from collections import defaultdict
+            d = defaultdict(list)
+            if d["x"]:
+                pass
+            print(len(d), "y" in d)
+        options: ["0 False", "1 False", "1 True", "KeyError"]
+        answer: [1]
+        explanation: "`d[\"x\"]` on a missing key calls the factory and **inserts** `[]`, so the length becomes 1. `\"y\" in d` only checks membership and never inserts. Use `d.get(\"x\")` or `\"x\" in d` when you only want to check."
+      - id: q3
+        kind: single
+        prompt: "`heapq.heappush(h, (2, {\"id\": 1}))` then `heapq.heappush(h, (2, {\"id\": 2}))`. What happens?"
+        options:
+          - Both are pushed; ties are broken by insertion order
+          - TypeError, because the tie on 2 makes heapq compare the two dicts
+          - The second push replaces the first
+          - The heap becomes a max-heap for dict payloads
+        answer: [1]
+        explanation: "Tuples compare element by element. When the priorities tie, the dicts are compared with `<`, which dicts do not support. The idiom is `(priority, next(counter), payload)` so the unique counter breaks ties before the payload is ever compared."
+      - id: q4
+        kind: multi
+        prompt: Which operations are O(1) on average?
+        options:
+          - "`x in some_set`"
+          - "`some_deque.appendleft(x)`"
+          - "`heapq.heappop(heap)`"
+          - "`some_dict[key] = value`"
+          - "`bisect.insort(sorted_list, x)`"
+        answer: [0, 1, 3]
+        explanation: "Set membership and dict assignment are hash-table operations, O(1) average. appendleft on a deque is O(1). heappop restores the heap property in O(log n). insort finds the position in O(log n) but inserting into the list shifts elements, O(n)."
+      - id: q5
+        kind: single
+        prompt: Which structure gives O(1) "move this key to most-recently-used" and O(1) "evict the least-recently-used key"?
+        options: ["dict with a separate list of keys", "collections.OrderedDict", "heapq keyed by last-access time", "set plus deque"]
+        answer: [1]
+        explanation: "`OrderedDict.move_to_end(key)` and `popitem(last=False)` are both O(1). A dict plus list needs O(n) to remove a key from the middle of the list; a heap needs O(log n) and lazy deletion; a deque cannot remove from the middle in O(1)."
+      - id: q6
+        kind: short
+        prompt: You need the 10 largest values from a stream of 10⁸ numbers that does not fit in memory. Which container do you use and what is the cost?
+        model_answer: "A min-heap of size 10 with heapq: push the first 10, then for each new value larger than heap[0] call heapreplace (or heappushpop). The root is the smallest of the current top 10. Time O(n log k) with k = 10, essentially O(n); memory O(k). heapq.nlargest(10, stream) does the same thing."
+        explanation: "Sorting needs all n values in memory and O(n log n) time. The point is that the heap holds only k items and its root is the threshold to beat."
+
+- key: py.collections.log_report
+  type: coding_exercise
+  title: "Exercise: an access-log report with the right containers"
+  skills: [python.collections, hashing.lookup_frequency]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 1200}
+  body:
+    prompt: |-
+      You receive access-log records as tuples `(timestamp, user_id, endpoint)`, in timestamp order. Write `report(records, k)` that returns a dict with:
+
+      - `"unique_users"`: a dict mapping each endpoint to the number of distinct users who called it;
+      - `"top"`: the `k` endpoints with the most calls, as a list of `(endpoint, calls)` pairs, most calls first, ties broken by endpoint name ascending;
+      - `"recent"`: the last 3 distinct endpoints called by user `"admin"`, most recent first (an empty list if admin never appears).
+
+      Do it in one pass over the records plus work proportional to the number of distinct endpoints.
+    examples:
+      - "records = [(1, 'u1', '/a'), (2, 'u2', '/a'), (3, 'u1', '/a'), (4, 'admin', '/b'), (5, 'admin', '/c'), (6, 'admin', '/b')]"
+      - "report(records, 2) == {'unique_users': {'/a': 2, '/b': 1, '/c': 1}, 'top': [('/a', 3), ('/b', 2)], 'recent': ['/b', '/c']}"
+    constraints:
+      - Up to 10⁶ records and 10⁴ distinct endpoints; k is at most the number of endpoints.
+      - Standard library only.
+    hints:
+      - Which container counts calls per endpoint, and which one remembers distinct users per endpoint?
+      - The top k with ties broken by name is a smallest-k problem on the key (negative calls, name).
+      - For "last 3 distinct, most recent first", keep an ordered structure that moves an endpoint to the front when it is seen again.
+    solution:
+      language: python
+      code: |-
+        import heapq
+        from collections import Counter, OrderedDict, defaultdict
+        from collections.abc import Iterable
+
+
+        def report(records: Iterable[tuple[int, str, str]], k: int) -> dict:
+            calls: Counter[str] = Counter()
+            users: defaultdict[str, set[str]] = defaultdict(set)
+            admin_recent: OrderedDict[str, None] = OrderedDict()
+
+            for _ts, user, endpoint in records:            # one pass: O(n) average
+                calls[endpoint] += 1
+                users[endpoint].add(user)
+                if user == "admin":
+                    admin_recent[endpoint] = None
+                    admin_recent.move_to_end(endpoint, last=False)   # most recent at the front
+                    if len(admin_recent) > 3:
+                        admin_recent.popitem(last=True)              # drop the oldest
+
+            top = heapq.nsmallest(k, calls.items(), key=lambda kv: (-kv[1], kv[0]))
+            return {
+                "unique_users": {e: len(u) for e, u in users.items()},
+                "top": top,
+                "recent": list(admin_recent),
+            }
+      explanation: "Time O(n + m log k) for n records and m distinct endpoints; memory O(m + distinct (endpoint, user) pairs). The OrderedDict never holds more than 3 keys."
+    rubric:
+      - {key: correct, label: Produces all three parts correctly including ties and the absent-admin case, points: 4}
+      - {key: containers, label: "Uses Counter or dict for calls, a set per endpoint for distinct users, and an ordered bounded structure for recent", points: 3}
+      - {key: top_k, label: Gets top-k with a heap or a single sort on a tuple key; no repeated max() scans, points: 1}
+      - {key: complexity_stated, label: States time O(n + m log k) or O(n + m log m) and the memory used, points: 2}
+    follow_ups:
+      - prompt: Memory is tight and there are 10⁸ distinct users. How do you change unique_users?
+        look_for: "Exact sets are too large; use an approximate distinct counter such as HyperLogLog (fixed small memory, a few percent error), or push the aggregation to the database."
+      - prompt: The records arrive as a stream that never ends; you need top-k for the last 5 minutes only.
+        look_for: "A deque of (timestamp, endpoint) for the window with counts decremented on expiry, then top-k over the counter on demand; mentions cost per event and per query."
+
+- key: py.collections.interview
+  type: interview_question
+  title: "Interview question: pick the container"
+  skills: [python.collections, python.builtin_complexity]
+  minutes: 10
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 600}
+  body:
+    prompt: |-
+      For each requirement, name the Python container you would use, the cost of the key operation, and one pitfall:
+
+      1. A rate limiter that keeps each client's request timestamps for the last 60 seconds.
+      2. A job scheduler that always runs the job with the earliest deadline next.
+      3. Checking whether a username is already taken among 10⁶ names in memory.
+      4. Grouping orders by customer id.
+      5. Finding how many scores in a sorted, rarely changing list fall between two values.
+    key_points:
+      - "Rate limiter: deque per client; append on the right, popleft expired timestamps from the left, O(1) amortised per request."
+      - "Scheduler: heapq of (deadline, sequence, job), O(log n) push and pop; pitfall is ties comparing jobs."
+      - "Usernames: set, O(1) average membership; pitfall is normalising case and whitespace before inserting."
+      - "Grouping: defaultdict(list) or dict.setdefault, O(1) per order; pitfall is reads inserting empty lists."
+      - "Range count: two bisect calls, bisect_right(hi) minus bisect_left(lo), O(log n); pitfall is O(n) inserts if the list changes often."
+    model_answer: "1) A dict from client to deque of timestamps; on each request pop from the left while the oldest is older than 60 seconds, then append; amortised O(1). 2) A heap of (deadline, counter, job): heappush and heappop are O(log n); the counter avoids comparing job objects on ties. 3) A set of normalised names: O(1) average lookups, about tens of megabytes for a million strings. 4) defaultdict(list) appending each order: O(n) total; be careful that reading a missing key inserts it. 5) Keep the list sorted and use bisect_right(scores, hi) - bisect_left(scores, lo): O(log n) per query; if inserts become frequent, a sorted list costs O(n) per insert and a tree-based structure fits better."
+    pitfalls:
+      - Using a list and `pop(0)` for the rate limiter window.
+      - Re-sorting the job list on every insert instead of using a heap.
+    follow_ups:
+      - prompt: The scheduler must cancel jobs by id. What changes?
+        look_for: "Lazy deletion: keep a dict id to entry and mark cancelled entries, skipping them on pop; arbitrary removal from a heap is O(n) otherwise."
+      - prompt: How would you make the rate limiter O(1) memory per client?
+        look_for: "A fixed-window counter or token bucket storing a count and a timestamp instead of every request, trading exactness for memory."
+
+- key: py.collections.cards
+  type: revision_card
+  title: "Recall: containers and their costs"
+  skills: [python.collections]
+  minutes: 5
+  body:
+    cards:
+      - front: Queue for BFS in Python?
+        back: "collections.deque with append and popleft, both O(1)."
+      - front: Is heapq a min-heap or a max-heap?
+        back: Always a min-heap; negate numeric priorities for max behaviour.
+      - front: How do you avoid TypeError on heap ties?
+        back: "Push (priority, counter, payload) so the unique counter breaks ties."
+      - front: Does `d.get(k)` insert into a defaultdict?
+        back: No; only `d[k]` calls the factory and inserts.
+      - front: Cost of `bisect.insort` on a list?
+        back: O(log n) to find the slot plus O(n) to shift, so O(n).
+      - front: Dict iteration order?
+        back: Insertion order, guaranteed by the language since Python 3.7.
+
+# ---------------------------------------------------------------------------------------------- sorting with keys
+- key: py.sorting_keys.lesson
+  type: lesson
+  title: Sorting with keys, stability and multi-key ordering
+  skills: [python.sorting_keys]
+  minutes: 20
+  difficulty: EASY
+  body:
+    summary: Python sorts are stable and key-based; turn every ordering requirement into a key, and use stability when one key cannot express it.
+    what: |-
+      Python has two sorting entry points, both using the same algorithm:
+
+      - `list.sort(key=None, reverse=False)` sorts the list **in place** and returns `None`.
+      - `sorted(iterable, key=None, reverse=False)` accepts any iterable and returns a **new list**.
+
+      The `key` function maps each element to a value that is compared instead of the element. The sort is **stable**: elements whose keys compare equal keep their original relative order. Related tools: `min`/`max` with `key`, `heapq.nsmallest`/`nlargest` with `key`, `operator.itemgetter`/`attrgetter`, and `functools.cmp_to_key` for legacy two-argument comparators.
+    why: |-
+      Real data is sorted by several fields with mixed directions ("by department, then salary descending, then name"), with case-insensitive text, with missing values, or with numbers stored as text ("10" sorts before "9" as strings). Interviews use sorting as the first step of greedy, interval and two-pointer solutions, and a wrong key is a silent bug: the code runs and returns a plausible but wrong order.
+    when: |-
+      - Use `sorted` when you need to keep the original or the input is not a list; `list.sort` to save memory on a large list you own.
+      - Use a **tuple key** for several fields in the same direction or numeric fields you can negate.
+      - Use **two stable passes** (secondary key first, then primary) when directions differ and a field cannot be negated, such as strings.
+      - Use `heapq.nsmallest(k, ...)` when you need only the first k of many; `min`/`max` when you need only one.
+      - Use `cmp_to_key` only when the order is naturally pairwise and has no simple key (for example, concatenation order of number strings).
+    how: |-
+      ```python
+      from operator import attrgetter, itemgetter
+
+      rows = [("eng", 120, "Ravi"), ("ops", 90, "ana"), ("eng", 150, "bo"), ("eng", 120, "Ana")]
+
+      # department ascending, salary descending, name case-insensitive ascending
+      rows.sort(key=lambda r: (r[0], -r[1], r[2].casefold()))
+
+      # When a field cannot be negated (a string descending), sort twice:
+      rows.sort(key=lambda r: r[2].casefold())           # secondary first
+      rows.sort(key=itemgetter(0), reverse=True)          # primary last; stability keeps the secondary order
+
+      # Sort dict keys by value, highest first
+      counts = {"a": 3, "b": 5, "c": 3}
+      sorted(counts, key=counts.get, reverse=True)        # ['b', 'a', 'c'] (a before c: stable)
+
+      users.sort(key=attrgetter("last_name", "first_name"))
+      ```
+
+      Tuples compare lexicographically: the first differing position decides. The key function is called **exactly once per element** (decorate, sort, undecorate), so an expensive key is computed n times, not n log n times.
+    mental_model: |-
+      Think of the key as building a hidden column next to each row and sorting by that column. Ask: "if two rows tie on my key, is their input order acceptable?" If yes, stability does the rest; if not, add the tie-breaker to the key.
+    tradeoffs: |-
+      A tuple key is a single O(n log n) pass but allocates a tuple per element. Two stable passes cost two sorts but handle any mix of directions. `cmp_to_key` is flexible but calls Python code on every comparison, roughly n log n calls, so it is noticeably slower than a key. `heapq.nsmallest` is O(n log k) and wins for small k; for k close to n, a full sort is simpler and as fast.
+    mistakes:
+      - "`result = items.sort()` and then using `result`, which is `None`."
+      - "Sorting numeric strings as strings: `sorted([\"10\", \"9\", \"100\"])` gives `['10', '100', '9']`; use `key=int`."
+      - "Using `reverse=True` on a tuple key when only one field should be descending."
+      - "Case-sensitive text order: uppercase letters sort before lowercase (`\"Zed\" < \"apple\"`); use `str.casefold` as the key."
+      - "Keys containing `None` next to numbers: comparing `None < 3` raises `TypeError`. Map missing values explicitly, e.g. `(x is None, x)`."
+      - "Floats with `float(\"nan\")`: every comparison with NaN is False, so the result order is unreliable; filter or map NaN first."
+    interview: |-
+      Sorting appears as step one in many problems: merge intervals (sort by start), meeting rooms, greedy scheduling (sort by end), and "custom order" questions. Interviewers check that you write the key cleanly, state O(n log n) time and the extra memory, mention stability when ties matter, and know when sorting is unnecessary (top-k with a heap, a single min with `min`).
+    explain_it:
+      - Translate every ordering rule into a key component and its direction.
+      - Say how ties are resolved and whether stability is relied on.
+      - Give O(n log n) time and O(n) worst-case extra memory for the sort, plus key computation cost.
+      - Name the cheaper alternative when only the top k or one element is needed.
+    example:
+      language: python
+      code: |-
+        from dataclasses import dataclass
+
+        @dataclass
+        class Task:
+            name: str
+            priority: int        # 1 = most urgent
+            due: str             # ISO date, so string order equals date order
+            done: bool
+
+        def order(tasks: list[Task]) -> list[Task]:
+            # open tasks first, then by priority, then by due date; equal tasks keep input order
+            return sorted(tasks, key=lambda t: (t.done, t.priority, t.due))
+      explanation: "`False < True`, so open tasks sort first. ISO-8601 dates compare correctly as strings because their fields are fixed-width and most significant first."
+    complexity: "O(n log n) comparisons worst case; O(n) when the input is already sorted or made of a few sorted runs. Extra memory up to O(n) for the merge buffer, plus the keys."
+    internals: |-
+      CPython uses **Timsort**, an adaptive, stable merge sort: it finds existing ascending or descending runs, extends short runs with binary insertion sort, and merges runs with a galloping mode. That is why sorting already-sorted or nearly-sorted data is close to O(n). Only `<` is used for comparisons, which is why defining `__lt__` (or `@dataclass(order=True)`, or `functools.total_ordering`) makes objects sortable.
+    edge_cases:
+      - "`reverse=True` still keeps equal elements in their original order; it is not the same as `sorted(...)[::-1]`."
+      - "`min` and `max` return the **first** extreme element when several tie."
+      - "`bisect` functions accept `key=` since Python 3.10; for the search functions the key is applied to list elements but not to the value searched for."
+    misconceptions:
+      - "\"The key is called on every comparison\": it is called once per element; only `cmp_to_key` comparators run per comparison."
+      - "\"Stability only matters for objects\": it matters whenever ties exist and the original order carries meaning, such as earlier submissions first."
+
+- key: py.sorting_keys.check
+  type: concept_check
+  title: "Concept check: sorting and keys"
+  skills: [python.sorting_keys]
+  minutes: 8
+  difficulty: EASY
+  body:
+    intro: Trace small inputs by hand; ties are where most answers go wrong.
+    questions:
+      - id: q1
+        kind: single
+        prompt: What does this print?
+        code:
+          language: python
+          code: |-
+            nums = [3, 1, 2]
+            result = nums.sort()
+            print(result, nums)
+        options: ["[1, 2, 3] [1, 2, 3]", "None [1, 2, 3]", "[1, 2, 3] [3, 1, 2]", "None [3, 1, 2]"]
+        answer: [1]
+        explanation: "`list.sort` sorts in place and returns `None` by design, to signal mutation. `sorted(nums)` returns a new list and leaves `nums` untouched."
+      - id: q2
+        kind: single
+        prompt: "`people = [(\"ana\", 30), (\"bo\", 25), (\"cy\", 30)]`. What does `sorted(people, key=lambda p: p[1], reverse=True)` return?"
+        options:
+          - "[('ana', 30), ('cy', 30), ('bo', 25)]"
+          - "[('cy', 30), ('ana', 30), ('bo', 25)]"
+          - "[('bo', 25), ('ana', 30), ('cy', 30)]"
+          - Order of the two 30s is undefined
+        answer: [0]
+        explanation: "The sort is stable and `reverse=True` preserves stability: ana and cy tie on 30 and keep their input order. Reversing the ascending result with `[::-1]` would give cy before ana, which is the tempting wrong answer."
+      - id: q3
+        kind: single
+        prompt: You must sort by city ascending and then by name descending, both strings. Which approach works?
+        options:
+          - "key=lambda r: (r.city, -r.name)"
+          - "Sort by name with reverse=True, then sort by city (stable)"
+          - "Sort by city, then sort by name with reverse=True"
+          - "key=lambda r: (r.city, r.name), reverse=True"
+        answer: [1]
+        explanation: "Strings cannot be negated, so the first option raises TypeError. Sorting by the secondary key first and the primary key last works because the second stable sort keeps the name order within each city. The third option leaves the result ordered by name; the fourth reverses the city order too."
+      - id: q4
+        kind: multi
+        prompt: Which statements are true about CPython's sort?
+        options:
+          - It is stable
+          - The key function is called once per element
+          - It is O(n) on input that is already sorted
+          - It needs both `__lt__` and `__gt__` on the elements
+        answer: [0, 1, 2]
+        explanation: "Timsort is stable, computes keys once, and detects existing runs, so sorted input costs a linear scan. It compares only with `<`, so `__lt__` alone is enough."
+      - id: q5
+        kind: single
+        prompt: "What is `sorted([\"b10\", \"b9\", \"a2\"], key=lambda s: (s[0], int(s[1:])))`?"
+        options: ["['a2', 'b10', 'b9']", "['a2', 'b9', 'b10']", "['b10', 'b9', 'a2']", "TypeError"]
+        answer: [1]
+        explanation: "The key is (letter, number as int), so b9 (9) sorts before b10 (10). Without `int`, string comparison would put 'b10' before 'b9' because '1' < '9'."
+      - id: q6
+        kind: short
+        prompt: You need the 5 cheapest products out of 10⁷. What do you use instead of sorted(...)[:5], and what are both costs?
+        model_answer: "heapq.nsmallest(5, products, key=lambda p: p.price), which keeps a heap of size 5: O(n log k) time, about O(n) for k = 5, and O(k) extra memory. sorted(...)[:5] costs O(n log n) time and O(n) extra memory for the new list."
+        explanation: "The interviewer is checking whether you sort by reflex or match the tool to the question."
+
+- key: py.sorting_keys.versions
+  type: coding_exercise
+  title: "Exercise: sort release versions correctly"
+  skills: [python.sorting_keys, strings.manipulation]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 1200}
+  body:
+    prompt: |-
+      A deployment tool lists release tags such as `"2.10.0"`, `"2.9"`, `"2.10.0-rc2"` and `"2.10.0-rc10"`. Write `sort_versions(tags)` that returns the tags in ascending release order:
+
+      - A tag is `MAJOR.MINOR` or `MAJOR.MINOR.PATCH`, optionally followed by `-rcN`; a missing PATCH counts as 0.
+      - Numeric parts compare as numbers, not text.
+      - A release candidate sorts **before** the release with the same numbers; candidates compare by N numerically.
+      - Tags that are equal in value (`"2.9"` and `"2.9.0"`) keep their input order.
+      - Raise `ValueError` for a malformed tag.
+    examples:
+      - "sort_versions([\"2.10.0\", \"2.9\", \"2.10.0-rc10\", \"2.10.0-rc2\"]) == [\"2.9\", \"2.10.0-rc2\", \"2.10.0-rc10\", \"2.10.0\"]"
+      - "sort_versions([\"1.0.0\", \"1.0\"]) == [\"1.0.0\", \"1.0\"]  (equal value, input order kept)"
+    constraints:
+      - Up to 10⁵ tags.
+      - Standard library only; do not use third-party version parsers.
+    hints:
+      - Turn each tag into a tuple key once; the sort does the rest.
+      - "What value should the pre-release part have for a final release so that it sorts after every candidate?"
+      - "A regular expression with optional groups parses both shapes and rejects malformed tags in one step."
+    solution:
+      language: python
+      code: |-
+        import re
+
+        _TAG = re.compile(r"(\d+)\.(\d+)(?:\.(\d+))?(?:-rc(\d+))?")
+
+
+        def version_key(tag: str) -> tuple[int, int, int, int, int]:
+            m = _TAG.fullmatch(tag)
+            if m is None:
+                raise ValueError(f"malformed version tag: {tag!r}")
+            major, minor, patch, rc = m.groups()
+            is_final = 1 if rc is None else 0          # candidates (0) before the release (1)
+            return (int(major), int(minor), int(patch or 0), is_final, int(rc or 0))
+
+
+        def sort_versions(tags: list[str]) -> list[str]:
+            return sorted(tags, key=version_key)       # stable: equal keys keep input order
+      explanation: "Each key is computed once, O(L) per tag for tag length L, then one O(n log n) sort; extra memory O(n) for keys and the output list. `fullmatch` rejects trailing garbage that `match` would accept."
+    rubric:
+      - {key: numeric, label: Compares numeric parts as integers and treats a missing patch as 0, points: 2}
+      - {key: prerelease, label: Places candidates before the final release and orders rc numbers numerically, points: 3}
+      - {key: stable, label: Relies on (and states) stability for equal versions instead of extra tie-breaking, points: 1}
+      - {key: validation, label: Rejects malformed tags with ValueError (fullmatch or equivalent), points: 2}
+      - {key: complexity_stated, label: "States O(n log n) sort with the key computed once per tag, and O(n) extra memory", points: 2}
+    follow_ups:
+      - prompt: Product wants the newest release first but equal-value tags still in input order. What do you change?
+        look_for: "sorted(tags, key=version_key, reverse=True); reverse keeps stability, unlike reversing the ascending list."
+      - prompt: Support `-alpha`, `-beta` and `-rc` in that order.
+        look_for: "Map the label to a rank (alpha 0, beta 1, rc 2, final 3) in the key; keep the number after it as the next tuple element."
+
+- key: py.sorting_keys.interview
+  type: interview_question
+  title: "Interview question: stability and mixed-direction sorts"
+  skills: [python.sorting_keys]
+  minutes: 8
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 480}
+  body:
+    prompt: Explain what a stable sort is and give a real case where it matters. Then sort a list of employee records by team ascending, then by name descending (both strings), and say what it costs.
+    key_points:
+      - "Defines stability: elements with equal keys keep their original relative order; Python's sort guarantees it."
+      - Gives a concrete case such as earlier sign-ups first among equal scores, or a UI that re-sorts by a new column without losing the previous order.
+      - "Notes that strings cannot be negated, so a single tuple key with `-name` fails."
+      - "Uses two passes: sort by name with reverse=True, then by team; explains why the second pass keeps the first order."
+      - States two O(n log n) passes, O(n) extra memory, and mentions cmp_to_key as a slower single-pass alternative.
+    model_answer: "A stable sort keeps equal-key elements in input order. Python's sort is stable, which lets me compose orderings: to get team ascending and name descending I first sort by name with reverse=True, then sort by team. The second sort only moves records between teams and preserves the name order inside each team. Each pass is O(n log n) with O(n) extra memory. A single tuple key fails because strings cannot be negated; functools.cmp_to_key would work in one pass but calls a Python comparator about n log n times."
+    pitfalls:
+      - Sorting primary first and secondary second, which destroys the primary order.
+      - Claiming `reverse=True` makes the sort unstable.
+    follow_ups:
+      - prompt: Could you do it with one key if names were plain ASCII?
+        look_for: "Yes, e.g. a key that inverts each character code (tuple of negated code points) or sorting by a precomputed rank of names; usually two passes are clearer."
+      - prompt: Is merge sort stable? Is quicksort? Is heapsort?
+        look_for: "Merge sort yes (when merging takes from the left on ties); typical in-place quicksort and heapsort are not."
+
+- key: py.sorting_keys.cards
+  type: revision_card
+  title: "Recall: sorting in Python"
+  skills: [python.sorting_keys]
+  minutes: 4
+  body:
+    cards:
+      - front: What does `list.sort()` return?
+        back: None — it sorts in place; use sorted() for a new list.
+      - front: How many times is the key function called?
+        back: Once per element.
+      - front: Does `reverse=True` keep stability?
+        back: Yes — equal elements keep their input order.
+      - front: Two string fields in opposite directions?
+        back: Sort by the secondary key first, then by the primary key (stable passes).
+      - front: Only the 3 smallest of n items?
+        back: "heapq.nsmallest(3, items, key=...) — O(n log k)."
+
+# ---------------------------------------------------------------------------------------------- complexity of built-ins
+- key: py.builtin_complexity.lesson
+  type: lesson
+  title: What built-in operations really cost
+  skills: [python.builtin_complexity, dsa.complexity_analysis]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: One innocent-looking line can hide a loop over the whole input; know the cost table and the patterns that make Python code accidentally quadratic.
+    what: |-
+      Every built-in operation has a cost that depends on the data structure underneath. The common ones (CPython, average case):
+
+      - **O(1)**: `len(x)`, `a[i]`, `a[i] = v`, `a.append(v)` (amortised), `a.pop()`.
+      - **O(n − i)**, shifting the tail: `a.pop(i)`, `a.insert(i, v)`, `del a[i]`; so `pop(0)` and `insert(0, v)` are O(n).
+      - **O(n)** scans: `v in a`, `a.index(v)`, `a.count(v)`, `a.remove(v)`, `min(a)`, `max(a)`, `sum(a)`.
+      - **O(length of the result)**, a new list: `a[i:j]`, `a.copy()`, `list(a)`, `a + b`; `a.extend(b)` is O(len(b)).
+      - **O(n log n)**: `a.sort()`, `sorted(a)`.
+      - **O(1) average, O(n) worst**: `d[k]`, `d[k] = v`, `k in d`, `del d[k]`, `s.add(v)`, `v in s`.
+      - **Set algebra**: `s | t` is O(len(s) + len(t)), `s & t` is O(min(len(s), len(t))), `s - t` is O(len(s)).
+      - **deque**: `append`, `appendleft`, `pop`, `popleft` are O(1); indexing towards the middle is O(n).
+      - **heapq**: `heappush`, `heappop` O(log n); `heapify` O(n).
+      - **Strings**: `s + t`, `s[i:j]`, `s.replace`, `s.split` and `"".join(parts)` are O(length involved).
+
+      Hashing a key costs O(length of the key) for strings and tuples (CPython caches a string's hash after the first computation).
+    why: |-
+      Interview constraints usually allow O(n log n) for n around 10⁵, and pure-Python loops run on the order of 10⁷ simple steps per second, so an accidental O(n²) (10¹⁰ steps) does not finish. The same mistakes appear in production as endpoints that are fast in tests with 100 rows and time out with 100,000. Knowing the table lets you spot the hidden loop during code review instead of in an incident.
+    when: |-
+      - When stating complexity for any solution: count the built-in calls inside loops, not only the loops you wrote.
+      - When a function slows down superlinearly as data grows: look for membership tests on lists, front operations on lists, string concatenation in loops, slicing in recursion, and sorting inside loops.
+      - When memory matters: Python objects are large, so choose compact representations for millions of items.
+    how: |-
+      The patterns that turn linear code quadratic, and their fixes:
+
+      ```python
+      # 1. Membership in a list inside a loop: O(n·m)
+      allowed = load_ids()                 # list
+      kept = [r for r in rows if r.id in allowed]
+      allowed = set(load_ids())            # fix: O(n + m)
+
+      # 2. Building a string with += in a loop: may copy every time
+      out = ""
+      for part in parts:
+          out += part                      # O(total²) in general
+      out = "".join(parts)                 # fix: O(total)
+
+      # 3. Using a list as a queue
+      while queue:
+          item = queue.pop(0)              # O(n) per pop
+      # fix: collections.deque and popleft()
+
+      # 4. Slicing in recursion: copies O(n) per level
+      def binary_search(a, x):
+          mid = len(a) // 2
+          return binary_search(a[mid:], x)  # fix: pass lo, hi indices
+
+      # 5. Flattening with sum: creates a new list at every step
+      flat = sum(list_of_lists, [])        # O(total · number of lists)
+      flat = [x for sub in list_of_lists for x in sub]   # fix: O(total)
+      ```
+
+      Also watch `sorted()` or `max()` called inside a loop over the same data, `list.remove` in a loop, and `str.count`/`str.find` repeated for every character.
+    mental_model: |-
+      Read each line and ask "does this touch one element, or all of them?" Any line that creates a new container, searches a sequence or shifts elements touches all of them. If such a line sits inside a loop over the same data, you have a hidden nested loop.
+    tradeoffs: |-
+      A set or dict index costs O(n) memory and a build pass; it pays off as soon as you do more than a handful of lookups. `deque` gives O(1) ends but O(n) indexing in the middle, so do not swap it in where you index randomly. Converting to compact types (`array`, `bytes`, `int` bitmasks, NumPy arrays outside interviews) cuts memory and speeds up bulk operations, but loses flexibility. Readability matters too: in an interview, choose the clear O(n) idiom over a micro-optimised one.
+    mistakes:
+      - "Claiming a slice is O(1): `a[1:]` copies n − 1 references."
+      - "Calling `x in d.values()` constant time; it scans the values, O(n). Only key lookups are hashed."
+      - "Counting a `while` loop that calls `list.remove` as O(n); each remove is O(n) too."
+      - "Assuming recursion is free: the default recursion limit is 1000 frames (`sys.getrecursionlimit()`), so deep recursion on 10⁵ nodes raises `RecursionError`."
+      - "Ignoring that `s1 == s2` and `a == b` on lists are O(n) comparisons, not O(1)."
+    interview: |-
+      Interviewers listen for complexity statements that include the hidden costs ("the slice here is O(k), so I pass indices instead"). Code-reading questions show a short function with a list membership test or a string `+=` in a loop and ask for its true complexity and a fix. Strong candidates also mention memory: a list of a million Python ints is tens of megabytes, not 8 MB.
+    explain_it:
+      - Name the data structure under each operation.
+      - Mark every line inside a loop that is not O(1) and multiply.
+      - Give the fix that removes the hidden loop and its new cost.
+      - Mention average versus worst case for hash-based operations.
+    example:
+      language: python
+      code: |-
+        def common_tags(a: list[str], b: list[str]) -> list[str]:
+            """Tags present in both lists, in a's order, without duplicates."""
+            in_b = set(b)                      # O(len(b))
+            seen: set[str] = set()
+            out: list[str] = []
+            for tag in a:                      # O(len(a)) iterations, O(1) average work each
+                if tag in in_b and tag not in seen:
+                    seen.add(tag)
+                    out.append(tag)
+            return out                         # total O(len(a) + len(b)) time and space
+      explanation: "The naive version, `[t for t in a if t in b]` plus a list-based dedupe, is O(len(a) × len(b)). Two sets remove both hidden scans."
+    complexity: "Rules of thumb: O(1) for touching one element or key; O(k) for anything that creates, copies or searches k elements; O(n log n) for a sort. Multiply by the number of loop iterations."
+    internals: |-
+      A CPython `list` stores an array of pointers and over-allocates when it grows, so appends are amortised O(1) while inserting at the front must move every pointer. A `str` is immutable, so `s + t` allocates a new string; CPython can sometimes extend a string in place when nothing else references it, but that optimisation is an implementation detail and PEP 8 says not to rely on it.
+
+      Memory on 64-bit CPython: a small `int` object takes about 28 bytes and a list slot another 8 bytes, so a million distinct ints in a list cost roughly 36 MB, while `array.array("q")` stores the same values in about 8 MB. Each instance of an ordinary class carries a `__dict__`; declaring `__slots__` (or `@dataclass(slots=True)`, Python 3.10+) removes it and cuts per-object memory substantially when you create millions of objects.
+    edge_cases:
+      - "Hash operations degrade to O(n) when many keys collide; this matters for adversarial input (CPython randomises `str` hashes per process to make it harder)."
+      - "`dict` views (`d.keys()`) support O(1) membership; `d.values()` does not."
+      - "Changing a dict's size while iterating raises `RuntimeError`; changing a list while iterating silently skips items."
+    misconceptions:
+      - "\"Built-ins are written in C, so they are O(1)\": C makes the constant smaller, not the growth rate; `x in list` is still a linear scan."
+      - "\"Big-O is all that matters in Python\": a C-level O(n) call such as `sum` or `sorted` can beat a Python-level O(n) loop by an order of magnitude."
+
+- key: py.builtin_complexity.check
+  type: concept_check
+  title: "Concept check: hidden costs in Python code"
+  skills: [python.builtin_complexity]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Count the work done by each built-in call, not just the loops you can see.
+    questions:
+      - id: q1
+        kind: single
+        prompt: What is the time complexity, with n = len(words)?
+        code:
+          language: python
+          code: |-
+            def unique(words):
+                out = []
+                for w in words:
+                    if w not in out:
+                        out.append(w)
+                return out
+        options: ["O(n)", "O(n log n)", "O(n²) in the worst case", "O(1) per word, so O(n)"]
+        answer: [2]
+        explanation: "`w not in out` scans the output list, which can grow to n, so the worst case (all distinct) is n²/2 comparisons. A set beside the list, or `list(dict.fromkeys(words))`, makes it O(n) average."
+      - id: q2
+        kind: single
+        prompt: "What is the cost of `a[1:]` on a list of length n?"
+        options: ["O(1), it is a view", "O(log n)", "O(n), it copies n − 1 references", "O(n²)"]
+        answer: [2]
+        explanation: "List slicing creates a new list and copies the references. Only `memoryview` slices of bytes-like objects and NumPy slices are views; plain lists and strings copy."
+      - id: q3
+        kind: multi
+        prompt: "Which lines run in O(1) average time, given `d` is a dict with n items and `s` a set?"
+        options:
+          - "`key in d`"
+          - "`value in d.values()`"
+          - "`key in d.keys()`"
+          - "`len(s)`"
+          - "`max(s)`"
+        answer: [0, 2, 3]
+        explanation: "Key membership is hashed, and `d.keys()` is a set-like view that uses the hash table. `len` is stored. `d.values()` is a plain scan, O(n), and `max(s)` must look at every element because sets have no order."
+      - id: q4
+        kind: single
+        prompt: A recursive binary search passes `a[:mid]` or `a[mid:]` at each step. What are the true time and extra space?
+        options:
+          - "O(log n) time, O(log n) space"
+          - "O(n) time, O(n) space in total across the call stack"
+          - "O(n log n) time, O(1) space"
+          - "O(log n) time, O(1) space"
+        answer: [1]
+        explanation: "The slices copy n/2 + n/4 + … ≈ n elements in total, so time is O(n). With the slices alive on the stack, extra memory is also O(n) in total (n/2 + n/4 + …). Passing lo and hi indices restores O(log n) time and O(log n) stack, or O(1) iteratively."
+      - id: q5
+        kind: single
+        prompt: About how much memory does `list(range(10**6))` use on 64-bit CPython?
+        options: ["About 1 MB", "About 8 MB", "About 36 MB", "About 1 GB"]
+        answer: [2]
+        explanation: "Roughly 8 bytes per list slot plus about 28 bytes per int object (only -5 to 256 are cached and shared). Answering 8 MB counts only the pointer array, the tempting mistake."
+      - id: q6
+        kind: short
+        prompt: A teammate builds a 50 MB CSV export with `out += line` inside a loop and says it is fine because it passed tests on 100 rows. What do you tell them?
+        model_answer: "Strings are immutable, so each += may allocate a new string and copy everything built so far, which is quadratic in the total size; CPython sometimes optimises it in place, but that is not guaranteed and breaks as soon as another reference exists. Collect the lines in a list and call ''.join(lines) once (linear), or better, stream rows with the csv module to the response or file instead of building one huge string."
+        explanation: "Small tests hide quadratic growth; the fix is a linear idiom, and streaming also bounds memory."
+
+- key: py.builtin_complexity.debugging
+  type: debugging_exercise
+  title: "Debugging: a nightly job that went from 2 minutes to 3 hours"
+  skills: [python.builtin_complexity, python.collections]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 1200}
+  body:
+    scenario: |-
+      A nightly reconciliation job matches payments to orders. With 10,000 orders it took 2 minutes; after a sales campaign there are 200,000 orders and 220,000 payments and it now takes over 3 hours. CPU sits at 100% on one core; memory is fine. Nothing in the logic changed.
+    symptoms:
+      - Runtime grew about 90 times for 20 times more data, which suggests quadratic behaviour.
+      - A profile (cProfile) shows most time in `list.__contains__`, `list.pop` and `list.remove`.
+    artifacts:
+      language: python
+      code: |-
+        def reconcile(orders, payments):
+            pending_ids = [o.id for o in orders]
+            unmatched = []
+            queue = list(payments)
+            while queue:
+                p = queue.pop(0)
+                if p.order_id in pending_ids:
+                    pending_ids.remove(p.order_id)
+                else:
+                    unmatched.append(p)
+            report = ""
+            for oid in pending_ids:
+                report += f"missing payment for {oid}\n"
+            return unmatched, report
+    tasks:
+      - Identify every operation that is not O(1) inside a loop and give its cost.
+      - Give the overall complexity of the current code in terms of n orders and m payments.
+      - Rewrite the function in O(n + m) average time without changing its output, including the order of the report lines.
+    hints:
+      - "`pop(0)` on a list, `in` on a list and `list.remove` each scan or shift."
+      - Do you need a queue at all, or just a loop over payments?
+      - A dict keeps insertion order, so it can act as an ordered set.
+    reference: |-
+      Three hidden linear operations run inside a loop of m iterations: `queue.pop(0)` shifts the rest of the list, O(m); `p.order_id in pending_ids` scans, O(n); and `pending_ids.remove` scans and shifts, O(n). Total O(m · (m + n)), about 10¹¹ elementary steps here, which is the 3 hours. The report also builds a string with `+=`, which can be quadratic in its length.
+
+      The fix: iterate over payments directly (no queue), keep pending ids in a dict used as an ordered set so membership and deletion are O(1) average and iteration order is preserved, and build the report with `"".join`. One subtle point: if an order id appears twice in `orders`, the original removes one occurrence per payment; a `Counter` keeps that behaviour if duplicates are possible, so ask before assuming ids are unique.
+    solution:
+      language: python
+      code: |-
+        def reconcile(orders, payments):
+            pending: dict[str, None] = dict.fromkeys(o.id for o in orders)   # ordered set, O(n)
+            unmatched = []
+            for p in payments:                                               # O(m)
+                if p.order_id in pending:                                    # O(1) average
+                    del pending[p.order_id]                                  # O(1) average
+                else:
+                    unmatched.append(p)
+            report = "".join(f"missing payment for {oid}\n" for oid in pending)
+            return unmatched, report
+      explanation: "O(n + m) average time and O(n) extra space. Assumes order ids are unique; with duplicates, use a Counter and decrement."
+    rubric:
+      - {key: find_costs, label: "Names all three hidden O(n) operations (pop(0), list membership, remove) and the string concatenation", points: 3}
+      - {key: total, label: States the original complexity as O(m · (m + n)) or equivalent, points: 2}
+      - {key: fix, label: Rewrites with a dict or set and direct iteration; output and report order unchanged, points: 3}
+      - {key: duplicates, label: Raises the duplicate order id question and handles or states the assumption, points: 2}
+    follow_ups:
+      - prompt: How would you have caught this before production?
+        look_for: "A performance test at realistic size or a complexity check in review; profiling with cProfile or py-spy; alerting on job duration."
+      - prompt: The data grows to 10⁸ rows. What changes?
+        look_for: "Stop loading everything in memory: stream from the database, or do the anti-join in SQL with an index on order_id."
+
+- key: py.builtin_complexity.cards
+  type: revision_card
+  title: "Recall: costs of built-in operations"
+  skills: [python.builtin_complexity]
+  minutes: 5
+  body:
+    cards:
+      - front: Cost of `a[i:j]` on a list?
+        back: O(j − i) — slicing copies.
+      - front: Cost of `x in d.values()`?
+        back: O(n) — values are scanned; only keys are hashed.
+      - front: Fast way to build a long string?
+        back: "Collect parts in a list, then \"\".join(parts) — O(total length)."
+      - front: Why is `sum(list_of_lists, [])` slow?
+        back: It builds a new list at every step — quadratic in the number of lists.
+      - front: Default recursion limit in CPython?
+        back: 1000 frames (sys.getrecursionlimit()).
+      - front: Memory of a million ints in a list (64-bit CPython)?
+        back: About 36 MB — 28-byte int objects plus 8-byte pointers.

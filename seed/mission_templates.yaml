@@ -4,7 +4,7 @@
 #   4 component+stage  5 generic+stage.  Ties: lowest key.
 # pass_rule / partial_rule use the observation fields defined in docs/engineering/DATA_MODEL.md.
 # output_level = highest evidence level the mission can produce when passed.
-seed_version: seed-v1
+seed_version: seed-v2
 templates:
 # ---------------- DSA ----------------
 - {key: dsa.diagnose, component: dsa, stage: DIAGNOSE, minutes: 40, difficulty: MEDIUM, needs_problem: true,

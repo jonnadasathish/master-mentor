@@ -1,7 +1,8 @@
-# Representative problem catalog (seed-v1). Small on purpose: enough to validate picker, revision and evidence rules.
+# Curated interview problem bank (seed-v2): high-signal classics covering every DSA pattern skill. Still not bulk-loaded.
 # expected_minutes null => DEFAULT_EXPECTED_MINUTES (EASY 15, MEDIUM 30, HARD 45). is_canonical => PROBLEM revision items always created.
 # Validator: unique (platform, platform_key); every skill key exists and is_pattern or allowed; exactly one primary (10000) mapping.
-seed_version: seed-v1
+# guide: paraphrased summary (never the platform statement), pattern, optimal time/space, hint ladder (weakest first), mistakes, relevance.
+seed_version: seed-v2
 problems:
 - id: 1
   platform: LEETCODE
@@ -15,6 +16,21 @@ problems:
     mapping_weight_bp: 10000
   - skill: arrays.traversal
     mapping_weight_bp: 5000
+  guide:
+    summary: "Return the indices of the two numbers in an array that add up to a target."
+    pattern: "One-pass hash map from value to index (complement lookup)"
+    time: "O(n)"
+    space: "O(n)"
+    hints:
+    - "A brute force checks every pair; what would let you ask 'have I already seen target - x?' in O(1)?"
+    - "Store each value's index in a dict as you scan."
+    - "Look up the complement before inserting the current value so an element is never paired with itself."
+    mistakes:
+    - "Inserting the current value before checking, which pairs an element with itself when target is 2x."
+    - "Sorting first and losing the original indices."
+    - "Returning the values instead of their indices."
+    prerequisites: [arrays.traversal]
+    relevance: HIGH
 - id: 2
   platform: LEETCODE
   platform_key: group-anagrams
@@ -27,6 +43,21 @@ problems:
     mapping_weight_bp: 10000
   - skill: strings.manipulation
     mapping_weight_bp: 5000
+  guide:
+    summary: "Group a list of words so that anagrams of each other end up together."
+    pattern: "Hash map keyed by a canonical signature (sorted word or 26-letter count tuple)"
+    time: "O(n * k) with a count-tuple key, O(n * k log k) with a sorted-word key"
+    space: "O(n * k)"
+    hints:
+    - "Two words are anagrams exactly when some canonical form of them is equal."
+    - "Use that canonical form as a dict key and append each word to its bucket."
+    - "A tuple of 26 letter counts is a hashable key that avoids sorting each word."
+    mistakes:
+    - "Using a list as the dict key, which is unhashable; use a tuple or a string."
+    - "Comparing every pair of words, which is O(n^2 * k)."
+    - "Forgetting that the empty string is a valid word with its own group."
+    prerequisites: [python.collections]
+    relevance: HIGH
 - id: 3
   platform: LEETCODE
   platform_key: top-k-frequent-elements
@@ -39,6 +70,21 @@ problems:
     mapping_weight_bp: 10000
   - skill: hashing.lookup_frequency
     mapping_weight_bp: 5000
+  guide:
+    summary: "Return the k values that occur most often in an integer array."
+    pattern: "Frequency count plus a size-k min-heap, or bucket sort by frequency"
+    time: "O(n log k) with a heap, O(n) with buckets"
+    space: "O(n)"
+    hints:
+    - "First count how often each value appears."
+    - "You only need the top k, so fully sorting the counts does more work than necessary."
+    - "Frequencies are bounded by n, so buckets indexed by frequency give a linear pass."
+    mistakes:
+    - "Pushing all distinct values into a max-heap when a size-k min-heap suffices."
+    - "Pushing (value, count) instead of (count, value), so the heap orders by the wrong field."
+    - "Sorting the whole input array instead of the distinct counts."
+    prerequisites: [hashing.lookup_frequency, python.collections]
+    relevance: HIGH
 - id: 4
   platform: LEETCODE
   platform_key: 3sum
@@ -51,6 +97,21 @@ problems:
     mapping_weight_bp: 10000
   - skill: sorting.algorithms
     mapping_weight_bp: 5000
+  guide:
+    summary: "Find every unique triplet in an array whose three values sum to zero."
+    pattern: "Sort, fix one element, then opposite-end two pointers with duplicate skipping"
+    time: "O(n^2)"
+    space: "O(1) extra besides the output and the sort"
+    hints:
+    - "Sorting lets you move pointers in a direction that predictably changes the sum."
+    - "Fix nums[i] and solve a sorted two-sum for -nums[i] on the suffix with lo and hi."
+    - "Skip equal neighbours for i, and for lo and hi after recording a triplet, to avoid duplicates."
+    mistakes:
+    - "Deduplicating with a set of tuples instead of skipping duplicates, hiding a slower loop."
+    - "Skipping duplicates for i but not for lo and hi after a match."
+    - "Not stopping early once nums[i] is positive."
+    prerequisites: [arrays.traversal]
+    relevance: HIGH
 - id: 5
   platform: LEETCODE
   platform_key: container-with-most-water
@@ -63,6 +124,20 @@ problems:
     mapping_weight_bp: 10000
   - skill: greedy.core
     mapping_weight_bp: 5000
+  guide:
+    summary: "Choose two vertical lines that, together with the x-axis, hold the most water."
+    pattern: "Opposite-end two pointers, always moving the shorter line inward"
+    time: "O(n)"
+    space: "O(1)"
+    hints:
+    - "Start with the widest possible container and ask what could improve it."
+    - "The area is capped by the shorter line, so moving the taller line can never help."
+    - "Move the pointer at the shorter line inward each step and track the best area."
+    mistakes:
+    - "Moving the taller pointer, which shrinks the width without raising the height bound."
+    - "Using the taller height instead of min(height[l], height[r]) in the area."
+    - "Trying all pairs, O(n^2)."
+    relevance: HIGH
 - id: 6
   platform: LEETCODE
   platform_key: longest-substring-without-repeating-characters
@@ -75,6 +150,21 @@ problems:
     mapping_weight_bp: 10000
   - skill: hashing.lookup_frequency
     mapping_weight_bp: 5000
+  guide:
+    summary: "Find the length of the longest substring that has no repeated character."
+    pattern: "Variable sliding window with a last-seen index map"
+    time: "O(n)"
+    space: "O(min(n, alphabet))"
+    hints:
+    - "Keep a window that never contains a duplicate and grow it to the right."
+    - "When the new character already occurs inside the window, the left edge must jump past that earlier position."
+    - "Store last-seen indices and set left = max(left, last[c] + 1)."
+    mistakes:
+    - "Moving left backwards by not taking the max with its current value."
+    - "Off-by-one window length (right - left instead of right - left + 1)."
+    - "Restarting the scan after each duplicate, which is O(n^2)."
+    prerequisites: [hashing.lookup_frequency]
+    relevance: HIGH
 - id: 7
   platform: LEETCODE
   platform_key: minimum-window-substring
@@ -87,6 +177,21 @@ problems:
     mapping_weight_bp: 10000
   - skill: hashing.lookup_frequency
     mapping_weight_bp: 5000
+  guide:
+    summary: "Find the shortest substring of s that contains every character of t, counting duplicates."
+    pattern: "Variable sliding window with need counts and a count of satisfied characters"
+    time: "O(|s| + |t|)"
+    space: "O(alphabet)"
+    hints:
+    - "Expand right until the window covers t, then shrink from the left while it stays valid."
+    - "Track how many distinct characters currently meet their required count so the validity check is O(1)."
+    - "Record the best window each time it is valid, before shrinking it further."
+    mistakes:
+    - "Rechecking the whole count map on every step, which multiplies the cost by the alphabet size."
+    - "Ignoring repeated characters in t, such as needing two 'a' characters."
+    - "Updating the answer after the window has already become invalid."
+    prerequisites: [hashing.lookup_frequency]
+    relevance: HIGH
 - id: 8
   platform: LEETCODE
   platform_key: subarray-sum-equals-k
@@ -99,6 +204,20 @@ problems:
     mapping_weight_bp: 10000
   - skill: hashing.lookup_frequency
     mapping_weight_bp: 5000
+  guide:
+    summary: "Count the contiguous subarrays whose sum equals k."
+    pattern: "Running prefix sum with a hash map of prefix-sum counts"
+    time: "O(n)"
+    space: "O(n)"
+    hints:
+    - "The sum of a subarray is the difference of two prefix sums."
+    - "For the current prefix p, count how many earlier prefixes equal p - k."
+    - "Seed the map with prefix 0 seen once so subarrays starting at index 0 are counted."
+    mistakes:
+    - "Using a sliding window, which breaks when the array has negative numbers."
+    - "Forgetting the initial {0: 1} entry."
+    - "Adding the current prefix to the map before querying it."
+    relevance: HIGH
 - id: 9
   platform: LEETCODE
   platform_key: merge-intervals
@@ -111,6 +230,21 @@ problems:
     mapping_weight_bp: 10000
   - skill: python.sorting_keys
     mapping_weight_bp: 5000
+  guide:
+    summary: "Combine all overlapping intervals into the smallest set of disjoint intervals."
+    pattern: "Sort by start, then sweep and extend the last merged interval"
+    time: "O(n log n)"
+    space: "O(n)"
+    hints:
+    - "Overlaps are easy to detect once the intervals are in start order."
+    - "Compare each interval's start with the end of the last merged interval."
+    - "On overlap, set the merged end to the max of the two ends."
+    mistakes:
+    - "Setting the end to the new interval's end instead of the max, which shrinks nested intervals."
+    - "Treating touching intervals such as [1,2] and [2,3] as disjoint when they must merge."
+    - "Forgetting to sort first."
+    prerequisites: [python.sorting_keys]
+    relevance: HIGH
 - id: 10
   platform: LEETCODE
   platform_key: reverse-linked-list
@@ -121,6 +255,20 @@ problems:
   skills:
   - skill: linked_list.manipulation
     mapping_weight_bp: 10000
+  guide:
+    summary: "Reverse a singly linked list and return its new head."
+    pattern: "Iterative pointer reversal with prev, curr and a saved next"
+    time: "O(n)"
+    space: "O(1)"
+    hints:
+    - "Each node's next pointer must end up pointing at its predecessor."
+    - "Keep a prev pointer and save curr.next before overwriting it."
+    - "The recursive form reverses the rest, then sets head.next.next = head and head.next = None."
+    mistakes:
+    - "Overwriting curr.next before saving it and losing the rest of the list."
+    - "Returning the old head instead of prev."
+    - "In the recursive version, not clearing head.next, which leaves a two-node cycle."
+    relevance: HIGH
 - id: 11
   platform: LEETCODE
   platform_key: linked-list-cycle-ii
@@ -131,6 +279,21 @@ problems:
   skills:
   - skill: linked_list.fast_slow
     mapping_weight_bp: 10000
+  guide:
+    summary: "Return the node where a linked list's cycle begins, or null when there is no cycle."
+    pattern: "Floyd's cycle detection, then restart one pointer from the head"
+    time: "O(n)"
+    space: "O(1)"
+    hints:
+    - "First detect whether a cycle exists with a slow and a fast pointer."
+    - "After they meet, the distance from the head to the entry equals the distance from the meeting point to the entry, modulo the cycle length."
+    - "Move one pointer back to the head and advance both one step at a time; they meet at the entry."
+    mistakes:
+    - "Reading fast.next.next without checking that fast and fast.next exist."
+    - "Returning the meeting node instead of the cycle entry."
+    - "Using a visited set when O(1) extra space is required."
+    prerequisites: [linked_list.manipulation]
+    relevance: HIGH
 - id: 12
   platform: LEETCODE
   platform_key: daily-temperatures
@@ -143,6 +306,21 @@ problems:
     mapping_weight_bp: 10000
   - skill: stack.basic
     mapping_weight_bp: 5000
+  guide:
+    summary: "For each day, report how many days pass until a strictly warmer day, or 0."
+    pattern: "Monotonic decreasing stack of unresolved indices"
+    time: "O(n)"
+    space: "O(n)"
+    hints:
+    - "Each day is waiting for the first later day that is warmer, a next-greater-element question."
+    - "Keep a stack of indices whose answer is not known yet."
+    - "When today is warmer than the top, pop it and record the index difference."
+    mistakes:
+    - "Pushing temperatures instead of indices, so the distance cannot be computed."
+    - "Popping on equal temperatures when the problem needs strictly warmer."
+    - "Scanning forward from every day, O(n^2)."
+    prerequisites: [stack.basic]
+    relevance: HIGH
 - id: 13
   platform: LEETCODE
   platform_key: valid-parentheses
@@ -153,6 +331,20 @@ problems:
   skills:
   - skill: stack.basic
     mapping_weight_bp: 10000
+  guide:
+    summary: "Decide whether a string of brackets is opened and closed in a properly nested order."
+    pattern: "Stack of open brackets with a closing-to-opening map"
+    time: "O(n)"
+    space: "O(n)"
+    hints:
+    - "The most recently opened bracket has to be closed first."
+    - "Push opening brackets; on a closing bracket the top of the stack must be its partner."
+    - "The string is valid only if the stack is empty at the end."
+    mistakes:
+    - "Popping from an empty stack when the string starts with a closing bracket."
+    - "Returning true without checking that the stack ended empty."
+    - "Only counting brackets per type, which wrongly accepts '([)]'."
+    relevance: HIGH
 - id: 14
   platform: LEETCODE
   platform_key: sliding-window-maximum
@@ -165,6 +357,21 @@ problems:
     mapping_weight_bp: 10000
   - skill: sliding_window.core
     mapping_weight_bp: 5000
+  guide:
+    summary: "Report the maximum of every length-k window as it slides across an array."
+    pattern: "Monotonic decreasing deque of indices"
+    time: "O(n)"
+    space: "O(k)"
+    hints:
+    - "A smaller value to the left of a larger one can never again be a window maximum."
+    - "Keep a deque of indices whose values decrease; the front is the current maximum."
+    - "Pop the front when its index leaves the window and pop the back while a larger value arrives."
+    mistakes:
+    - "Storing values instead of indices, so expired elements cannot be detected."
+    - "Recording a maximum before the first full window is formed."
+    - "Using a heap without lazily discarding expired indices."
+    prerequisites: [sliding_window.core, stack.monotonic]
+    relevance: HIGH
 - id: 15
   platform: LEETCODE
   platform_key: binary-search
@@ -175,6 +382,21 @@ problems:
   skills:
   - skill: binary_search.basic
     mapping_weight_bp: 10000
+  guide:
+    summary: "Find a target's index in a sorted array, or return -1."
+    pattern: "Closed-interval binary search"
+    time: "O(log n)"
+    space: "O(1)"
+    hints:
+    - "Comparing the middle element with the target lets you discard half of the range."
+    - "With while lo <= hi, exclude mid in both branches (lo = mid + 1, hi = mid - 1)."
+    - "When lo passes hi, the target is not present."
+    mistakes:
+    - "Setting hi = mid inside a lo <= hi loop, which can loop forever."
+    - "Mixing half-open and closed interval conventions in the same function."
+    - "Using while lo < hi with closed updates and never checking the last remaining element."
+    prerequisites: [arrays.traversal]
+    relevance: HIGH
 - id: 16
   platform: LEETCODE
   platform_key: search-in-rotated-sorted-array
@@ -187,6 +409,21 @@ problems:
     mapping_weight_bp: 10000
   - skill: binary_search.basic
     mapping_weight_bp: 5000
+  guide:
+    summary: "Find a target's index in a sorted array of distinct values that was rotated at an unknown pivot."
+    pattern: "Binary search that first identifies which half is sorted"
+    time: "O(log n)"
+    space: "O(1)"
+    hints:
+    - "At any mid, at least one of the two halves is in sorted order."
+    - "Compare nums[lo] with nums[mid] to tell which half is sorted."
+    - "If the target lies inside the sorted half's value range, search there; otherwise search the other half."
+    mistakes:
+    - "Using < instead of <= in nums[lo] <= nums[mid], which fails when lo equals mid."
+    - "Checking only one end of the sorted half's range."
+    - "Locating the pivot first and then making off-by-one errors in the second search."
+    prerequisites: [binary_search.basic]
+    relevance: HIGH
 - id: 17
   platform: LEETCODE
   platform_key: find-first-and-last-position-of-element-in-sorted-array
@@ -197,6 +434,21 @@ problems:
   skills:
   - skill: binary_search.boundaries
     mapping_weight_bp: 10000
+  guide:
+    summary: "Return the first and last index of a target in a sorted array, or [-1, -1]."
+    pattern: "Two lower-bound binary searches (for target and target + 1)"
+    time: "O(log n)"
+    space: "O(1)"
+    hints:
+    - "Finding any one occurrence is not enough; you need both boundaries."
+    - "Write one lower-bound search that returns the first index whose value is >= x."
+    - "The last occurrence is lower_bound(target + 1) - 1, once you confirm the target exists."
+    mistakes:
+    - "Finding one match and expanding linearly, which is O(n) with many duplicates."
+    - "Not checking that the lower-bound index is in range and actually holds the target."
+    - "Mixing up hi = mid and hi = mid - 1 in the boundary search."
+    prerequisites: [binary_search.basic]
+    relevance: HIGH
 - id: 18
   platform: LEETCODE
   platform_key: koko-eating-bananas
@@ -207,6 +459,21 @@ problems:
   skills:
   - skill: binary_search.answer_space
     mapping_weight_bp: 10000
+  guide:
+    summary: "Find the slowest eating speed that still finishes every banana pile within h hours."
+    pattern: "Binary search on the answer with a monotonic feasibility check"
+    time: "O(n log m), m = largest pile"
+    space: "O(1)"
+    hints:
+    - "If speed s finishes in time, every faster speed does too."
+    - "Search speeds from 1 to max(piles) and test feasibility at each mid."
+    - "Hours for one pile is the integer ceiling (p + s - 1) // s."
+    mistakes:
+    - "Using float division with math.ceil when integer ceiling division is exact."
+    - "Starting the range at 0, which divides by zero."
+    - "Returning the wrong bound for the loop convention, off by one."
+    prerequisites: [binary_search.boundaries]
+    relevance: HIGH
 - id: 19
   platform: LEETCODE
   platform_key: time-based-key-value-store
@@ -219,6 +486,21 @@ problems:
     mapping_weight_bp: 10000
   - skill: design_ds.core
     mapping_weight_bp: 5000
+  guide:
+    summary: "Design a key-value store whose get returns the value set at the latest timestamp not after the query time."
+    pattern: "Per-key list of (timestamp, value) pairs with an upper-bound binary search"
+    time: "O(1) set, O(log n) get"
+    space: "O(n)"
+    hints:
+    - "Timestamps arrive in increasing order, so each key's history is already sorted."
+    - "For get, you need the rightmost timestamp that is <= the query time."
+    - "bisect_right on that key's timestamps, minus one, gives the index."
+    mistakes:
+    - "Scanning the whole history on every get."
+    - "Using bisect_left and missing an exact timestamp match."
+    - "Not returning the empty string when the query time is earlier than every set."
+    prerequisites: [python.collections]
+    relevance: MEDIUM
 - id: 20
   platform: LEETCODE
   platform_key: maximum-depth-of-binary-tree
@@ -231,6 +513,21 @@ problems:
     mapping_weight_bp: 10000
   - skill: recursion.fundamentals
     mapping_weight_bp: 5000
+  guide:
+    summary: "Return the number of nodes on the longest root-to-leaf path of a binary tree."
+    pattern: "Post-order DFS (or BFS counting levels)"
+    time: "O(n)"
+    space: "O(h)"
+    hints:
+    - "A tree's depth follows directly from its two subtrees' depths."
+    - "An empty tree has depth 0."
+    - "Return 1 + max(depth(left), depth(right))."
+    mistakes:
+    - "Returning 1 for an empty tree."
+    - "Counting edges instead of nodes."
+    - "Ignoring that a very deep skewed tree can hit Python's recursion limit; BFS avoids it."
+    prerequisites: [recursion.fundamentals]
+    relevance: HIGH
 - id: 21
   platform: LEETCODE
   platform_key: binary-tree-level-order-traversal
@@ -243,6 +540,21 @@ problems:
     mapping_weight_bp: 10000
   - skill: queue.deque
     mapping_weight_bp: 5000
+  guide:
+    summary: "Return a binary tree's values grouped level by level from the top."
+    pattern: "BFS with a deque, processing one whole level per iteration"
+    time: "O(n)"
+    space: "O(n)"
+    hints:
+    - "Visiting nodes in order of distance from the root is breadth-first search."
+    - "At the start of each round, the queue length is the size of the current level."
+    - "Pop exactly that many nodes, collect their values and enqueue their children."
+    mistakes:
+    - "Using list.pop(0), which is O(n) per pop."
+    - "Not separating levels, producing one flat list."
+    - "Enqueuing None children and then appending None values."
+    prerequisites: [queue.deque]
+    relevance: HIGH
 - id: 22
   platform: LEETCODE
   platform_key: diameter-of-binary-tree
@@ -255,6 +567,21 @@ problems:
     mapping_weight_bp: 10000
   - skill: trees.traversal
     mapping_weight_bp: 5000
+  guide:
+    summary: "Find the number of edges on the longest path between any two nodes of a binary tree."
+    pattern: "Post-order DFS returning height while updating an outer best"
+    time: "O(n)"
+    space: "O(h)"
+    hints:
+    - "The longest path has some highest node where it bends."
+    - "The path through a node has length left height + right height."
+    - "Return the height to the parent but record the through-path in an outer variable."
+    mistakes:
+    - "Assuming the longest path passes through the root."
+    - "Mixing node counts and edge counts."
+    - "Recomputing heights from every node, which is O(n^2)."
+    prerequisites: [trees.traversal]
+    relevance: HIGH
 - id: 23
   platform: LEETCODE
   platform_key: lowest-common-ancestor-of-a-binary-tree
@@ -265,6 +592,21 @@ problems:
   skills:
   - skill: trees.lca_construction
     mapping_weight_bp: 10000
+  guide:
+    summary: "Find the deepest node of a binary tree that has both given nodes as descendants."
+    pattern: "Post-order DFS returning the found node upward"
+    time: "O(n)"
+    space: "O(h)"
+    hints:
+    - "If the current node is p or q, you can return it immediately."
+    - "Recurse into both children and look at what each side reports."
+    - "If both sides report a node, the current node is the answer; otherwise pass up the non-null side."
+    mistakes:
+    - "Using BST ordering, which does not hold in a general binary tree."
+    - "Forgetting that a node counts as its own descendant."
+    - "Storing full root-to-node paths when a single pass is expected."
+    prerequisites: [trees.traversal]
+    relevance: HIGH
 - id: 24
   platform: LEETCODE
   platform_key: validate-binary-search-tree
@@ -277,6 +619,21 @@ problems:
     mapping_weight_bp: 10000
   - skill: trees.traversal
     mapping_weight_bp: 5000
+  guide:
+    summary: "Check whether a binary tree satisfies the strict binary search tree ordering."
+    pattern: "DFS with an open (low, high) bound per node, or a strictly increasing in-order check"
+    time: "O(n)"
+    space: "O(h)"
+    hints:
+    - "Comparing a node only with its direct children is not enough."
+    - "Every node in a right subtree must be greater than all ancestors it sits to the right of."
+    - "Pass down the allowed open interval, or check that the in-order sequence strictly increases."
+    mistakes:
+    - "Checking only node.left.val < node.val < node.right.val."
+    - "Allowing equal values when the ordering must be strict."
+    - "Using sentinel integers like -2**31 that collide with valid node values; use None bounds."
+    prerequisites: [trees.traversal]
+    relevance: HIGH
 - id: 25
   platform: LEETCODE
   platform_key: implement-trie-prefix-tree
@@ -287,6 +644,21 @@ problems:
   skills:
   - skill: trie.core
     mapping_weight_bp: 10000
+  guide:
+    summary: "Build a prefix tree that supports inserting words, exact search and prefix search."
+    pattern: "Trie of child dicts with an end-of-word flag"
+    time: "O(L) per operation"
+    space: "O(total inserted characters)"
+    hints:
+    - "Each node stands for a prefix and maps the next character to a child node."
+    - "Walk the word character by character, creating or following children."
+    - "search must also check the end-of-word flag; startsWith must not."
+    mistakes:
+    - "Returning true from search for a prefix that was never inserted as a whole word."
+    - "Using a mutable default argument for children, sharing one dict across nodes."
+    - "Storing whole words at every node, which blows up memory."
+    prerequisites: [hashing.lookup_frequency]
+    relevance: HIGH
 - id: 26
   platform: LEETCODE
   platform_key: find-median-from-data-stream
@@ -299,6 +671,21 @@ problems:
     mapping_weight_bp: 10000
   - skill: heap.top_k
     mapping_weight_bp: 5000
+  guide:
+    summary: "Support adding numbers one at a time and reporting the running median."
+    pattern: "Two heaps: a max-heap for the lower half and a min-heap for the upper half"
+    time: "O(log n) add, O(1) median"
+    space: "O(n)"
+    hints:
+    - "The median depends only on the middle of the sorted order."
+    - "Keep the smaller half in a max-heap and the larger half in a min-heap."
+    - "After each insert, rebalance so the sizes differ by at most one."
+    mistakes:
+    - "Forgetting that heapq is a min-heap and not negating values for the lower half."
+    - "Balancing sizes without ensuring every lower value is <= every upper value."
+    - "Using integer division when the median of an even count is a fraction."
+    prerequisites: [heap.top_k]
+    relevance: HIGH
 - id: 27
   platform: LEETCODE
   platform_key: number-of-islands
@@ -311,6 +698,21 @@ problems:
     mapping_weight_bp: 10000
   - skill: graph.grid_multisource
     mapping_weight_bp: 5000
+  guide:
+    summary: "Count the groups of horizontally or vertically connected land cells in a grid."
+    pattern: "Grid DFS/BFS flood fill started from each unvisited land cell"
+    time: "O(m * n)"
+    space: "O(m * n)"
+    hints:
+    - "Each island is a connected component of land cells."
+    - "Start a traversal from every unvisited land cell and count the starts."
+    - "Mark cells visited when you push them, not when you pop them."
+    mistakes:
+    - "Comparing cells to the integer 1 when the grid holds the string '1'."
+    - "Marking visited on pop, which enqueues the same cell many times."
+    - "Recursive DFS on a large all-land grid exceeding Python's recursion limit."
+    prerequisites: [trees.traversal]
+    relevance: HIGH
 - id: 28
   platform: LEETCODE
   platform_key: clone-graph
@@ -323,6 +725,20 @@ problems:
     mapping_weight_bp: 10000
   - skill: hashing.lookup_frequency
     mapping_weight_bp: 5000
+  guide:
+    summary: "Deep-copy a connected undirected graph given a reference to one of its nodes."
+    pattern: "DFS/BFS with an original-to-clone hash map"
+    time: "O(V + E)"
+    space: "O(V)"
+    hints:
+    - "Each node must be copied exactly once even though it is reachable along many edges."
+    - "Keep a map from each original node to its clone."
+    - "Register the clone in the map before visiting neighbours, so cycles find it."
+    mistakes:
+    - "Creating a new clone every time a node is reached, breaking shared structure."
+    - "Inserting into the map after recursing, which recurses forever on a cycle."
+    - "Not handling an empty (null) input graph."
+    relevance: MEDIUM
 - id: 29
   platform: LEETCODE
   platform_key: number-of-connected-components-in-an-undirected-graph
@@ -335,6 +751,20 @@ problems:
     mapping_weight_bp: 10000
   - skill: graph.union_find
     mapping_weight_bp: 5000
+  guide:
+    summary: "Count the connected components of an undirected graph given n nodes and an edge list."
+    pattern: "Adjacency list with DFS/BFS from each unvisited node, or union-find counting merges"
+    time: "O(V + E)"
+    space: "O(V + E)"
+    hints:
+    - "Build an adjacency list first; a bare edge list does not let you walk the graph."
+    - "Start a traversal from every unvisited node; each start is a new component."
+    - "With union-find, begin at n components and subtract one for each successful union."
+    mistakes:
+    - "Adding only one direction of each undirected edge."
+    - "Forgetting isolated nodes that appear in no edge."
+    - "Decrementing the count when a union joins nodes that were already connected."
+    relevance: MEDIUM
 - id: 30
   platform: LEETCODE
   platform_key: word-ladder
@@ -347,6 +777,21 @@ problems:
     mapping_weight_bp: 10000
   - skill: strings.manipulation
     mapping_weight_bp: 5000
+  guide:
+    summary: "Find how many words are in the shortest one-letter-at-a-time transformation from a begin word to an end word."
+    pattern: "BFS over words with wildcard-pattern buckets"
+    time: "O(N * L^2), N words of length L"
+    space: "O(N * L^2)"
+    hints:
+    - "Words are nodes and one-letter differences are edges, so the shortest sequence is a BFS."
+    - "Comparing every pair of words is O(N^2 * L); bucket words by patterns like h*t instead."
+    - "Mark words visited when they are enqueued and return the level when the end word appears."
+    mistakes:
+    - "Using DFS, which does not find the shortest sequence."
+    - "Returning the number of edges when the answer counts words."
+    - "Not returning 0 when the end word is missing from the dictionary."
+    prerequisites: [queue.deque]
+    relevance: HIGH
 - id: 31
   platform: LEETCODE
   platform_key: rotting-oranges
@@ -359,6 +804,21 @@ problems:
     mapping_weight_bp: 10000
   - skill: graph.traversal
     mapping_weight_bp: 5000
+  guide:
+    summary: "Find the minutes until no fresh orange remains when rot spreads to neighbours each minute, or -1."
+    pattern: "Multi-source BFS from all rotten cells at once, one level per minute"
+    time: "O(m * n)"
+    space: "O(m * n)"
+    hints:
+    - "Rot spreads from every rotten orange at the same time."
+    - "Seed the queue with all rotten cells and process the grid level by level."
+    - "Count fresh oranges up front and decrement as they rot to detect unreachable ones."
+    mistakes:
+    - "Running a separate BFS from each rotten orange."
+    - "Counting a final empty level as an extra minute."
+    - "Returning -1 instead of 0 when there are no fresh oranges at the start."
+    prerequisites: [graph.traversal]
+    relevance: HIGH
 - id: 32
   platform: LEETCODE
   platform_key: course-schedule
@@ -371,6 +831,21 @@ problems:
     mapping_weight_bp: 10000
   - skill: graph.cycles_bipartite
     mapping_weight_bp: 5000
+  guide:
+    summary: "Decide whether every course can be finished given prerequisite pairs."
+    pattern: "Kahn's topological sort (or three-colour DFS cycle detection)"
+    time: "O(V + E)"
+    space: "O(V + E)"
+    hints:
+    - "Courses and prerequisites form a directed graph, and a cycle makes finishing impossible."
+    - "Repeatedly take courses that have no remaining prerequisites (in-degree 0)."
+    - "If the number of courses taken equals n, the graph has no cycle."
+    mistakes:
+    - "Building edges in one direction and processing them as if they pointed the other way."
+    - "Using a single visited flag in DFS, which reports revisits as cycles."
+    - "Forgetting courses that appear in no prerequisite pair."
+    prerequisites: [graph.traversal]
+    relevance: HIGH
 - id: 33
   platform: LEETCODE
   platform_key: redundant-connection
@@ -381,6 +856,20 @@ problems:
   skills:
   - skill: graph.union_find
     mapping_weight_bp: 10000
+  guide:
+    summary: "Find the edge whose removal turns a tree-plus-one-edge graph back into a tree."
+    pattern: "Union-find; the first edge joining two already-connected nodes"
+    time: "O(n * alpha(n))"
+    space: "O(n)"
+    hints:
+    - "A tree with one extra edge contains exactly one cycle."
+    - "Process the edges in order, unioning their endpoints."
+    - "The first edge whose endpoints already share a root closes the cycle."
+    mistakes:
+    - "Union-find without path compression or union by rank, which degrades on long chains."
+    - "Sizing the parent array for 0-based nodes when nodes are labelled 1 to n."
+    - "Returning an arbitrary cycle edge instead of the one that appears last in the input."
+    relevance: HIGH
 - id: 34
   platform: LEETCODE
   platform_key: network-delay-time
@@ -393,6 +882,21 @@ problems:
     mapping_weight_bp: 10000
   - skill: heap.top_k
     mapping_weight_bp: 5000
+  guide:
+    summary: "Find how long a signal from one node takes to reach every node of a weighted directed graph, or -1."
+    pattern: "Dijkstra with a min-heap"
+    time: "O(E log V)"
+    space: "O(V + E)"
+    hints:
+    - "This is single-source shortest path with non-negative weights."
+    - "Pop the closest unsettled node from a heap and relax its outgoing edges."
+    - "The answer is the largest shortest distance, or -1 if some node is unreached."
+    mistakes:
+    - "Not skipping stale heap entries whose distance exceeds the recorded best."
+    - "Using plain BFS, which ignores edge weights."
+    - "Returning the sum of distances instead of the maximum."
+    prerequisites: [heap.top_k]
+    relevance: HIGH
 - id: 35
   platform: LEETCODE
   platform_key: subsets
@@ -405,6 +909,21 @@ problems:
     mapping_weight_bp: 10000
   - skill: recursion.fundamentals
     mapping_weight_bp: 5000
+  guide:
+    summary: "Return every subset of a set of distinct integers."
+    pattern: "Backtracking with a start index (or iterative doubling)"
+    time: "O(n * 2^n)"
+    space: "O(n) recursion besides the output"
+    hints:
+    - "Each element is either in or out of a subset, so there are 2^n subsets."
+    - "Recurse with a start index and record the current path at every call."
+    - "Record a copy of the path, not the path list itself."
+    mistakes:
+    - "Appending the shared mutable path, so every result ends up identical."
+    - "Forgetting the empty subset."
+    - "Restarting each loop at index 0 and producing duplicate subsets."
+    prerequisites: [recursion.fundamentals]
+    relevance: HIGH
 - id: 36
   platform: LEETCODE
   platform_key: jump-game
@@ -415,6 +934,20 @@ problems:
   skills:
   - skill: greedy.core
     mapping_weight_bp: 10000
+  guide:
+    summary: "Decide whether the last index is reachable when each value is the maximum jump from that index."
+    pattern: "Greedy scan tracking the farthest reachable index"
+    time: "O(n)"
+    space: "O(1)"
+    hints:
+    - "You do not need to know which jumps to take, only how far you can get."
+    - "Track the farthest index reachable so far as you scan left to right."
+    - "If the current index is beyond the farthest reach, you are stuck."
+    mistakes:
+    - "Exploring every jump choice recursively without memoisation, which is exponential."
+    - "Updating the reach before checking whether the current index was reachable."
+    - "Off-by-one on the last index (n - 1)."
+    relevance: HIGH
 - id: 37
   platform: LEETCODE
   platform_key: climbing-stairs
@@ -427,6 +960,21 @@ problems:
     mapping_weight_bp: 10000
   - skill: recursion.fundamentals
     mapping_weight_bp: 5000
+  guide:
+    summary: "Count the distinct ways to climb n steps taking one or two steps at a time."
+    pattern: "1-D DP (Fibonacci recurrence) with two rolling variables"
+    time: "O(n)"
+    space: "O(1)"
+    hints:
+    - "The last move onto step n came from step n - 1 or from step n - 2."
+    - "So ways(n) = ways(n - 1) + ways(n - 2)."
+    - "Two rolling variables replace the whole table."
+    mistakes:
+    - "Plain recursion without memoisation, which is exponential."
+    - "Wrong base cases; ways(1) = 1 and ways(2) = 2."
+    - "Allocating an n-sized table when two variables suffice."
+    prerequisites: [recursion.fundamentals]
+    relevance: HIGH
 - id: 38
   platform: LEETCODE
   platform_key: house-robber
@@ -437,6 +985,20 @@ problems:
   skills:
   - skill: dp.fundamentals
     mapping_weight_bp: 10000
+  guide:
+    summary: "Maximise the money taken from a row of houses without taking from two adjacent houses."
+    pattern: "1-D DP with a take-or-skip transition"
+    time: "O(n)"
+    space: "O(1)"
+    hints:
+    - "For each house you either rob it or skip it."
+    - "best(i) = max(best(i - 1), best(i - 2) + nums[i])."
+    - "Two rolling variables are enough."
+    mistakes:
+    - "Greedily summing odd or even indices, which fails on inputs like [2, 1, 1, 2]."
+    - "Mishandling arrays of one or two houses."
+    - "Updating the rolling variables in the wrong order and reading an overwritten value."
+    relevance: HIGH
 - id: 39
   platform: LEETCODE
   platform_key: coin-change
@@ -449,6 +1011,21 @@ problems:
     mapping_weight_bp: 10000
   - skill: dp.fundamentals
     mapping_weight_bp: 5000
+  guide:
+    summary: "Find the fewest coins needed to make an amount with unlimited coins of each denomination, or -1."
+    pattern: "Unbounded knapsack DP over amounts"
+    time: "O(amount * coins)"
+    space: "O(amount)"
+    hints:
+    - "Taking the largest coin first fails for some coin systems."
+    - "dp[a] is the fewest coins for amount a; try every coin as the last one used."
+    - "Initialise unreachable amounts to a sentinel larger than any real answer, such as amount + 1."
+    mistakes:
+    - "Greedy largest-coin-first."
+    - "Using 0 as the unreachable sentinel, so the min picks it."
+    - "Returning the sentinel instead of -1 for an unreachable amount."
+    prerequisites: [dp.fundamentals]
+    relevance: HIGH
 - id: 40
   platform: LEETCODE
   platform_key: longest-common-subsequence
@@ -461,6 +1038,21 @@ problems:
     mapping_weight_bp: 10000
   - skill: dp.fundamentals
     mapping_weight_bp: 5000
+  guide:
+    summary: "Find the length of the longest subsequence shared by two strings."
+    pattern: "2-D DP over pairs of prefixes"
+    time: "O(m * n)"
+    space: "O(min(m, n)) with a rolling row"
+    hints:
+    - "Compare the last characters of the two prefixes."
+    - "If they match, extend the answer for both shorter prefixes by one; otherwise drop a character from one string and take the better result."
+    - "Size the table (m + 1) x (n + 1) so row and column 0 represent empty prefixes."
+    mistakes:
+    - "Resetting to 0 on a mismatch, which solves longest common substring instead."
+    - "Off-by-one between the padded table and 0-based string indices."
+    - "Overwriting the diagonal value before using it in the rolling-row version."
+    prerequisites: [dp.fundamentals]
+    relevance: HIGH
 - id: 41
   platform: LEETCODE
   platform_key: unique-paths
@@ -473,6 +1065,21 @@ problems:
     mapping_weight_bp: 10000
   - skill: dp.fundamentals
     mapping_weight_bp: 5000
+  guide:
+    summary: "Count the paths from the top-left to the bottom-right of a grid moving only right or down."
+    pattern: "Grid DP where each cell sums the cell above and the cell to the left"
+    time: "O(m * n)"
+    space: "O(n)"
+    hints:
+    - "Every path into a cell arrives from above or from the left."
+    - "Cells in the first row and first column have exactly one path."
+    - "A single row updated in place works, with row[j] += row[j - 1]."
+    mistakes:
+    - "Initialising the first row and column to 0."
+    - "Recursion without memoisation, which is exponential."
+    - "Not mentioning the closed form C(m + n - 2, m - 1) when asked for a faster solution."
+    prerequisites: [dp.fundamentals]
+    relevance: HIGH
 - id: 42
   platform: LEETCODE
   platform_key: lru-cache
@@ -487,6 +1094,21 @@ problems:
     mapping_weight_bp: 5000
   - skill: hashing.lookup_frequency
     mapping_weight_bp: 5000
+  guide:
+    summary: "Design a fixed-capacity cache that evicts the least recently used key, with O(1) get and put."
+    pattern: "Hash map plus a doubly linked list with sentinels (or OrderedDict)"
+    time: "O(1) per operation"
+    space: "O(capacity)"
+    hints:
+    - "You need O(1) lookup and O(1) reordering by recency."
+    - "A dict gives the lookup; a doubly linked list with head and tail sentinels gives O(1) move and remove."
+    - "Refresh recency on both get and on put of an existing key."
+    mistakes:
+    - "Forgetting that get also makes the key most recently used."
+    - "Evicting before updating an existing key, which wrongly evicts at full capacity."
+    - "Removing the node from the list but not deleting its key from the dict."
+    prerequisites: [linked_list.manipulation, hashing.lookup_frequency]
+    relevance: HIGH
 - id: 43
   platform: LEETCODE
   platform_key: kth-largest-element-in-an-array
@@ -499,6 +1121,21 @@ problems:
     mapping_weight_bp: 10000
   - skill: sorting.algorithms
     mapping_weight_bp: 5000
+  guide:
+    summary: "Return the k-th largest value of an unsorted array."
+    pattern: "Size-k min-heap, or quickselect"
+    time: "O(n log k) with a heap, O(n) average with quickselect"
+    space: "O(k) heap, O(1) quickselect"
+    hints:
+    - "Fully sorting works but does more than the question needs."
+    - "Keep a min-heap of the k largest values seen; its top is the answer."
+    - "Quickselect partitions around a pivot and continues into one side only."
+    mistakes:
+    - "Heapifying all n values into a max-heap and popping k times when a size-k heap suffices."
+    - "Quickselect with a fixed pivot, which degrades to O(n^2) on sorted input."
+    - "Confusing the k-th largest with index k - 1 of the ascending order."
+    prerequisites: [python.collections]
+    relevance: HIGH
 - id: 44
   platform: LEETCODE
   platform_key: single-number
@@ -509,3 +1146,2472 @@ problems:
   skills:
   - skill: bit_manipulation.core
     mapping_weight_bp: 10000
+  guide:
+    summary: "Find the one value that appears once when every other value appears exactly twice."
+    pattern: "XOR of all elements"
+    time: "O(n)"
+    space: "O(1)"
+    hints:
+    - "Look for an operation under which a value paired with itself cancels out."
+    - "x ^ x = 0, x ^ 0 = x, and XOR is commutative and associative."
+    - "XOR every element together."
+    mistakes:
+    - "Using a set or Counter when O(1) extra space is required."
+    - "Sorting first, which is O(n log n)."
+    - "Assuming the same trick works unchanged when other values appear three times."
+    relevance: HIGH
+- id: 45
+  platform: LEETCODE
+  platform_key: best-time-to-buy-and-sell-stock
+  title: Best Time to Buy and Sell Stock
+  difficulty: EASY
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: arrays.traversal
+    mapping_weight_bp: 10000
+  - skill: greedy.core
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Find the largest profit from buying on one day and selling on a later day, or 0."
+    pattern: "Single pass tracking the minimum price so far"
+    time: "O(n)"
+    space: "O(1)"
+    hints:
+    - "Treat each day as the selling day and ask which earlier day is the best buy."
+    - "The best buy for any sell day is the cheapest price seen before it."
+    - "Keep a running minimum and update the best profit with price - minimum."
+    mistakes:
+    - "Taking max - min over the whole array, which may sell before buying."
+    - "Returning a negative profit instead of 0."
+    - "Comparing every pair of days, O(n^2)."
+    relevance: HIGH
+- id: 46
+  platform: LEETCODE
+  platform_key: product-of-array-except-self
+  title: Product of Array Except Self
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: arrays.traversal
+    mapping_weight_bp: 10000
+  - skill: prefix_sum.core
+    mapping_weight_bp: 5000
+  guide:
+    summary: "For each index, return the product of every other element without using division."
+    pattern: "Prefix-product pass followed by a running suffix-product pass"
+    time: "O(n)"
+    space: "O(1) extra besides the output"
+    hints:
+    - "The answer at i is the product of everything left of i times everything right of i."
+    - "Fill the output with prefix products in one left-to-right pass."
+    - "Sweep from the right with a running suffix product and multiply it in."
+    mistakes:
+    - "Dividing the total product, which is disallowed and breaks on zeros."
+    - "Including nums[i] in its own prefix or suffix."
+    - "Allocating separate prefix and suffix arrays when O(1) extra space is the follow-up."
+    relevance: HIGH
+- id: 47
+  platform: LEETCODE
+  platform_key: first-missing-positive
+  title: First Missing Positive
+  difficulty: HARD
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: arrays.traversal
+    mapping_weight_bp: 10000
+  guide:
+    summary: "Find the smallest positive integer missing from an unsorted array in linear time and constant extra space."
+    pattern: "In-place cyclic placement, putting value v at index v - 1"
+    time: "O(n)"
+    space: "O(1)"
+    hints:
+    - "The answer is always between 1 and n + 1."
+    - "Swap each value v in 1..n into index v - 1 until the current slot holds the right value or an out-of-range one."
+    - "Afterwards, the first index i with nums[i] != i + 1 gives the answer i + 1."
+    mistakes:
+    - "A swap loop that does not stop on duplicates, so it never terminates."
+    - "Using a set, which breaks the constant-space requirement."
+    - "Forgetting that the answer is n + 1 when 1..n are all present."
+    relevance: MEDIUM
+- id: 48
+  platform: LEETCODE
+  platform_key: valid-anagram
+  title: Valid Anagram
+  difficulty: EASY
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: hashing.lookup_frequency
+    mapping_weight_bp: 10000
+  - skill: python.collections
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Decide whether one string is a rearrangement of the letters of another."
+    pattern: "Character frequency count comparison"
+    time: "O(n)"
+    space: "O(alphabet)"
+    hints:
+    - "Anagrams contain exactly the same characters with the same multiplicities."
+    - "Different lengths rule an anagram out immediately."
+    - "Count one string and decrement with the other, or compare two Counter objects."
+    mistakes:
+    - "Comparing sets, which ignores how many times each letter appears."
+    - "Sorting both strings and still calling the solution O(n)."
+    - "Hard-coding a 26-slot array when the follow-up asks about Unicode input."
+    prerequisites: [python.collections]
+    relevance: HIGH
+- id: 49
+  platform: LEETCODE
+  platform_key: longest-consecutive-sequence
+  title: Longest Consecutive Sequence
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: hashing.lookup_frequency
+    mapping_weight_bp: 10000
+  guide:
+    summary: "Find the length of the longest run of consecutive integers in an unsorted array, in linear time."
+    pattern: "Hash set with sequence-start detection"
+    time: "O(n)"
+    space: "O(n)"
+    hints:
+    - "Sorting gives O(n log n), but the target is linear."
+    - "Put every value in a set so membership checks are O(1)."
+    - "Only start counting upward from x when x - 1 is not in the set."
+    mistakes:
+    - "Counting upward from every element, which is O(n^2) on one long run."
+    - "Iterating the original array with duplicates instead of the set, repeating work."
+    - "Not returning 0 for an empty array."
+    prerequisites: [python.collections]
+    relevance: HIGH
+- id: 50
+  platform: LEETCODE
+  platform_key: valid-palindrome
+  title: Valid Palindrome
+  difficulty: EASY
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: strings.manipulation
+    mapping_weight_bp: 10000
+  - skill: two_pointers.core
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Check whether a string reads the same both ways after ignoring case and non-alphanumeric characters."
+    pattern: "Opposite-end two pointers that skip non-alphanumeric characters"
+    time: "O(n)"
+    space: "O(1)"
+    hints:
+    - "Compare characters from both ends while moving inward."
+    - "Skip characters that are neither letters nor digits on either side."
+    - "Compare the lowercase forms of the two characters."
+    mistakes:
+    - "Building a cleaned copy of the string when O(1) extra space is the follow-up."
+    - "Skipping characters without rechecking left < right, so the pointers cross."
+    - "Dropping digits, which count as alphanumeric."
+    prerequisites: [two_pointers.core]
+    relevance: HIGH
+- id: 51
+  platform: LEETCODE
+  platform_key: longest-palindromic-substring
+  title: Longest Palindromic Substring
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: strings.manipulation
+    mapping_weight_bp: 10000
+  - skill: dp.strings_subsequence
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Return the longest contiguous substring that is a palindrome."
+    pattern: "Expand around every center (odd and even length)"
+    time: "O(n^2)"
+    space: "O(1)"
+    hints:
+    - "Every palindrome mirrors around its center."
+    - "There are 2n - 1 centers, each character and each gap between neighbours."
+    - "Expand outward while the ends match and keep the widest span."
+    mistakes:
+    - "Expanding only around characters, missing even-length palindromes like 'abba'."
+    - "Testing every substring for being a palindrome, O(n^3)."
+    - "Off-by-one when turning the final expanded bounds into a slice."
+    relevance: HIGH
+- id: 52
+  platform: LEETCODE
+  platform_key: string-to-integer-atoi
+  title: String to Integer (atoi)
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: strings.manipulation
+    mapping_weight_bp: 10000
+  - skill: math.number_basics
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Parse a leading signed integer from a string following whitespace, sign and 32-bit clamping rules."
+    pattern: "Linear phase-by-phase parse with clamping to the 32-bit range"
+    time: "O(n)"
+    space: "O(1)"
+    hints:
+    - "Handle the input in phases: leading spaces, an optional sign, then digits."
+    - "Stop at the first character that is not a digit."
+    - "Clamp the result to [-2^31, 2^31 - 1]; in fixed-width languages check before each multiply."
+    mistakes:
+    - "Accepting more than one sign, or a sign after digits."
+    - "Continuing past the first non-digit character."
+    - "Forgetting the clamp, or clamping the magnitude before applying the sign."
+    relevance: MEDIUM
+- id: 53
+  platform: LEETCODE
+  platform_key: two-sum-ii-input-array-is-sorted
+  title: Two Sum II - Input Array Is Sorted
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: two_pointers.core
+    mapping_weight_bp: 10000
+  guide:
+    summary: "Find the 1-based positions of two numbers in a sorted array that add up to a target, using constant extra space."
+    pattern: "Opposite-end two pointers on sorted input"
+    time: "O(n)"
+    space: "O(1)"
+    hints:
+    - "Because the array is sorted, the sum changes predictably as a pointer moves."
+    - "Start at both ends; if the sum is too small, move the left pointer right."
+    - "If the sum is too large, move the right pointer left."
+    mistakes:
+    - "Returning 0-based indices."
+    - "Using a hash map, which ignores the constant-space requirement."
+    - "Moving both pointers on every step."
+    prerequisites: [arrays.traversal]
+    relevance: HIGH
+- id: 54
+  platform: LEETCODE
+  platform_key: trapping-rain-water
+  title: Trapping Rain Water
+  difficulty: HARD
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: two_pointers.core
+    mapping_weight_bp: 10000
+  - skill: stack.monotonic
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Compute how much rainwater collects between bars of given heights."
+    pattern: "Two pointers with running left and right maxima"
+    time: "O(n)"
+    space: "O(1)"
+    hints:
+    - "Water above a bar is min(highest bar to its left, highest bar to its right) minus its own height."
+    - "Prefix-max and suffix-max arrays give a linear-space solution."
+    - "With two pointers, the side whose running max is smaller is already bounded, so settle that side and move it."
+    mistakes:
+    - "Using the global maximum instead of the left and right maxima for each position."
+    - "Advancing the pointer on the side with the larger running max."
+    - "Letting the water at a bar go negative instead of 0."
+    prerequisites: [arrays.traversal]
+    relevance: HIGH
+- id: 55
+  platform: LEETCODE
+  platform_key: longest-repeating-character-replacement
+  title: Longest Repeating Character Replacement
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: sliding_window.core
+    mapping_weight_bp: 10000
+  - skill: hashing.lookup_frequency
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Find the longest substring that can be turned into one repeated letter with at most k replacements."
+    pattern: "Variable sliding window comparing window length with its most frequent letter count"
+    time: "O(n)"
+    space: "O(alphabet)"
+    hints:
+    - "A window is fixable when its length minus the count of its most frequent letter is at most k."
+    - "Grow the window to the right and shrink from the left when it stops being fixable."
+    - "The tracked max frequency never needs to decrease, because only a larger max can produce a longer answer."
+    mistakes:
+    - "Testing validity with the number of distinct letters instead of length minus max frequency."
+    - "Forgetting to decrement the count of the letter leaving on the left."
+    - "Restarting the window from scratch whenever it becomes invalid, O(n^2)."
+    prerequisites: [hashing.lookup_frequency]
+    relevance: HIGH
+- id: 56
+  platform: LEETCODE
+  platform_key: permutation-in-string
+  title: Permutation in String
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: sliding_window.core
+    mapping_weight_bp: 10000
+  - skill: python.collections
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Decide whether some substring of s2 is a rearrangement of s1."
+    pattern: "Fixed-size sliding window comparing character counts"
+    time: "O(|s1| + |s2|)"
+    space: "O(alphabet)"
+    hints:
+    - "A rearrangement of s1 is any window of length len(s1) with the same character counts."
+    - "Slide a window of that fixed length and update counts as characters enter and leave."
+    - "Track how many letters currently have matching counts so each step is O(1)."
+    mistakes:
+    - "Generating permutations of s1."
+    - "Rebuilding a Counter for every window, O(n * k)."
+    - "Not returning false immediately when s1 is longer than s2."
+    prerequisites: [hashing.lookup_frequency]
+    relevance: HIGH
+- id: 57
+  platform: LEETCODE
+  platform_key: range-sum-query-immutable
+  title: Range Sum Query - Immutable
+  difficulty: EASY
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: prefix_sum.core
+    mapping_weight_bp: 10000
+  - skill: design_ds.core
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Answer many inclusive range-sum queries over a fixed array."
+    pattern: "Prefix-sum array with a leading zero"
+    time: "O(n) build, O(1) per query"
+    space: "O(n)"
+    hints:
+    - "Summing each range on demand costs O(n) per query."
+    - "Precompute prefix[i] as the sum of the first i elements."
+    - "The sum of [l, r] is prefix[r + 1] - prefix[l]."
+    mistakes:
+    - "Skipping the leading zero, so prefix[l - 1] breaks when l is 0."
+    - "Recomputing sums inside each query."
+    - "Rebuilding the prefix array on every query call."
+    prerequisites: [arrays.traversal]
+    relevance: MEDIUM
+- id: 58
+  platform: LEETCODE
+  platform_key: continuous-subarray-sum
+  title: Continuous Subarray Sum
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: prefix_sum.core
+    mapping_weight_bp: 10000
+  - skill: hashing.lookup_frequency
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Decide whether an array has a subarray of length at least two whose sum is a multiple of k."
+    pattern: "Prefix-sum remainders with a first-seen index map"
+    time: "O(n)"
+    space: "O(min(n, k))"
+    hints:
+    - "Two prefixes with the same remainder modulo k enclose a subarray whose sum is divisible by k."
+    - "Store the first index at which each remainder appears."
+    - "Seed remainder 0 at index -1 and require the index gap to be at least 2."
+    mistakes:
+    - "Overwriting the first-seen index, which hides longer qualifying subarrays."
+    - "Omitting the {0: -1} seed and missing prefixes that are already multiples of k."
+    - "Accepting a single-element subarray."
+    prerequisites: [hashing.lookup_frequency]
+    relevance: MEDIUM
+- id: 59
+  platform: LEETCODE
+  platform_key: sort-colors
+  title: Sort Colors
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: sorting.algorithms
+    mapping_weight_bp: 10000
+  - skill: two_pointers.core
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Sort an array containing only 0, 1 and 2 in place, ideally in a single pass."
+    pattern: "Dutch national flag three-way partition (or two-pass counting sort)"
+    time: "O(n)"
+    space: "O(1)"
+    hints:
+    - "A two-pass counting sort works; the follow-up asks for one pass."
+    - "Keep zeros before low, twos after high, and the unknown region between mid and high."
+    - "After swapping a 2 to high, do not advance mid, because the value swapped in is unchecked."
+    mistakes:
+    - "Advancing mid after swapping with high."
+    - "Looping while mid < high instead of mid <= high."
+    - "Calling the built-in sort, which ignores the in-place one-pass requirement."
+    prerequisites: [two_pointers.core]
+    relevance: HIGH
+- id: 60
+  platform: LEETCODE
+  platform_key: sort-an-array
+  title: Sort an Array
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: sorting.algorithms
+    mapping_weight_bp: 10000
+  - skill: recursion.fundamentals
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Sort an integer array in O(n log n) without using the built-in sort."
+    pattern: "Merge sort (or heap sort, or randomised quicksort)"
+    time: "O(n log n)"
+    space: "O(n) for merge sort"
+    hints:
+    - "Split the array in half, sort each half, then merge."
+    - "Merging two sorted lists takes linear time with two pointers."
+    - "If you use quicksort, randomise the pivot and use three-way partitioning for many duplicates."
+    mistakes:
+    - "Quicksort with a fixed pivot timing out on sorted or all-equal input."
+    - "Dropping the leftover tail of one half in the merge step."
+    - "Slicing in every recursive call without accounting for the extra copying."
+    prerequisites: [recursion.fundamentals]
+    relevance: MEDIUM
+- id: 61
+  platform: LEETCODE
+  platform_key: count-of-smaller-numbers-after-self
+  title: Count of Smaller Numbers After Self
+  difficulty: HARD
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: sorting.algorithms
+    mapping_weight_bp: 10000
+  guide:
+    summary: "For each element, count how many elements to its right are strictly smaller."
+    pattern: "Merge sort over indices counting right-half elements placed before each left element (or a Fenwick tree)"
+    time: "O(n log n)"
+    space: "O(n)"
+    hints:
+    - "Comparing every pair is O(n^2); think about an algorithm that already compares left with right."
+    - "In a merge, when a left-half element is placed, every right-half element already placed was smaller and originally to its right."
+    - "Sort indices rather than values so the counts land at the original positions."
+    mistakes:
+    - "Sorting values and losing their original positions."
+    - "Counting equal elements as smaller."
+    - "Using bisect.insort into a list, which is O(n) per insert and O(n^2) overall."
+    prerequisites: [sorting.algorithms]
+    relevance: MEDIUM
+- id: 62
+  platform: LEETCODE
+  platform_key: insert-interval
+  title: Insert Interval
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: intervals.core
+    mapping_weight_bp: 10000
+  guide:
+    summary: "Insert a new interval into a sorted list of disjoint intervals, merging any overlaps."
+    pattern: "Three-phase linear sweep: before, overlapping, after"
+    time: "O(n)"
+    space: "O(n)"
+    hints:
+    - "The input is already sorted and disjoint, so you never need to sort."
+    - "Copy intervals that end before the new one starts, then absorb every interval that overlaps it."
+    - "Absorbing means taking the min of the starts and the max of the ends."
+    mistakes:
+    - "Appending and re-sorting everything, O(n log n)."
+    - "Getting the overlap test wrong at touching endpoints."
+    - "Forgetting to add the merged interval when it belongs at the very end."
+    prerequisites: [arrays.traversal]
+    relevance: HIGH
+- id: 63
+  platform: LEETCODE
+  platform_key: non-overlapping-intervals
+  title: Non-overlapping Intervals
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: intervals.core
+    mapping_weight_bp: 10000
+  - skill: greedy.core
+    mapping_weight_bp: 5000
+  - skill: python.sorting_keys
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Find the fewest intervals to remove so that the rest do not overlap."
+    pattern: "Greedy interval scheduling: sort by end and keep the earliest-ending interval"
+    time: "O(n log n)"
+    space: "O(1) besides the sort"
+    hints:
+    - "Removing the fewest is the same as keeping the most non-overlapping intervals."
+    - "The interval that ends earliest leaves the most room for the others."
+    - "Sort by end (key=lambda iv: iv[1]) and count intervals that start before the last kept end."
+    mistakes:
+    - "Sorting by start and keeping the first of two conflicting intervals instead of the one that ends earlier."
+    - "Treating intervals that only touch, like [1,2] and [2,3], as overlapping."
+    - "Returning the number kept instead of the number removed."
+    prerequisites: [python.sorting_keys]
+    relevance: HIGH
+- id: 64
+  platform: LEETCODE
+  platform_key: meeting-rooms-ii
+  title: Meeting Rooms II
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: intervals.core
+    mapping_weight_bp: 10000
+  - skill: heap.top_k
+    mapping_weight_bp: 5000
+  - skill: python.sorting_keys
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Find the minimum number of rooms needed to hold a set of meetings."
+    pattern: "Sweep over sorted start and end times, or a min-heap of end times"
+    time: "O(n log n)"
+    space: "O(n)"
+    hints:
+    - "The answer is the largest number of meetings in progress at the same moment."
+    - "Sort starts and ends separately and sweep, or sort by start and keep a heap of end times."
+    - "A room frees up when the earliest end is at or before the next start."
+    mistakes:
+    - "Treating a meeting that ends at t and one that starts at t as overlapping."
+    - "Only comparing adjacent meetings in sorted order."
+    - "Pushing end times onto the heap without ever popping freed rooms."
+    prerequisites: [python.sorting_keys]
+    relevance: HIGH
+- id: 65
+  platform: LEETCODE
+  platform_key: merge-two-sorted-lists
+  title: Merge Two Sorted Lists
+  difficulty: EASY
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: linked_list.manipulation
+    mapping_weight_bp: 10000
+  - skill: two_pointers.core
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Merge two sorted linked lists into one sorted list by relinking their nodes."
+    pattern: "Dummy head with a tail pointer splicing in the smaller node"
+    time: "O(m + n)"
+    space: "O(1)"
+    hints:
+    - "Compare the two heads and take the smaller one each step."
+    - "A dummy node removes the special case for the first node."
+    - "When one list runs out, attach the remainder of the other directly."
+    mistakes:
+    - "Forgetting to attach the leftover list."
+    - "Losing the head because no dummy node was used."
+    - "Allocating new nodes instead of relinking the existing ones."
+    relevance: HIGH
+- id: 66
+  platform: LEETCODE
+  platform_key: reverse-nodes-in-k-group
+  title: Reverse Nodes in k-Group
+  difficulty: HARD
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: linked_list.manipulation
+    mapping_weight_bp: 10000
+  guide:
+    summary: "Reverse a linked list's nodes in consecutive groups of k, leaving a shorter final group unchanged."
+    pattern: "Group-wise in-place reversal with a dummy node and a previous-group-tail pointer"
+    time: "O(n)"
+    space: "O(1)"
+    hints:
+    - "Before reversing a group, check that k nodes remain."
+    - "Reverse exactly k nodes with the standard prev and curr technique."
+    - "Link the previous group's tail to the new group head, and the old group head to the node after the group."
+    mistakes:
+    - "Reversing a final group that has fewer than k nodes."
+    - "Losing the link between groups after a reversal."
+    - "Recursing once per group, which uses O(n / k) stack when O(1) is the follow-up."
+    prerequisites: [linked_list.manipulation]
+    relevance: MEDIUM
+- id: 67
+  platform: LEETCODE
+  platform_key: linked-list-cycle
+  title: Linked List Cycle
+  difficulty: EASY
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: linked_list.fast_slow
+    mapping_weight_bp: 10000
+  guide:
+    summary: "Decide whether a linked list contains a cycle."
+    pattern: "Floyd's tortoise and hare"
+    time: "O(n)"
+    space: "O(1)"
+    hints:
+    - "A visited set works but uses O(n) memory."
+    - "Advance one pointer by one node and another by two nodes."
+    - "With a cycle the fast pointer eventually lands on the slow one; without one it reaches the end."
+    mistakes:
+    - "Reading fast.next.next without first checking fast and fast.next."
+    - "Comparing node values instead of node identity."
+    - "Checking for equality before the first move, so the starting position reports a cycle."
+    prerequisites: [linked_list.manipulation]
+    relevance: HIGH
+- id: 68
+  platform: LEETCODE
+  platform_key: find-the-duplicate-number
+  title: Find the Duplicate Number
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: linked_list.fast_slow
+    mapping_weight_bp: 10000
+  - skill: binary_search.answer_space
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Find the repeated value in an array of n + 1 numbers from 1 to n without modifying it and with constant extra space."
+    pattern: "Floyd's cycle detection on the index-to-value function"
+    time: "O(n)"
+    space: "O(1)"
+    hints:
+    - "Treat i -> nums[i] as a next pointer; with values in 1..n this walk must enter a cycle."
+    - "The duplicate is a value that two indices point to, which is exactly the cycle entry."
+    - "Apply the two-phase method from Linked List Cycle II; binary search on value counts is an O(n log n) alternative."
+    mistakes:
+    - "Sorting or using a set, which violates the constraints."
+    - "Starting the two phase-two pointers from different places."
+    - "Returning the meeting point instead of the cycle entry."
+    prerequisites: [linked_list.fast_slow]
+    relevance: HIGH
+- id: 69
+  platform: LEETCODE
+  platform_key: evaluate-reverse-polish-notation
+  title: Evaluate Reverse Polish Notation
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: stack.basic
+    mapping_weight_bp: 10000
+  guide:
+    summary: "Evaluate an arithmetic expression written in postfix (reverse Polish) order."
+    pattern: "Operand stack that pops two values per operator"
+    time: "O(n)"
+    space: "O(n)"
+    hints:
+    - "Numbers wait on a stack until an operator arrives."
+    - "An operator applies to the top two values, and the order matters for subtraction and division."
+    - "Division must truncate toward zero, which differs from Python's floor division for negative results."
+    mistakes:
+    - "Using //, which turns -7 divided by 2 into -4 instead of -3."
+    - "Popping the operands in the wrong order for - and /."
+    - "Treating a negative number token like '-3' as the minus operator."
+    relevance: HIGH
+- id: 70
+  platform: LEETCODE
+  platform_key: decode-string
+  title: Decode String
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: stack.basic
+    mapping_weight_bp: 10000
+  - skill: recursion.fundamentals
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Expand an encoded string where a number before brackets repeats the bracketed part, with nesting allowed."
+    pattern: "Stack of (previous string, repeat count) frames, or recursive descent"
+    time: "O(output length)"
+    space: "O(output length)"
+    hints:
+    - "Nested brackets suggest a stack or recursion."
+    - "On an opening bracket, push the current string and count, then start a fresh string."
+    - "On a closing bracket, pop and set current = previous + count * current."
+    mistakes:
+    - "Reading only one digit, which breaks counts like 12."
+    - "Not resetting the number after pushing it."
+    - "Ignoring that output size, not input size, bounds the work."
+    relevance: HIGH
+- id: 71
+  platform: LEETCODE
+  platform_key: next-greater-element-i
+  title: Next Greater Element I
+  difficulty: EASY
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: stack.monotonic
+    mapping_weight_bp: 10000
+  - skill: hashing.lookup_frequency
+    mapping_weight_bp: 5000
+  guide:
+    summary: "For each value of a subset array, find the first larger value to its right in the containing array, or -1."
+    pattern: "Monotonic decreasing stack over nums2 plus a value-to-answer map"
+    time: "O(m + n)"
+    space: "O(n)"
+    hints:
+    - "Solve the question once for every element of nums2, then look up each nums1 value."
+    - "Keep a decreasing stack; a new larger value resolves every smaller value on top."
+    - "Values still on the stack at the end have no greater element."
+    mistakes:
+    - "Scanning to the right for each query, O(m * n)."
+    - "Popping only one element per new value instead of all smaller ones."
+    - "Defaulting unresolved values to 0 instead of -1."
+    prerequisites: [stack.basic]
+    relevance: MEDIUM
+- id: 72
+  platform: LEETCODE
+  platform_key: largest-rectangle-in-histogram
+  title: Largest Rectangle in Histogram
+  difficulty: HARD
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: stack.monotonic
+    mapping_weight_bp: 10000
+  guide:
+    summary: "Find the area of the largest rectangle that fits under a histogram."
+    pattern: "Monotonic increasing stack giving each bar's maximal width"
+    time: "O(n)"
+    space: "O(n)"
+    hints:
+    - "Each bar's best rectangle uses its full height and extends until a shorter bar on each side."
+    - "In an increasing stack, the element below a bar is its previous smaller bar, and the bar that pops it is its next smaller bar."
+    - "Append a height-0 sentinel so every bar is popped by the end."
+    mistakes:
+    - "Using the wrong width when the stack becomes empty after a pop (the width is the current index)."
+    - "Not flushing the bars left on the stack after the loop."
+    - "Expanding left and right from every bar, O(n^2)."
+    prerequisites: [stack.basic]
+    relevance: HIGH
+- id: 73
+  platform: LEETCODE
+  platform_key: implement-queue-using-stacks
+  title: Implement Queue using Stacks
+  difficulty: EASY
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: queue.deque
+    mapping_weight_bp: 10000
+  - skill: stack.basic
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Implement a first-in-first-out queue using only two last-in-first-out stacks."
+    pattern: "Input and output stacks with lazy transfer"
+    time: "Amortised O(1) per operation"
+    space: "O(n)"
+    hints:
+    - "Moving a stack's contents into another stack reverses their order."
+    - "Push onto an input stack; pop and peek from an output stack."
+    - "Only transfer from input to output when the output stack is empty."
+    mistakes:
+    - "Transferring on every pop, making each operation O(n)."
+    - "Transferring while the output stack still holds elements, which breaks FIFO order."
+    - "Forgetting that peek also needs the transfer."
+    prerequisites: [stack.basic]
+    relevance: MEDIUM
+- id: 74
+  platform: LEETCODE
+  platform_key: shortest-subarray-with-sum-at-least-k
+  title: Shortest Subarray with Sum at Least K
+  difficulty: HARD
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: queue.deque
+    mapping_weight_bp: 10000
+  - skill: prefix_sum.core
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Find the length of the shortest non-empty subarray with sum at least k when values can be negative, or -1."
+    pattern: "Monotonic increasing deque of prefix-sum indices"
+    time: "O(n)"
+    space: "O(n)"
+    hints:
+    - "Negative values break the usual shrinking sliding window."
+    - "With prefix sums P, you want the latest j < i such that P[i] - P[j] >= k."
+    - "Keep a deque of increasing prefix values; pop the front while it satisfies the sum, and pop the back while it is >= the new prefix."
+    mistakes:
+    - "Applying the positive-only sliding window."
+    - "Not removing larger prefixes from the back, keeping dominated start points."
+    - "Returning 0 instead of -1 when no subarray qualifies."
+    prerequisites: [prefix_sum.core, stack.monotonic]
+    relevance: MEDIUM
+- id: 75
+  platform: LEETCODE
+  platform_key: search-a-2d-matrix
+  title: Search a 2D Matrix
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: binary_search.basic
+    mapping_weight_bp: 10000
+  guide:
+    summary: "Search for a value in a matrix whose rows are sorted and where each row starts after the previous row ends."
+    pattern: "Binary search over the flattened index (row = mid // cols, col = mid % cols)"
+    time: "O(log(m * n))"
+    space: "O(1)"
+    hints:
+    - "Read row by row, the whole matrix is one sorted sequence."
+    - "Binary search the indices 0 to m * n - 1."
+    - "Map an index to a cell with divmod by the number of columns."
+    mistakes:
+    - "Searching every row, which is O(m log n) or worse."
+    - "Dividing by the number of rows instead of columns."
+    - "Confusing it with Search a 2D Matrix II, which needs the staircase walk instead."
+    prerequisites: [binary_search.basic]
+    relevance: HIGH
+- id: 76
+  platform: LEETCODE
+  platform_key: find-minimum-in-rotated-sorted-array
+  title: Find Minimum in Rotated Sorted Array
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: binary_search.boundaries
+    mapping_weight_bp: 10000
+  guide:
+    summary: "Find the smallest value of a sorted array of distinct values that was rotated at an unknown point."
+    pattern: "Boundary binary search comparing mid with the right end"
+    time: "O(log n)"
+    space: "O(1)"
+    hints:
+    - "The minimum is the single point where the order drops."
+    - "Compare nums[mid] with nums[hi] to tell whether the minimum lies to the right of mid."
+    - "If nums[mid] > nums[hi], set lo = mid + 1; otherwise set hi = mid."
+    mistakes:
+    - "Comparing with nums[lo], which fails when the array is not rotated at all."
+    - "Setting hi = mid - 1 and skipping past the minimum."
+    - "Using while lo <= hi together with hi = mid, which loops forever."
+    prerequisites: [binary_search.basic]
+    relevance: HIGH
+- id: 77
+  platform: LEETCODE
+  platform_key: median-of-two-sorted-arrays
+  title: Median of Two Sorted Arrays
+  difficulty: HARD
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: binary_search.boundaries
+    mapping_weight_bp: 10000
+  guide:
+    summary: "Find the median of two sorted arrays in logarithmic time."
+    pattern: "Binary search on how many elements the shorter array contributes to the left half"
+    time: "O(log(min(m, n)))"
+    space: "O(1)"
+    hints:
+    - "The median splits the combined values into two halves of equal size with every left value <= every right value."
+    - "Choose how many elements the left half takes from the shorter array; the other array supplies the rest."
+    - "Binary search that count until maxLeftA <= minRightB and maxLeftB <= minRightA."
+    mistakes:
+    - "Searching over the longer array, which allows invalid partitions."
+    - "No sentinels for empty sides of a partition at the array ends."
+    - "Merging both arrays, which is O(m + n) when a log bound is required."
+    prerequisites: [binary_search.boundaries]
+    relevance: MEDIUM
+- id: 78
+  platform: LEETCODE
+  platform_key: capacity-to-ship-packages-within-d-days
+  title: Capacity To Ship Packages Within D Days
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: binary_search.answer_space
+    mapping_weight_bp: 10000
+  - skill: greedy.core
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Find the smallest ship capacity that delivers packages in their given order within a set number of days."
+    pattern: "Binary search on capacity with a greedy day-count check"
+    time: "O(n log(sum of weights))"
+    space: "O(1)"
+    hints:
+    - "A larger capacity never needs more days."
+    - "The answer lies between the heaviest package and the total weight."
+    - "For a candidate capacity, fill each day greedily and count the days used."
+    mistakes:
+    - "Starting the lower bound below the heaviest package, which can never ship it."
+    - "Reordering packages, which must ship in the given order."
+    - "Starting the day counter at 0 instead of 1."
+    prerequisites: [binary_search.boundaries]
+    relevance: HIGH
+- id: 79
+  platform: LEETCODE
+  platform_key: split-array-largest-sum
+  title: Split Array Largest Sum
+  difficulty: HARD
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: binary_search.answer_space
+    mapping_weight_bp: 10000
+  - skill: greedy.core
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Split an array into k contiguous parts so that the largest part sum is as small as possible."
+    pattern: "Binary search on the maximum part sum with a greedy part count"
+    time: "O(n log(sum))"
+    space: "O(1)"
+    hints:
+    - "If a maximum part sum S is achievable, every larger S is too."
+    - "Search S between max(nums) and sum(nums)."
+    - "For a candidate S, cut greedily whenever adding the next value would exceed S, and check that at most k parts result."
+    mistakes:
+    - "Insisting on exactly k parts in the check; fewer parts can always be split further."
+    - "Bounds that exclude the true answer, such as starting below max(nums)."
+    - "Reaching for an O(k * n^2) DP without mentioning the faster binary search."
+    prerequisites: [binary_search.answer_space]
+    relevance: MEDIUM
+- id: 80
+  platform: LEETCODE
+  platform_key: fibonacci-number
+  title: Fibonacci Number
+  difficulty: EASY
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: recursion.fundamentals
+    mapping_weight_bp: 10000
+  - skill: dp.fundamentals
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Compute the n-th Fibonacci number."
+    pattern: "Recursion with memoisation, then bottom-up with two variables"
+    time: "O(n)"
+    space: "O(1) iterative, O(n) memoised"
+    hints:
+    - "Write the recurrence and the base cases F(0) = 0 and F(1) = 1 first."
+    - "Draw the recursion tree to see why plain recursion is exponential."
+    - "Cache results, or iterate upward keeping only the last two values."
+    mistakes:
+    - "Plain recursion, which is O(2^n)."
+    - "A wrong base case for n = 0."
+    - "Using a mutable default argument as the memo and leaking state between calls."
+    relevance: MEDIUM
+- id: 81
+  platform: LEETCODE
+  platform_key: swap-nodes-in-pairs
+  title: Swap Nodes in Pairs
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: recursion.fundamentals
+    mapping_weight_bp: 10000
+  - skill: linked_list.manipulation
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Swap every two adjacent nodes of a linked list by relinking nodes, not by changing values."
+    pattern: "Recursion on the rest of the list after the first pair (or iteration with a dummy)"
+    time: "O(n)"
+    space: "O(n) recursive, O(1) iterative"
+    hints:
+    - "After swapping the first pair, the rest is the same problem on a shorter list."
+    - "The base case is an empty list or a single node."
+    - "The second node becomes the pair's head, and the first node points to the recursive result."
+    mistakes:
+    - "Swapping values instead of nodes."
+    - "Overwriting a next pointer before saving the rest of the list."
+    - "Mishandling an odd-length list's final node."
+    prerequisites: [linked_list.manipulation]
+    relevance: MEDIUM
+- id: 82
+  platform: LEETCODE
+  platform_key: different-ways-to-add-parentheses
+  title: Different Ways to Add Parentheses
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: recursion.fundamentals
+    mapping_weight_bp: 10000
+  - skill: dp.interval_state_machine
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Return every value an arithmetic expression can take under all possible ways of parenthesising it."
+    pattern: "Divide and conquer on each operator, memoised on the subexpression"
+    time: "Exponential, proportional to the Catalan number of groupings"
+    space: "Exponential (all results are returned)"
+    hints:
+    - "Every full grouping has one operator that is applied last."
+    - "Split at each operator, solve both sides recursively and combine every pair of results."
+    - "Memoise on the substring so shared subexpressions are solved once."
+    mistakes:
+    - "Parsing multi-digit numbers as single digits."
+    - "Missing the base case where the substring is just a number."
+    - "Deduplicating results when duplicates must be kept."
+    prerequisites: [recursion.fundamentals]
+    relevance: MEDIUM
+- id: 83
+  platform: LEETCODE
+  platform_key: invert-binary-tree
+  title: Invert Binary Tree
+  difficulty: EASY
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: trees.traversal
+    mapping_weight_bp: 10000
+  - skill: recursion.fundamentals
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Mirror a binary tree by swapping the left and right children of every node."
+    pattern: "DFS (or BFS) swapping children at each node"
+    time: "O(n)"
+    space: "O(h)"
+    hints:
+    - "Inverting a tree means inverting both subtrees and swapping them."
+    - "The base case is an empty node."
+    - "A queue-based BFS that swaps children at each node also works."
+    mistakes:
+    - "Assigning node.left = invert(node.right) before saving the original left child, losing a subtree."
+    - "Forgetting to return the root."
+    - "Swapping values instead of child pointers."
+    prerequisites: [recursion.fundamentals]
+    relevance: HIGH
+- id: 84
+  platform: LEETCODE
+  platform_key: binary-tree-right-side-view
+  title: Binary Tree Right Side View
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: trees.traversal
+    mapping_weight_bp: 10000
+  - skill: queue.deque
+    mapping_weight_bp: 5000
+  guide:
+    summary: "List, top to bottom, the values visible when a binary tree is viewed from its right side."
+    pattern: "Level-order BFS taking the last node of each level (or right-first DFS by depth)"
+    time: "O(n)"
+    space: "O(n)"
+    hints:
+    - "You need exactly one value per depth."
+    - "In a left-to-right BFS, the last node of each level is the visible one."
+    - "In a DFS that visits right before left, the first node seen at a new depth is visible."
+    mistakes:
+    - "Following only right children, missing left nodes that stick out deeper."
+    - "Taking the first node of each level in a left-to-right BFS."
+    - "Not tracking where one level ends and the next begins."
+    prerequisites: [queue.deque]
+    relevance: HIGH
+- id: 85
+  platform: LEETCODE
+  platform_key: balanced-binary-tree
+  title: Balanced Binary Tree
+  difficulty: EASY
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: trees.path_depth
+    mapping_weight_bp: 10000
+  guide:
+    summary: "Decide whether every node's two subtree heights differ by at most one."
+    pattern: "Post-order height with a -1 sentinel for unbalanced subtrees"
+    time: "O(n)"
+    space: "O(h)"
+    hints:
+    - "Balance at a node depends on its subtree heights."
+    - "Calling a separate height function from every node is O(n^2) on a skewed tree."
+    - "Return the height, or -1 as soon as any subtree is unbalanced, in a single pass."
+    mistakes:
+    - "Checking balance only at the root."
+    - "Calling a separate height function from every node."
+    - "Not propagating the -1 sentinel upward."
+    prerequisites: [trees.traversal]
+    relevance: HIGH
+- id: 86
+  platform: LEETCODE
+  platform_key: path-sum-iii
+  title: Path Sum III
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: trees.path_depth
+    mapping_weight_bp: 10000
+  - skill: prefix_sum.core
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Count the downward paths in a binary tree whose node values sum to a target."
+    pattern: "DFS carrying a prefix-sum count map, undone on backtrack"
+    time: "O(n)"
+    space: "O(h) recursion plus O(h) map entries"
+    hints:
+    - "A downward path is a contiguous segment of some root-to-node path."
+    - "Along one root-to-node path, this is Subarray Sum Equals K."
+    - "Add the current prefix to the map before recursing into the children and remove it on the way back."
+    mistakes:
+    - "Not undoing the prefix count on backtrack, so sibling branches see stale prefixes."
+    - "Forgetting the {0: 1} seed."
+    - "Starting a fresh DFS from every node, O(n^2) on skewed trees."
+    prerequisites: [prefix_sum.core, trees.traversal]
+    relevance: MEDIUM
+- id: 87
+  platform: LEETCODE
+  platform_key: construct-binary-tree-from-preorder-and-inorder-traversal
+  title: Construct Binary Tree from Preorder and Inorder Traversal
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: trees.lca_construction
+    mapping_weight_bp: 10000
+  - skill: hashing.lookup_frequency
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Rebuild a binary tree with unique values from its preorder and inorder traversals."
+    pattern: "Recursive split using the preorder root and an inorder value-to-index map"
+    time: "O(n)"
+    space: "O(n)"
+    hints:
+    - "The first preorder value is the root."
+    - "The root's position in inorder separates the left and right subtrees and gives the left subtree's size."
+    - "Precompute value-to-index for inorder and recurse on index ranges instead of slices."
+    mistakes:
+    - "Calling inorder.index() on every call, which makes it O(n^2)."
+    - "Slicing lists in every call, adding O(n) copying per level."
+    - "Building the right subtree first while consuming preorder with a moving pointer."
+    prerequisites: [trees.traversal]
+    relevance: HIGH
+- id: 88
+  platform: LEETCODE
+  platform_key: serialize-and-deserialize-binary-tree
+  title: Serialize and Deserialize Binary Tree
+  difficulty: HARD
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: trees.lca_construction
+    mapping_weight_bp: 10000
+  - skill: trees.traversal
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Design a way to encode a binary tree as a string and decode it back to the same tree."
+    pattern: "Preorder DFS with null markers (or level order with null markers)"
+    time: "O(n)"
+    space: "O(n)"
+    hints:
+    - "A plain preorder list is ambiguous unless missing children are recorded."
+    - "Write a marker for every null child and separate values with a delimiter."
+    - "Decode by consuming tokens from an iterator in the same preorder."
+    mistakes:
+    - "Leaving out null markers, which loses the tree's shape."
+    - "Splitting into single characters, which breaks multi-digit and negative values."
+    - "Using an index variable that the recursive calls do not share correctly."
+    prerequisites: [trees.traversal]
+    relevance: HIGH
+- id: 89
+  platform: LEETCODE
+  platform_key: kth-smallest-element-in-a-bst
+  title: Kth Smallest Element in a BST
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: bst.operations
+    mapping_weight_bp: 10000
+  - skill: trees.traversal
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Return the k-th smallest value stored in a binary search tree."
+    pattern: "In-order traversal with an early stop"
+    time: "O(h + k)"
+    space: "O(h)"
+    hints:
+    - "An in-order traversal of a BST visits values in sorted order."
+    - "Count nodes as you visit them and stop at the k-th one."
+    - "An iterative stack makes stopping early straightforward."
+    mistakes:
+    - "Collecting the full in-order list when you could stop at k."
+    - "Off-by-one between a 1-based k and a 0-based counter."
+    - "Not mentioning subtree-size augmentation for the frequent-updates follow-up."
+    prerequisites: [trees.traversal]
+    relevance: HIGH
+- id: 90
+  platform: LEETCODE
+  platform_key: lowest-common-ancestor-of-a-binary-search-tree
+  title: Lowest Common Ancestor of a Binary Search Tree
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: bst.operations
+    mapping_weight_bp: 10000
+  - skill: trees.lca_construction
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Find the lowest common ancestor of two nodes in a binary search tree."
+    pattern: "Walk down from the root using BST ordering"
+    time: "O(h)"
+    space: "O(1)"
+    hints:
+    - "BST ordering tells you which side each target lies on."
+    - "If both values are smaller than the current node go left; if both are larger go right."
+    - "The first node where they split, or that equals one of them, is the answer."
+    mistakes:
+    - "Using the general binary-tree LCA and ignoring the ordering."
+    - "Not handling the case where one node is an ancestor of the other."
+    - "Recursing when a simple loop gives O(1) space."
+    prerequisites: [binary_search.basic]
+    relevance: HIGH
+- id: 91
+  platform: LEETCODE
+  platform_key: design-add-and-search-words-data-structure
+  title: Design Add and Search Words Data Structure
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: trie.core
+    mapping_weight_bp: 10000
+  - skill: backtracking.core
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Design a word dictionary whose search treats '.' as a wildcard for any single letter."
+    pattern: "Trie with DFS that branches on wildcard characters"
+    time: "O(L) add; O(L) search without wildcards, up to 26 branches per wildcard"
+    space: "O(total inserted characters)"
+    hints:
+    - "Exact search is a trie walk, so only the wildcard is new."
+    - "On '.', try every child and succeed if any branch succeeds."
+    - "When the pattern is used up, check the end-of-word flag."
+    mistakes:
+    - "Keeping words in a list and matching each one against the pattern."
+    - "Returning true when the pattern ends on a node that is only a prefix."
+    - "Not stopping once one branch has matched."
+    prerequisites: [trie.core]
+    relevance: MEDIUM
+- id: 92
+  platform: LEETCODE
+  platform_key: word-search-ii
+  title: Word Search II
+  difficulty: HARD
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: trie.core
+    mapping_weight_bp: 10000
+  - skill: backtracking.core
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Find every dictionary word that can be traced through adjacent cells of a letter grid without reusing a cell."
+    pattern: "Trie of all words driving a grid backtracking search with pruning"
+    time: "O(m * n * 3^L), L = longest word"
+    space: "O(total word characters)"
+    hints:
+    - "Running a single-word search once per dictionary word repeats the same grid exploration."
+    - "Insert all words into a trie and walk the trie in step with the grid DFS."
+    - "Store each word at its end node, clear it once found, and prune trie branches that become empty."
+    mistakes:
+    - "Not marking a cell as used on the current path."
+    - "Reporting a word twice when two paths spell it."
+    - "Skipping pruning, which times out on large dictionaries."
+    prerequisites: [trie.core, backtracking.core]
+    relevance: HIGH
+- id: 93
+  platform: LEETCODE
+  platform_key: k-closest-points-to-origin
+  title: K Closest Points to Origin
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: heap.top_k
+    mapping_weight_bp: 10000
+  - skill: python.sorting_keys
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Return the k points nearest to the origin."
+    pattern: "Size-k max-heap keyed on squared distance (or quickselect)"
+    time: "O(n log k)"
+    space: "O(k)"
+    hints:
+    - "You need the k nearest points, not a full ordering."
+    - "Compare squared distances; the square root does not change the order."
+    - "Keep a size-k heap of negated squared distances and pop whenever it grows past k."
+    mistakes:
+    - "Computing square roots and comparing floating-point values unnecessarily."
+    - "Pushing all n points into a min-heap when a bounded heap is expected."
+    - "Fully sorting with key=lambda p: p[0] ** 2 + p[1] ** 2 when the follow-up asks for better than O(n log n)."
+    prerequisites: [python.collections]
+    relevance: HIGH
+- id: 94
+  platform: LEETCODE
+  platform_key: merge-k-sorted-lists
+  title: Merge k Sorted Lists
+  difficulty: HARD
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: heap.two_heaps_merge_k
+    mapping_weight_bp: 10000
+  - skill: linked_list.manipulation
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Merge k sorted linked lists into one sorted list."
+    pattern: "Min-heap of the current list heads (or pairwise divide and conquer)"
+    time: "O(N log k), N total nodes"
+    space: "O(k)"
+    hints:
+    - "Merging lists one at a time into an accumulator is O(N * k)."
+    - "Each step needs the smallest of k heads, which is what a heap provides."
+    - "Push (value, list index, node) so equal values never compare ListNode objects."
+    mistakes:
+    - "Pushing (value, node), which raises a TypeError on equal values."
+    - "Merging sequentially into a single growing result."
+    - "Forgetting to push the popped node's successor."
+    prerequisites: [heap.top_k, linked_list.manipulation]
+    relevance: HIGH
+- id: 95
+  platform: LEETCODE
+  platform_key: task-scheduler
+  title: Task Scheduler
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: heap.two_heaps_merge_k
+    mapping_weight_bp: 10000
+  - skill: greedy.core
+    mapping_weight_bp: 5000
+  - skill: python.collections
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Find the fewest time units needed to run all tasks when identical tasks must be separated by a cooldown of n units."
+    pattern: "Greedy frame formula from the most frequent task (or max-heap simulation with a cooldown queue)"
+    time: "O(N), N tasks"
+    space: "O(1) for 26 task types"
+    hints:
+    - "The most frequent task dictates the shape of the schedule."
+    - "With top frequency f shared by c tasks, the frame needs (f - 1) * (n + 1) + c slots."
+    - "The answer is the larger of that frame and the total number of tasks."
+    mistakes:
+    - "Forgetting that when other tasks fill every idle slot the answer is just len(tasks)."
+    - "Counting only one task at the top frequency."
+    - "Simulating unit by unit without a heap, which is slow and error-prone."
+    prerequisites: [heap.top_k, python.collections]
+    relevance: HIGH
+- id: 96
+  platform: LEETCODE
+  platform_key: pacific-atlantic-water-flow
+  title: Pacific Atlantic Water Flow
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: graph.grid_multisource
+    mapping_weight_bp: 10000
+  - skill: graph.traversal
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Find the grid cells from which water can flow downhill to both the Pacific and the Atlantic edges."
+    pattern: "Reverse multi-source DFS/BFS from each ocean's border cells"
+    time: "O(m * n)"
+    space: "O(m * n)"
+    hints:
+    - "Searching from every cell toward the oceans repeats a lot of work."
+    - "Reverse the flow: from each ocean's border, climb to neighbours whose height is >= the current one."
+    - "The answer is the intersection of the cells reached from the two oceans."
+    mistakes:
+    - "Searching forward from every cell, O((m * n)^2)."
+    - "Climbing only to strictly higher cells, missing flat paths."
+    - "Sharing one visited set between the two oceans."
+    prerequisites: [graph.traversal]
+    relevance: HIGH
+- id: 97
+  platform: LEETCODE
+  platform_key: "01-matrix"
+  title: 01 Matrix
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: graph.grid_multisource
+    mapping_weight_bp: 10000
+  - skill: queue.deque
+    mapping_weight_bp: 5000
+  guide:
+    summary: "For every cell of a binary matrix, find the distance to the nearest 0."
+    pattern: "Multi-source BFS starting from all zero cells"
+    time: "O(m * n)"
+    space: "O(m * n)"
+    hints:
+    - "A separate BFS from every 1 repeats work."
+    - "Start one BFS from every 0 at once, with distance 0."
+    - "The first time BFS reaches a cell is its shortest distance, so set it once and enqueue it."
+    mistakes:
+    - "Running a BFS per 1-cell, O((m * n)^2)."
+    - "Not marking the 1 cells as unvisited before the BFS starts."
+    - "Updating a cell more than once."
+    prerequisites: [graph.traversal]
+    relevance: HIGH
+- id: 98
+  platform: LEETCODE
+  platform_key: course-schedule-ii
+  title: Course Schedule II
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: graph.topological_sort
+    mapping_weight_bp: 10000
+  - skill: python.collections
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Return an order in which all courses can be taken given prerequisites, or an empty list if none exists."
+    pattern: "Kahn's algorithm with a deque, recording the order of removal"
+    time: "O(V + E)"
+    space: "O(V + E)"
+    hints:
+    - "This is Course Schedule plus returning the order."
+    - "Append each course to the result when it leaves the queue with in-degree 0."
+    - "If fewer than n courses were output, there is a cycle and the answer is empty."
+    mistakes:
+    - "Building edges from course to prerequisite and returning the order reversed."
+    - "Returning a partial order when a cycle exists."
+    - "Using DFS post-order without reversing it."
+    prerequisites: [graph.topological_sort]
+    relevance: HIGH
+- id: 99
+  platform: LEETCODE
+  platform_key: alien-dictionary
+  title: Alien Dictionary
+  difficulty: HARD
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: graph.topological_sort
+    mapping_weight_bp: 10000
+  - skill: graph.cycles_bipartite
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Infer a valid letter order from a list of words sorted in an unknown alphabet, or report that none exists."
+    pattern: "Edges from the first differing letter of adjacent words, then topological sort"
+    time: "O(C), C = total characters"
+    space: "O(U + E), U unique letters and E derived edges"
+    hints:
+    - "Only adjacent words give ordering information, and only at their first differing letter."
+    - "Each such pair yields one directed edge between two letters."
+    - "Topologically sort all letters; a cycle, or a longer word before its own prefix, means no valid order."
+    mistakes:
+    - "Comparing letters after the first difference."
+    - "Missing the invalid case where a word is followed by its own prefix."
+    - "Leaving out letters that appear in no edge."
+    prerequisites: [graph.topological_sort]
+    relevance: MEDIUM
+- id: 100
+  platform: LEETCODE
+  platform_key: number-of-provinces
+  title: Number of Provinces
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: graph.union_find
+    mapping_weight_bp: 10000
+  - skill: graph.traversal
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Count groups of directly or indirectly connected cities given an adjacency matrix."
+    pattern: "Union-find over matrix entries (or DFS over components)"
+    time: "O(n^2 * alpha(n))"
+    space: "O(n)"
+    hints:
+    - "A province is a connected component."
+    - "Union cities i and j whenever the matrix marks them connected; only j > i needs checking."
+    - "Start the count at n and subtract one for each union that merges two different roots."
+    mistakes:
+    - "Treating the matrix as an edge list."
+    - "Counting distinct entries of the parent array without calling find on each."
+    - "Decrementing the count when the two cities already share a root."
+    prerequisites: [graph.traversal]
+    relevance: MEDIUM
+- id: 101
+  platform: LEETCODE
+  platform_key: accounts-merge
+  title: Accounts Merge
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: graph.union_find
+    mapping_weight_bp: 10000
+  - skill: hashing.lookup_frequency
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Merge accounts that share any email, transitively, and return each person's emails in sorted order."
+    pattern: "Union-find over emails (or DFS on an email graph)"
+    time: "O(N log N), N total emails (sorting dominates)"
+    space: "O(N)"
+    hints:
+    - "Two accounts belong to the same person if they are linked through shared emails."
+    - "Union every email in an account with that account's first email."
+    - "Group emails by root, sort each group and prepend the owner's name."
+    mistakes:
+    - "Merging by name, although different people can share a name."
+    - "Merging only accounts that overlap directly, missing transitive links."
+    - "Forgetting to sort the emails in each merged account."
+    prerequisites: [graph.union_find, hashing.lookup_frequency]
+    relevance: HIGH
+- id: 102
+  platform: LEETCODE
+  platform_key: cheapest-flights-within-k-stops
+  title: Cheapest Flights Within K Stops
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: graph.shortest_path
+    mapping_weight_bp: 10000
+  guide:
+    summary: "Find the cheapest price from a source city to a destination using at most k intermediate stops, or -1."
+    pattern: "Bellman-Ford limited to k + 1 rounds (or BFS by number of stops)"
+    time: "O(k * E)"
+    space: "O(V)"
+    hints:
+    - "Plain Dijkstra can discard a pricier route that has fewer stops and is the only valid one."
+    - "Relax every flight k + 1 times, because k stops means k + 1 flights."
+    - "Relax from a copy of the previous round's prices so one round adds at most one flight."
+    mistakes:
+    - "Relaxing in place, so one round chains several flights."
+    - "Running k rounds instead of k + 1."
+    - "Standard Dijkstra with a visited set, which prunes routes that are cheaper in stops."
+    prerequisites: [graph.shortest_path]
+    relevance: HIGH
+- id: 103
+  platform: LEETCODE
+  platform_key: swim-in-rising-water
+  title: Swim in Rising Water
+  difficulty: HARD
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: graph.shortest_path
+    mapping_weight_bp: 10000
+  - skill: graph.union_find
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Find the earliest time you can swim from the top-left to the bottom-right of a grid when a cell is passable once the water reaches its elevation."
+    pattern: "Dijkstra minimising the maximum elevation along the path (or union-find by elevation)"
+    time: "O(n^2 log n)"
+    space: "O(n^2)"
+    hints:
+    - "A path's cost is its highest cell, not the sum of cells."
+    - "Use a min-heap keyed by the highest elevation seen so far on each path."
+    - "The first time the bottom-right cell is popped, its key is the answer."
+    mistakes:
+    - "Summing elevations as the path cost."
+    - "Plain BFS without priorities, which does not minimise the maximum."
+    - "Forgetting to count the starting cell's own elevation."
+    prerequisites: [graph.shortest_path]
+    relevance: MEDIUM
+- id: 104
+  platform: LEETCODE
+  platform_key: is-graph-bipartite
+  title: Is Graph Bipartite?
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: graph.cycles_bipartite
+    mapping_weight_bp: 10000
+  - skill: graph.traversal
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Decide whether an undirected graph's nodes can be split into two groups so that every edge crosses between groups."
+    pattern: "BFS/DFS two-colouring"
+    time: "O(V + E)"
+    space: "O(V)"
+    hints:
+    - "Try to colour the nodes with two colours so that neighbours always differ."
+    - "Colour a start node, then give each uncoloured neighbour the opposite colour."
+    - "Restart from every uncoloured node, because the graph may be disconnected."
+    mistakes:
+    - "Colouring only from node 0 and missing other components."
+    - "Not checking already-coloured neighbours for a conflict."
+    - "Reading the adjacency list input as an edge list."
+    prerequisites: [graph.traversal]
+    relevance: HIGH
+- id: 105
+  platform: LEETCODE
+  platform_key: graph-valid-tree
+  title: Graph Valid Tree
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: graph.cycles_bipartite
+    mapping_weight_bp: 10000
+  - skill: graph.union_find
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Decide whether n labelled nodes and an undirected edge list form a valid tree."
+    pattern: "Edge-count check plus union-find cycle detection (or DFS connectivity)"
+    time: "O(n * alpha(n))"
+    space: "O(n)"
+    hints:
+    - "A tree on n nodes has exactly n - 1 edges and is connected."
+    - "With exactly n - 1 edges, having no cycle is equivalent to being connected."
+    - "Union the endpoints of each edge; a union of two already-connected nodes means a cycle."
+    mistakes:
+    - "Checking only for cycles and accepting a disconnected graph."
+    - "In undirected DFS, treating the edge back to the parent as a cycle."
+    - "Rejecting n = 1 with no edges, which is a valid tree."
+    prerequisites: [graph.traversal]
+    relevance: HIGH
+- id: 106
+  platform: LEETCODE
+  platform_key: find-eventual-safe-states
+  title: Find Eventual Safe States
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: graph.cycles_bipartite
+    mapping_weight_bp: 10000
+  - skill: graph.topological_sort
+    mapping_weight_bp: 5000
+  guide:
+    summary: "List, in ascending order, the nodes of a directed graph from which every path ends at a terminal node."
+    pattern: "Three-colour DFS cycle detection (or Kahn's algorithm on the reversed graph)"
+    time: "O(V + E)"
+    space: "O(V)"
+    hints:
+    - "A node is unsafe exactly when it can reach a cycle."
+    - "Use three states: unvisited, on the current path, and finished-and-safe."
+    - "Reaching a node that is on the current path means a cycle, so everything on that path is unsafe."
+    mistakes:
+    - "Using a two-state visited flag, which cannot tell a cycle from a revisit."
+    - "Not caching each node's result, so DFS reruns from scratch."
+    - "Returning the safe nodes unsorted."
+    prerequisites: [graph.traversal]
+    relevance: MEDIUM
+- id: 107
+  platform: LEETCODE
+  platform_key: min-cost-to-connect-all-points
+  title: Min Cost to Connect All Points
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: graph.mst
+    mapping_weight_bp: 10000
+  - skill: heap.top_k
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Connect every point in the plane at the minimum total Manhattan distance."
+    pattern: "Prim's algorithm on the complete graph (or Kruskal with union-find)"
+    time: "O(n^2) with array-based Prim, O(n^2 log n) with a heap"
+    space: "O(n) for array Prim"
+    hints:
+    - "Connecting all points at minimum total cost is a minimum spanning tree."
+    - "The graph is complete, so array-based Prim avoids materialising all n^2 edges."
+    - "Repeatedly add the closest point not yet in the tree and update the others' best distance."
+    mistakes:
+    - "Building and sorting all n^2 edges without considering the memory cost."
+    - "Using Euclidean instead of Manhattan distance."
+    - "Adding a point twice from a stale heap entry."
+    prerequisites: [graph.union_find, heap.top_k]
+    relevance: HIGH
+- id: 108
+  platform: LEETCODE
+  platform_key: optimize-water-distribution-in-a-village
+  title: Optimize Water Distribution in a Village
+  difficulty: HARD
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: graph.mst
+    mapping_weight_bp: 10000
+  - skill: graph.union_find
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Supply water to every house at minimum cost by building wells in some houses and laying pipes between others."
+    pattern: "Kruskal MST with a virtual source node whose edges cost the well prices"
+    time: "O((n + P) log(n + P)), P pipes"
+    space: "O(n + P)"
+    hints:
+    - "Building a well is like connecting a house to a shared water source."
+    - "Add a virtual node 0 with an edge of cost wells[i] to each house."
+    - "Run Kruskal over the pipes plus the virtual edges."
+    mistakes:
+    - "Greedily building the cheapest well without weighing pipe costs."
+    - "Special-casing wells instead of using the virtual node, and missing combinations."
+    - "Off-by-one between 1-based house labels and the 0-based wells array."
+    prerequisites: [graph.mst]
+    relevance: MEDIUM
+- id: 109
+  platform: LEETCODE
+  platform_key: find-critical-and-pseudo-critical-edges-in-minimum-spanning-tree
+  title: Find Critical and Pseudo-Critical Edges in Minimum Spanning Tree
+  difficulty: HARD
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: graph.mst
+    mapping_weight_bp: 10000
+  - skill: graph.union_find
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Classify each edge as in every minimum spanning tree (critical) or in some but not all (pseudo-critical)."
+    pattern: "Kruskal re-run per edge, once excluding it and once forcing it in"
+    time: "O(E^2 * alpha(V))"
+    space: "O(V + E)"
+    hints:
+    - "Compute the MST weight once as a baseline."
+    - "An edge is critical if excluding it raises the MST weight or disconnects the graph."
+    - "A non-critical edge is pseudo-critical if forcing it in first still reaches the baseline weight."
+    mistakes:
+    - "Losing the original edge indices after sorting by weight."
+    - "Not detecting that excluding an edge disconnects the graph."
+    - "Also listing critical edges as pseudo-critical."
+    prerequisites: [graph.mst]
+    relevance: LOW
+- id: 110
+  platform: LEETCODE
+  platform_key: permutations
+  title: Permutations
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: backtracking.core
+    mapping_weight_bp: 10000
+  - skill: recursion.fundamentals
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Return every ordering of a list of distinct integers."
+    pattern: "Backtracking with a used-set (or in-place swaps)"
+    time: "O(n * n!)"
+    space: "O(n) besides the output"
+    hints:
+    - "Choose the first element, then permute the remaining ones."
+    - "Track which elements are already in the current path."
+    - "Undo each choice after the recursive call returns."
+    mistakes:
+    - "Appending the shared path list instead of a copy."
+    - "Forgetting to unmark an element when backtracking."
+    - "Checking membership with 'x in path', adding O(n) per step."
+    prerequisites: [recursion.fundamentals]
+    relevance: HIGH
+- id: 111
+  platform: LEETCODE
+  platform_key: combination-sum
+  title: Combination Sum
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: backtracking.core
+    mapping_weight_bp: 10000
+  guide:
+    summary: "Find all unique combinations of distinct candidates, each usable any number of times, that sum to a target."
+    pattern: "Backtracking with a start index and a remaining target"
+    time: "Exponential, roughly O(n^(target / min candidate))"
+    space: "O(target / min candidate) recursion depth"
+    hints:
+    - "To avoid the same combination in different orders, only choose candidates at or after the current index."
+    - "Reuse is allowed, so recurse with the same index after choosing a candidate."
+    - "Sort the candidates and stop the loop once a candidate exceeds the remaining target."
+    mistakes:
+    - "Restarting each loop at index 0, which produces reordered duplicates."
+    - "Advancing the index after a choice, which forbids reuse."
+    - "Not pruning once the remaining target goes negative."
+    prerequisites: [recursion.fundamentals]
+    relevance: HIGH
+- id: 112
+  platform: LEETCODE
+  platform_key: word-search
+  title: Word Search
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: backtracking.core
+    mapping_weight_bp: 10000
+  - skill: graph.grid_multisource
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Decide whether a word can be traced through horizontally or vertically adjacent grid cells without reusing a cell."
+    pattern: "Grid DFS backtracking with in-place visited marking"
+    time: "O(m * n * 3^L), L = word length"
+    space: "O(L)"
+    hints:
+    - "Try every cell as the starting letter."
+    - "From a cell matching word[i], explore the four neighbours for word[i + 1]."
+    - "Mark the cell while it is on the path and restore it when backtracking."
+    mistakes:
+    - "Not restoring a cell after exploring it, which blocks other paths."
+    - "Using one global visited set that is never cleared between starts."
+    - "No early exit when the board lacks enough copies of a needed letter."
+    prerequisites: [recursion.fundamentals]
+    relevance: HIGH
+- id: 113
+  platform: LEETCODE
+  platform_key: gas-station
+  title: Gas Station
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: greedy.core
+    mapping_weight_bp: 10000
+  guide:
+    summary: "Find the station from which you can drive a full circle given fuel at each station and travel costs, or -1."
+    pattern: "Greedy single pass that resets the start whenever the tank goes negative"
+    time: "O(n)"
+    space: "O(1)"
+    hints:
+    - "If total gas is less than total cost, no start can work."
+    - "If you run dry between start s and station i, no station from s to i can be a valid start."
+    - "Reset the start to i + 1 and the tank to 0 whenever the tank goes negative."
+    mistakes:
+    - "Simulating the trip from every start, O(n^2)."
+    - "Skipping the global total check."
+    - "Resetting the start to i instead of i + 1."
+    relevance: HIGH
+- id: 114
+  platform: LEETCODE
+  platform_key: partition-labels
+  title: Partition Labels
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: greedy.core
+    mapping_weight_bp: 10000
+  - skill: hashing.lookup_frequency
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Split a string into as many parts as possible so that each letter appears in only one part, and return the part sizes."
+    pattern: "Last-occurrence map with a greedy extend-until-end scan"
+    time: "O(n)"
+    space: "O(alphabet)"
+    hints:
+    - "A part that contains a letter must extend at least to that letter's last occurrence."
+    - "Record every letter's last index first."
+    - "Scan while extending the current part's end; cut when the index reaches it."
+    mistakes:
+    - "Cutting at the first repeated letter."
+    - "Returning the parts themselves instead of their sizes."
+    - "Recomputing last occurrences inside the loop."
+    prerequisites: [hashing.lookup_frequency]
+    relevance: HIGH
+- id: 115
+  platform: LEETCODE
+  platform_key: largest-number
+  title: Largest Number
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: greedy.core
+    mapping_weight_bp: 10000
+  - skill: python.sorting_keys
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Arrange non-negative integers so their concatenation is the largest possible number, returned as a string."
+    pattern: "Sort with a pairwise concatenation comparator"
+    time: "O(n log n * d), d = digits per number"
+    space: "O(n * d)"
+    hints:
+    - "Neither numeric nor plain lexicographic order works, for example with 3 and 30."
+    - "Place a before b when a + b > b + a as strings."
+    - "Wrap that comparison with functools.cmp_to_key and handle an all-zero result."
+    mistakes:
+    - "Sorting lexicographically, which puts 30 before 3."
+    - "Returning '00' instead of '0' when every number is zero."
+    - "Comparing the integers rather than the two concatenations."
+    prerequisites: [python.sorting_keys]
+    relevance: MEDIUM
+- id: 116
+  platform: LEETCODE
+  platform_key: maximum-subarray
+  title: Maximum Subarray
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: dp.fundamentals
+    mapping_weight_bp: 10000
+  - skill: greedy.core
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Find the largest sum of any non-empty contiguous subarray."
+    pattern: "Kadane's algorithm (best sum ending at each index)"
+    time: "O(n)"
+    space: "O(1)"
+    hints:
+    - "Think about the best subarray that ends exactly at index i."
+    - "It either extends the best subarray ending at i - 1 or starts fresh at i."
+    - "Track that running value and the best seen overall."
+    mistakes:
+    - "Initialising the best to 0, which fails when every value is negative."
+    - "Resetting the running sum to 0 before comparing, instead of using max(x, run + x)."
+    - "Comparing all prefix pairs, O(n^2)."
+    relevance: HIGH
+- id: 117
+  platform: LEETCODE
+  platform_key: decode-ways
+  title: Decode Ways
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: dp.fundamentals
+    mapping_weight_bp: 10000
+  - skill: strings.manipulation
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Count the ways a digit string can be decoded when the numbers 1 to 26 each stand for a letter."
+    pattern: "1-D DP over the last one-digit or two-digit step"
+    time: "O(n)"
+    space: "O(1)"
+    hints:
+    - "The last decoded letter used either one digit or two."
+    - "ways(i) adds ways(i - 1) if the last digit is 1-9, and ways(i - 2) if the last two digits form 10-26."
+    - "A lone '0' and codes with a leading zero have no decoding."
+    mistakes:
+    - "Treating '0' as a valid single-digit code."
+    - "Accepting '06' as a valid two-digit code."
+    - "Giving the empty prefix 0 ways instead of 1."
+    prerequisites: [dp.fundamentals]
+    relevance: HIGH
+- id: 118
+  platform: LEETCODE
+  platform_key: partition-equal-subset-sum
+  title: Partition Equal Subset Sum
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: dp.knapsack_subset
+    mapping_weight_bp: 10000
+  guide:
+    summary: "Decide whether an array can be split into two subsets with equal sums."
+    pattern: "0/1 subset-sum DP over reachable sums"
+    time: "O(n * sum)"
+    space: "O(sum)"
+    hints:
+    - "Equal halves means finding a subset that sums to half the total."
+    - "An odd total makes it impossible."
+    - "Use a boolean table over sums and iterate sums downward so each number is used at most once."
+    mistakes:
+    - "Iterating sums upward, which lets one number be used many times."
+    - "Not returning false early for an odd total."
+    - "Enumerating all subsets, O(2^n)."
+    prerequisites: [dp.fundamentals]
+    relevance: HIGH
+- id: 119
+  platform: LEETCODE
+  platform_key: target-sum
+  title: Target Sum
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: dp.knapsack_subset
+    mapping_weight_bp: 10000
+  - skill: backtracking.core
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Count the ways to put + or - in front of each number so the expression equals a target."
+    pattern: "Reduce to counting subsets with sum (total + target) / 2"
+    time: "O(n * total)"
+    space: "O(total)"
+    hints:
+    - "Split the numbers into a plus group P and a minus group N."
+    - "P - N = target and P + N = total, so P = (total + target) / 2."
+    - "Count subsets with that sum using a 1-D table iterated downward."
+    mistakes:
+    - "Not returning 0 when total + target is odd or abs(target) exceeds total."
+    - "Iterating the table upward, counting a number more than once."
+    - "Special-casing zeros, which the counting DP already handles (each zero doubles the count)."
+    prerequisites: [dp.knapsack_subset]
+    relevance: MEDIUM
+- id: 120
+  platform: LEETCODE
+  platform_key: longest-increasing-subsequence
+  title: Longest Increasing Subsequence
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: dp.strings_subsequence
+    mapping_weight_bp: 10000
+  - skill: binary_search.boundaries
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Find the length of the longest strictly increasing subsequence of an array."
+    pattern: "O(n^2) DP, improved to patience sorting with binary search on tails"
+    time: "O(n log n)"
+    space: "O(n)"
+    hints:
+    - "dp[i] = 1 + the best dp[j] over j < i with nums[j] < nums[i]."
+    - "To go faster, keep tails[k] = the smallest tail of any increasing subsequence of length k + 1."
+    - "For each value, replace the first tail that is >= it (bisect_left), or append it."
+    mistakes:
+    - "Using bisect_right, which allows equal values in a strictly increasing sequence."
+    - "Believing the tails array is itself a valid subsequence."
+    - "Confusing a subsequence with a contiguous subarray."
+    prerequisites: [dp.fundamentals, binary_search.boundaries]
+    relevance: HIGH
+- id: 121
+  platform: LEETCODE
+  platform_key: edit-distance
+  title: Edit Distance
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: dp.strings_subsequence
+    mapping_weight_bp: 10000
+  guide:
+    summary: "Find the fewest single-character insertions, deletions and replacements that turn one word into another."
+    pattern: "2-D DP over prefix pairs (Levenshtein distance)"
+    time: "O(m * n)"
+    space: "O(min(m, n)) with a rolling row"
+    hints:
+    - "Compare the last characters of the two prefixes."
+    - "If they match, it costs nothing; otherwise take 1 + the min of the insert, delete and replace subproblems."
+    - "Row 0 and column 0 are the costs of converting to or from an empty string."
+    mistakes:
+    - "Initialising row 0 and column 0 to 0 instead of i and j."
+    - "Mixing up which neighbouring cell means insert and which means delete."
+    - "Overwriting the diagonal value before using it in the rolling-row version."
+    prerequisites: [dp.strings_subsequence]
+    relevance: HIGH
+- id: 122
+  platform: LEETCODE
+  platform_key: word-break
+  title: Word Break
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: dp.strings_subsequence
+    mapping_weight_bp: 10000
+  - skill: hashing.lookup_frequency
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Decide whether a string can be split into a sequence of words from a dictionary."
+    pattern: "1-D DP over prefix lengths with a word set"
+    time: "O(n^2) substring checks (bounded to O(n * W) with max word length W)"
+    space: "O(n)"
+    hints:
+    - "dp[i] is true when the first i characters can be split into words."
+    - "dp[i] is true if some dp[j] is true and s[j:i] is a dictionary word."
+    - "Limit j to positions within the longest dictionary word of i."
+    mistakes:
+    - "Greedily taking the first matching word, which fails when a different split was needed."
+    - "Recursing without memoisation, which is exponential."
+    - "Searching the dictionary as a list, making each lookup linear."
+    prerequisites: [dp.fundamentals, hashing.lookup_frequency]
+    relevance: HIGH
+- id: 123
+  platform: LEETCODE
+  platform_key: minimum-path-sum
+  title: Minimum Path Sum
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: dp.grid_paths
+    mapping_weight_bp: 10000
+  guide:
+    summary: "Find the smallest sum along a path from the top-left to the bottom-right of a grid moving only right or down."
+    pattern: "Grid DP taking the cheaper of the cell above and the cell to the left"
+    time: "O(m * n)"
+    space: "O(n)"
+    hints:
+    - "Each cell is entered from above or from the left."
+    - "cost[i][j] = grid[i][j] + min(cost above, cost to the left)."
+    - "The first row and the first column each have only one predecessor."
+    mistakes:
+    - "Treating out-of-grid neighbours as 0, which lets the min take a phantom path."
+    - "Choosing the locally cheaper neighbour greedily while walking."
+    - "Overwriting the input grid without saying so."
+    prerequisites: [dp.fundamentals]
+    relevance: HIGH
+- id: 124
+  platform: LEETCODE
+  platform_key: longest-increasing-path-in-a-matrix
+  title: Longest Increasing Path in a Matrix
+  difficulty: HARD
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: dp.grid_paths
+    mapping_weight_bp: 10000
+  - skill: graph.topological_sort
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Find the length of the longest strictly increasing path in a matrix moving in four directions."
+    pattern: "DFS with memoisation (longest path in a DAG)"
+    time: "O(m * n)"
+    space: "O(m * n)"
+    hints:
+    - "Strictly increasing moves can never return to a cell, so the cells form a DAG."
+    - "The longest path from a cell is 1 + the best over its larger neighbours."
+    - "Memoise each cell's answer so it is computed only once."
+    mistakes:
+    - "Using a backtracking visited set instead of memoisation."
+    - "DFS without memoisation, which is exponential."
+    - "Allowing moves to equal neighbours."
+    prerequisites: [dp.fundamentals, graph.traversal]
+    relevance: MEDIUM
+- id: 125
+  platform: LEETCODE
+  platform_key: best-time-to-buy-and-sell-stock-with-cooldown
+  title: Best Time to Buy and Sell Stock with Cooldown
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: dp.interval_state_machine
+    mapping_weight_bp: 10000
+  guide:
+    summary: "Maximise trading profit with unlimited transactions when you must wait one day after each sale before buying again."
+    pattern: "State-machine DP with hold, sold and rest states"
+    time: "O(n)"
+    space: "O(1)"
+    hints:
+    - "Describe each day by a state: holding a share, just sold, or resting."
+    - "Write the transitions; buying is only allowed from the resting state."
+    - "Compute all of today's states from yesterday's values at once."
+    mistakes:
+    - "Allowing a buy on the day right after a sale."
+    - "Updating states in place, so a transition reads today's value instead of yesterday's."
+    - "Starting the hold state at 0 instead of -prices[0]."
+    prerequisites: [dp.fundamentals]
+    relevance: HIGH
+- id: 126
+  platform: LEETCODE
+  platform_key: best-time-to-buy-and-sell-stock-iii
+  title: Best Time to Buy and Sell Stock III
+  difficulty: HARD
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: dp.interval_state_machine
+    mapping_weight_bp: 10000
+  guide:
+    summary: "Maximise trading profit using at most two buy-and-sell transactions."
+    pattern: "State-machine DP with four states (first buy, first sell, second buy, second sell)"
+    time: "O(n)"
+    space: "O(1)"
+    hints:
+    - "Extend the one-transaction solution to two transactions in sequence."
+    - "Track the best balance after the first buy, first sell, second buy and second sell."
+    - "Each state depends only on the previous state and today's price."
+    mistakes:
+    - "Adding the two largest single-transaction profits, which may overlap in time."
+    - "Initialising the buy states to 0 instead of -prices[0]."
+    - "Splitting at every day and solving both halves from scratch, O(n^2)."
+    prerequisites: [dp.interval_state_machine]
+    relevance: MEDIUM
+- id: 127
+  platform: LEETCODE
+  platform_key: burst-balloons
+  title: Burst Balloons
+  difficulty: HARD
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: dp.interval_state_machine
+    mapping_weight_bp: 10000
+  guide:
+    summary: "Maximise the coins earned by bursting balloons, where each burst pays the product of the balloon and its current neighbours."
+    pattern: "Interval DP choosing the last balloon burst in each open interval"
+    time: "O(n^3)"
+    space: "O(n^2)"
+    hints:
+    - "Choosing which balloon to burst first makes the remaining subproblems depend on each other."
+    - "Instead choose the balloon k burst last inside an open interval (i, j); its neighbours are then i and j."
+    - "Pad both ends with a value-1 balloon and fill the table by increasing interval length."
+    mistakes:
+    - "Choosing the first balloon to burst, which breaks subproblem independence."
+    - "Forgetting the virtual value-1 balloons at the ends."
+    - "Filling the table in an order where shorter intervals are not ready yet."
+    prerequisites: [dp.fundamentals]
+    relevance: MEDIUM
+- id: 128
+  platform: LEETCODE
+  platform_key: house-robber-iii
+  title: House Robber III
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: dp.tree
+    mapping_weight_bp: 10000
+  - skill: trees.path_depth
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Maximise the money taken from houses arranged as a binary tree without taking from both a parent and its child."
+    pattern: "Post-order tree DP returning (best if robbed, best if skipped)"
+    time: "O(n)"
+    space: "O(h)"
+    hints:
+    - "For each node, consider the best total with it robbed and the best with it skipped."
+    - "If the node is robbed both children must be skipped; if skipped, each child takes its better option."
+    - "Return both values as a pair from each call."
+    mistakes:
+    - "Recursing into grandchildren without memoisation, which is exponential."
+    - "Summing alternate levels, which is not optimal."
+    - "Memoising by node value instead of by node identity."
+    prerequisites: [dp.fundamentals, trees.path_depth]
+    relevance: HIGH
+- id: 129
+  platform: LEETCODE
+  platform_key: binary-tree-maximum-path-sum
+  title: Binary Tree Maximum Path Sum
+  difficulty: HARD
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: dp.tree
+    mapping_weight_bp: 10000
+  - skill: trees.path_depth
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Find the largest sum of any path between two nodes of a binary tree whose values may be negative."
+    pattern: "Post-order DFS returning the best downward gain while updating a global best through each node"
+    time: "O(n)"
+    space: "O(h)"
+    hints:
+    - "A path peaks at one node and uses at most one downward branch on each side of it."
+    - "Return to the parent only the best single-branch gain, floored at 0."
+    - "At each node, update the answer with node value + left gain + right gain."
+    mistakes:
+    - "Initialising the answer to 0, which fails when every value is negative."
+    - "Returning both branches to the parent, which forms a fork rather than a path."
+    - "Not flooring negative child gains at 0."
+    prerequisites: [trees.path_depth]
+    relevance: HIGH
+- id: 130
+  platform: LEETCODE
+  platform_key: binary-tree-cameras
+  title: Binary Tree Cameras
+  difficulty: HARD
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: dp.tree
+    mapping_weight_bp: 10000
+  - skill: greedy.core
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Place the fewest cameras on tree nodes so that every node is watched by itself, its parent or a child."
+    pattern: "Post-order greedy with three states (has camera, covered, needs cover)"
+    time: "O(n)"
+    space: "O(h)"
+    hints:
+    - "A leaf never needs a camera; its parent covers more nodes."
+    - "Return one of three states from each node: has a camera, covered without one, or not covered."
+    - "Place a camera when any child is not covered, and add one more if the root ends uncovered."
+    mistakes:
+    - "Putting cameras on leaves."
+    - "Treating a null child as needing cover instead of as already covered."
+    - "Forgetting the final check on the root."
+    prerequisites: [dp.tree]
+    relevance: MEDIUM
+- id: 131
+  platform: LEETCODE
+  platform_key: counting-bits
+  title: Counting Bits
+  difficulty: EASY
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: bit_manipulation.core
+    mapping_weight_bp: 10000
+  - skill: dp.fundamentals
+    mapping_weight_bp: 5000
+  guide:
+    summary: "For every integer from 0 to n, return how many 1 bits it has."
+    pattern: "Bit DP, bits[i] = bits[i >> 1] + (i & 1)"
+    time: "O(n)"
+    space: "O(n) for the output"
+    hints:
+    - "Counting each number's bits separately costs O(n log n)."
+    - "Shifting i right by one drops its last bit and gives a smaller number already solved."
+    - "Add back whether the dropped bit was 1."
+    mistakes:
+    - "Presenting bin(i).count('1') as the intended linear solution."
+    - "Returning n values instead of n + 1."
+    - "Using the i & (i - 1) trick with the wrong index; it is bits[i & (i - 1)] + 1."
+    relevance: MEDIUM
+- id: 132
+  platform: LEETCODE
+  platform_key: single-number-ii
+  title: Single Number II
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: bit_manipulation.core
+    mapping_weight_bp: 10000
+  guide:
+    summary: "Find the value that appears once when every other value appears three times, in linear time and constant space."
+    pattern: "Per-bit counts modulo 3 (or a ones/twos bitmask state machine)"
+    time: "O(n)"
+    space: "O(1)"
+    hints:
+    - "XOR cancels pairs, not triples."
+    - "For each bit position, the number of set bits across all values modulo 3 is that bit of the answer."
+    - "The ones and twos bitmasks track the count modulo 3 for every bit at once."
+    mistakes:
+    - "Reusing the XOR-everything trick from Single Number."
+    - "In Python, not converting a 32-bit result with the sign bit set back to a negative number."
+    - "Using a Counter, which breaks the constant-space requirement."
+    prerequisites: [bit_manipulation.core]
+    relevance: MEDIUM
+- id: 133
+  platform: LEETCODE
+  platform_key: powx-n
+  title: Pow(x, n)
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: math.number_basics
+    mapping_weight_bp: 10000
+  - skill: recursion.fundamentals
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Compute x raised to an integer power n, where n may be negative."
+    pattern: "Fast exponentiation by repeated squaring"
+    time: "O(log n)"
+    space: "O(1) iterative, O(log n) recursive"
+    hints:
+    - "Multiplying x by itself n times is too slow when n is near 2^31."
+    - "x^n = (x^(n // 2))^2, with one extra factor of x when n is odd."
+    - "For negative n, compute the power for -n and take the reciprocal."
+    mistakes:
+    - "A linear multiplication loop."
+    - "Computing the half power twice per call, which loses the logarithmic bound."
+    - "Negating n = -2^31 in a fixed-width integer type, which overflows (fine in Python, worth saying)."
+    prerequisites: [recursion.fundamentals]
+    relevance: HIGH
+- id: 134
+  platform: LEETCODE
+  platform_key: count-primes
+  title: Count Primes
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: math.number_basics
+    mapping_weight_bp: 10000
+  guide:
+    summary: "Count the prime numbers strictly less than n."
+    pattern: "Sieve of Eratosthenes"
+    time: "O(n log log n)"
+    space: "O(n)"
+    hints:
+    - "Trial division for every number is too slow for large n."
+    - "Mark the multiples of each prime as composite."
+    - "Start marking at p * p and stop once p * p >= n."
+    mistakes:
+    - "Counting primes <= n instead of < n."
+    - "Starting the marking at 2 * p, which is correct but repeats work."
+    - "Not returning 0 for n below 3."
+    relevance: MEDIUM
+- id: 135
+  platform: LEETCODE
+  platform_key: greatest-common-divisor-of-strings
+  title: Greatest Common Divisor of Strings
+  difficulty: EASY
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: math.number_basics
+    mapping_weight_bp: 10000
+  - skill: strings.manipulation
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Find the longest string that, repeated some number of times, builds each of two given strings."
+    pattern: "Concatenation-order check plus the integer GCD of the lengths"
+    time: "O(m + n)"
+    space: "O(m + n)"
+    hints:
+    - "If a common divisor string exists, str1 + str2 equals str2 + str1."
+    - "When it does, the longest divisor has length gcd(len(str1), len(str2))."
+    - "Return the prefix of that length, or the empty string if the check fails."
+    mistakes:
+    - "Trying every prefix length, O(min(m, n) * (m + n))."
+    - "Skipping the concatenation check and returning a prefix that does not divide both."
+    - "Hand-rolling GCD incorrectly instead of using math.gcd or Euclid's loop."
+    relevance: MEDIUM
+- id: 136
+  platform: LEETCODE
+  platform_key: min-stack
+  title: Min Stack
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: design_ds.core
+    mapping_weight_bp: 10000
+  - skill: stack.basic
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Design a stack that also returns its current minimum in constant time."
+    pattern: "Stack of (value, minimum so far) pairs, or an auxiliary min stack"
+    time: "O(1) per operation"
+    space: "O(n)"
+    hints:
+    - "The minimum can change after a pop, so one variable is not enough."
+    - "Store the minimum at the time of each push next to the value."
+    - "getMin reads the minimum stored in the top entry."
+    mistakes:
+    - "Tracking a single global minimum, which is wrong after that value is popped."
+    - "With an auxiliary stack, pushing only strictly smaller values and mishandling duplicate minimums."
+    - "Scanning the stack to find the minimum, O(n)."
+    prerequisites: [stack.basic]
+    relevance: HIGH
+- id: 137
+  platform: LEETCODE
+  platform_key: insert-delete-getrandom-o1
+  title: Insert Delete GetRandom O(1)
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: design_ds.core
+    mapping_weight_bp: 10000
+  - skill: hashing.lookup_frequency
+    mapping_weight_bp: 5000
+  guide:
+    summary: "Design a set that supports insert, remove and picking a uniformly random element, each in average constant time."
+    pattern: "Array of values plus a value-to-index map, removing by swapping with the last element"
+    time: "O(1) average per operation"
+    space: "O(n)"
+    hints:
+    - "A hash set gives O(1) insert and remove but no O(1) random pick."
+    - "A list gives an O(1) random pick by index."
+    - "To delete from the list in O(1), move the last element into the gap, update its index, then pop."
+    mistakes:
+    - "Calling list.remove(val), which is O(n)."
+    - "Forgetting to update the moved element's index before popping."
+    - "Breaking when the removed element is itself the last one."
+    prerequisites: [hashing.lookup_frequency]
+    relevance: HIGH

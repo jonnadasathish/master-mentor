@@ -116,6 +116,8 @@ class Problem(Base):
     is_canonical: Mapped[bool] = mapped_column(Boolean, nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False)
     seed_version: Mapped[str] = mapped_column(SEED_VERSION, nullable=False)
+    # Coaching metadata from the seed (pattern, complexity, hints, mistakes, prerequisites, relevance; D-083).
+    guide_json: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
 
 
 class ProblemSkill(Base):

@@ -1,0 +1,340 @@
+# Learning curriculum (catalog). Owner doc: docs/domain/LEARNING_ENGINE.md, authoring: docs/domain/CONTENT_AUTHORING_GUIDE.md
+# Track -> topic -> canonical skills (seed/skills.yaml stays the only skill list). Topic order is the teaching order;
+# the mentor still decides what comes first for this learner. Every skill must appear in at least one topic.
+seed_version: seed-v2
+tracks:
+- key: dsa
+  title: Data structures & algorithms
+  summary: Patterns first, then problems. Each topic teaches the invariant, proves it with a concept check, then moves from guided to timed problems.
+  components: [dsa, coding]
+  topics:
+  - key: dsa.method
+    title: Problem-solving method and complexity
+    summary: How to read a problem, clarify it, start from brute force and reason about time and space before writing code.
+    skills: [dsa.complexity_analysis, execution.clarification, execution.brute_force_to_optimal]
+  - key: dsa.arrays_strings
+    title: Arrays and strings
+    summary: Traversal, in-place updates, building strings efficiently and palindrome checks.
+    skills: [arrays.traversal, strings.manipulation]
+  - key: dsa.hashing
+    title: Hashing
+    summary: "Trading memory for constant-time lookup: complements, frequencies and grouping by a canonical key."
+    skills: [hashing.lookup_frequency]
+  - key: dsa.prefix_sum
+    title: Prefix sums
+    summary: Precomputed running totals that turn range questions into subtraction, and prefix-state hashing for subarray counts.
+    skills: [prefix_sum.core]
+  - key: dsa.two_pointers
+    title: Two pointers
+    summary: Two indices moving under an invariant on sorted or symmetric data.
+    skills: [two_pointers.core]
+  - key: dsa.sliding_window
+    title: Sliding window
+    summary: Fixed and variable windows over contiguous data, with the window state kept valid as it moves.
+    skills: [sliding_window.core]
+  - key: dsa.stack_queue
+    title: Stacks and queues
+    summary: LIFO and FIFO structures, matching and evaluation problems, deques and monotonic queues.
+    skills: [stack.basic, queue.deque]
+  - key: dsa.monotonic_stack
+    title: Monotonic stack
+    summary: Keeping a stack sorted to answer next-greater and next-smaller questions in one pass.
+    skills: [stack.monotonic]
+  - key: dsa.linked_list
+    title: Linked lists
+    summary: Pointer manipulation (reverse, merge, splice) and fast/slow pointers for middles and cycles.
+    skills: [linked_list.manipulation, linked_list.fast_slow]
+  - key: dsa.binary_search
+    title: Binary search
+    summary: Search on sorted data, boundary searches with a clear invariant, and binary search on the answer space.
+    skills: [binary_search.basic, binary_search.boundaries, binary_search.answer_space]
+  - key: dsa.sorting_intervals
+    title: Sorting and intervals
+    summary: How the core sorts work and when to use them, then interval merging, insertion and sweep lines.
+    skills: [sorting.algorithms, intervals.core]
+  - key: dsa.recursion_backtracking
+    title: Recursion and backtracking
+    summary: Base cases, the recursion tree, and exploring choices with undo for subsets, permutations and constraints.
+    skills: [recursion.fundamentals, backtracking.core]
+  - key: dsa.trees
+    title: Trees and BSTs
+    summary: DFS and BFS traversals, height and path questions, LCA and construction, and BST invariants.
+    skills: [trees.traversal, trees.path_depth, trees.lca_construction, bst.operations]
+  - key: dsa.heaps
+    title: Heaps and priority queues
+    summary: Top-K and k-th element problems, two heaps for medians, and merging K sorted streams.
+    skills: [heap.top_k, heap.two_heaps_merge_k]
+  - key: dsa.tries
+    title: Tries
+    summary: Prefix trees for word lookup, prefix queries and word search.
+    skills: [trie.core]
+  - key: dsa.graphs
+    title: Graph traversal
+    summary: Representing graphs, BFS and DFS, connected components, grids, multi-source BFS, cycles and bipartite checks.
+    skills: [graph.traversal, graph.grid_multisource, graph.cycles_bipartite]
+  - key: dsa.graph_algorithms
+    title: Graph algorithms
+    summary: Topological sort, union-find, Dijkstra and minimum spanning trees.
+    skills: [graph.topological_sort, graph.union_find, graph.shortest_path, graph.mst]
+  - key: dsa.greedy
+    title: Greedy
+    summary: Making the locally best choice and proving it with an exchange argument.
+    skills: [greedy.core]
+  - key: dsa.dp
+    title: Dynamic programming
+    summary: State, transition and order of evaluation; 1-D, knapsack, string, grid, interval/state-machine and tree DP.
+    skills: [dp.fundamentals, dp.knapsack_subset, dp.strings_subsequence, dp.grid_paths, dp.interval_state_machine, dp.tree]
+  - key: dsa.bits_math
+    title: Bits and number basics
+    summary: Bit tricks, XOR identities, GCD, modular arithmetic and overflow.
+    skills: [bit_manipulation.core, math.number_basics]
+  - key: dsa.design_ds
+    title: Designing data structures
+    summary: Combining structures to meet operation-cost targets (LRU cache, min-stack, iterators).
+    skills: [design_ds.core]
+  - key: dsa.patterns
+    title: Pattern recognition
+    summary: Reading a problem statement and naming the pattern, the invariant and the data structure before coding.
+    skills: [dsa.pattern_recognition]
+  - key: dsa.execution
+    title: Interview execution
+    summary: Thinking aloud, writing correct code first time, dry-running, managing the clock, debugging live and handling follow-ups.
+    skills: [execution.think_aloud, execution.bug_free_coding, execution.testing_dry_run, execution.time_management, execution.debugging_under_pressure, execution.followup_handling]
+
+- key: python
+  title: Python for interviews
+  summary: The language you interview in, from idioms and data structures to the object model, concurrency, testing and backend frameworks.
+  components: [coding]
+  topics:
+  - key: python.core
+    title: Core language
+    summary: Syntax, functions, scope and closures, decorators, context managers, exceptions, mutability and references.
+    skills: [python.core_syntax]
+  - key: python.data_structures
+    title: Built-in data structures
+    summary: list, dict, set, deque, heapq, bisect, Counter and defaultdict, and when to reach for each.
+    skills: [python.collections]
+  - key: python.sorting
+    title: Sorting and ordering
+    summary: sorted vs sort, key functions, stability, multi-key ordering and custom comparisons.
+    skills: [python.sorting_keys]
+  - key: python.objects
+    title: Classes, dataclasses and protocols
+    summary: Classes and the object model, dataclasses, type hints, inheritance vs composition and structural typing.
+    skills: [python.oop]
+  - key: python.iteration
+    title: Iterators and generators
+    summary: The iteration protocol, generators, lazy pipelines and itertools.
+    skills: [python.iterators_generators]
+  - key: python.performance
+    title: Performance and complexity of built-ins
+    summary: What each built-in operation costs, the memory model and how to avoid accidental quadratic code.
+    skills: [python.builtin_complexity]
+  - key: python.concurrency
+    title: Concurrency in Python
+    summary: Threads, the GIL, multiprocessing and asyncio, and which one fits I/O-bound or CPU-bound work.
+    skills: [os.concurrency_practical]
+  - key: python.testing
+    title: Testing with pytest
+    summary: Fixtures, parametrisation, mocking and designing tests that catch real bugs.
+    skills: [testing.unit_integration, testing.test_design]
+  - key: python.backend
+    title: Backend Python
+    summary: Building HTTP APIs with FastAPI or Django, validation, errors, HTTP clients and talking to SQL.
+    skills: [engineering.api_engineering]
+  - key: python.tooling
+    title: Packaging and environments
+    summary: Virtual environments, dependency management, packaging and the tools around a Python service.
+    skills: [engineering.tooling]
+
+- key: cs
+  title: CS fundamentals
+  summary: Databases, operating systems, networking, OOP and security, taught from the internals up to the interview question.
+  components: [cs]
+  topics:
+  - key: cs.dbms_modeling
+    title: Relational model and SQL
+    summary: Keys, normalisation, joins, aggregation, subqueries and window functions.
+    skills: [db.modeling_normalization, db.sql_querying]
+  - key: cs.dbms_indexing
+    title: Indexes and query plans
+    summary: B-tree indexes, composite and covering indexes, EXPLAIN and fixing slow queries.
+    skills: [db.indexing, db.query_optimization]
+  - key: cs.dbms_transactions
+    title: Transactions and concurrency control
+    summary: ACID, isolation levels and their anomalies, MVCC, locks and deadlocks.
+    skills: [db.transactions_acid, db.isolation_mvcc, db.locking_deadlocks]
+  - key: cs.dbms_nosql
+    title: Beyond relational
+    summary: Document, key-value, wide-column and graph stores and when each beats a relational database.
+    skills: [db.nosql_tradeoffs]
+  - key: cs.os_processes
+    title: Processes, threads and scheduling
+    summary: Address spaces, processes vs threads, the scheduler and the cost of a context switch.
+    skills: [os.processes_threads, os.scheduling_context_switch]
+  - key: cs.os_memory
+    title: Memory
+    summary: Stack and heap, virtual memory, paging and what a page fault costs.
+    skills: [os.memory_virtual]
+  - key: cs.os_sync
+    title: Synchronisation and deadlocks
+    summary: Race conditions, mutexes, semaphores, condition variables, deadlock conditions and prevention.
+    skills: [os.synchronization, os.deadlocks, os.concurrency_practical]
+  - key: cs.net_transport
+    title: Transport and naming
+    summary: TCP/IP, TCP vs UDP, the handshake and connection lifecycle, and DNS resolution.
+    skills: [network.tcp_ip_udp, network.dns]
+  - key: cs.net_http
+    title: HTTP, TLS and REST
+    summary: HTTP semantics and caching, HTTP/2, TLS and HTTPS, REST and idempotency.
+    skills: [network.http, network.tls_https, network.rest_semantics]
+  - key: cs.net_sessions_realtime
+    title: Sessions and real-time protocols
+    summary: Cookies, sessions, JWT and OAuth basics; WebSockets, SSE and long polling.
+    skills: [network.sessions_auth, network.realtime_protocols]
+  - key: cs.oop
+    title: Object-oriented design principles
+    summary: Encapsulation, abstraction, inheritance, polymorphism, composition, SOLID, cohesion and coupling.
+    skills: [oop.principles, oop.composition_solid]
+  - key: cs.security
+    title: Web security basics
+    summary: OWASP basics, authentication vs authorisation, password storage and injection.
+    skills: [security.web_basics]
+
+- key: lld
+  title: Low-level design (OOD)
+  summary: From requirements to entities, class design, patterns and extensibility, ending with timed machine coding.
+  components: [lld]
+  topics:
+  - key: lld.foundations
+    title: OOP and design principles
+    summary: The principles every class design is judged by.
+    skills: [oop.principles, oop.composition_solid]
+  - key: lld.requirements
+    title: Requirements to entities
+    summary: Clarifying scope, finding entities, use cases and responsibilities.
+    skills: [lld.requirements_entities]
+  - key: lld.class_design
+    title: Class design and relationships
+    summary: Interfaces, associations, aggregation vs composition, and responsibility assignment.
+    skills: [lld.class_design]
+  - key: lld.patterns
+    title: Design patterns in practice
+    summary: Strategy, factory, observer, state, decorator and when a pattern is over-engineering.
+    skills: [lld.design_patterns]
+  - key: lld.extensibility
+    title: Extensibility and change
+    summary: Designing for the change requests an interviewer will make.
+    skills: [lld.extensibility]
+  - key: lld.concurrency
+    title: Thread-safe designs
+    summary: Locks, queues and immutability inside an object design.
+    skills: [lld.concurrency_safety]
+  - key: lld.machine_coding
+    title: Machine coding
+    summary: Working, modular, tested code in 90 minutes.
+    skills: [lld.machine_coding]
+
+- key: system_design
+  title: System design
+  summary: Requirements and estimates first, then building blocks, distributed-systems trade-offs and full designs under a 45-minute clock.
+  components: [system_design]
+  topics:
+  - key: sd.fundamentals_requirements
+    title: Requirements, estimates and APIs
+    summary: Functional and non-functional requirements, back-of-envelope estimation and API design.
+    skills: [sd.requirements_scoping, sd.capacity_estimation, sd.api_design]
+  - key: sd.fundamentals_data
+    title: Data model and decomposition
+    summary: Choosing storage and a data model, and splitting a system into components.
+    skills: [sd.data_modeling, sd.high_level_decomposition]
+  - key: sd.scaling_reads
+    title: Caching, load balancing and storage
+    summary: Cache strategies and invalidation, load balancers, CDNs, object storage and search indexes.
+    skills: [sd.caching, sd.load_balancing_cdn, sd.storage_search]
+  - key: sd.scaling_data
+    title: Scaling the database
+    summary: Replication, read replicas, partitioning, sharding and consistent hashing.
+    skills: [sd.database_scaling, sd.consistent_hashing]
+  - key: sd.async
+    title: Queues, async work and rate limits
+    summary: Queues and pub/sub, delivery guarantees, idempotency and retries, and rate limiting.
+    skills: [sd.queues_async, sd.idempotency_retries, sd.rate_limiting]
+  - key: sd.distributed
+    title: Distributed systems
+    summary: Consistency models and CAP, coordination, fault tolerance, real-time fan-out and security.
+    skills: [sd.consistency_cap, sd.distributed_coordination, sd.fault_tolerance, sd.realtime_delivery, sd.security_design]
+  - key: sd.operations
+    title: Observability
+    summary: Logs, metrics, traces and alerts that let you run what you design.
+    skills: [sd.observability]
+  - key: sd.round
+    title: Running the design round
+    summary: Deep dives, bottlenecks, defending trade-offs and driving 45 minutes.
+    skills: [sd.deep_dive_bottlenecks, sd.tradeoff_articulation, sd.time_boxing]
+
+- key: engineering
+  title: Practical engineering
+  summary: "The judgement interviews probe beyond algorithms: debugging production, performance, APIs, caching, tooling and testing."
+  components: [project]
+  topics:
+  - key: engineering.debugging
+    title: Debugging production problems
+    summary: A systematic method for intermittent errors, latency spikes and memory growth.
+    skills: [engineering.debugging, execution.debugging_under_pressure]
+  - key: engineering.performance
+    title: Performance and profiling
+    summary: Measuring before fixing, profilers, slow queries and N+1 problems.
+    skills: [engineering.performance_profiling]
+  - key: engineering.api
+    title: API engineering
+    summary: Validation, error contracts, authentication and versioning in a real service.
+    skills: [engineering.api_engineering]
+  - key: engineering.caching
+    title: Caching in practice
+    summary: Redis patterns, stale data after writes, stampedes and TTL design.
+    skills: [engineering.caching_practice]
+  - key: engineering.delivery
+    title: Git, Docker and CI/CD
+    summary: The delivery pipeline and why green CI can still fail in production.
+    skills: [engineering.tooling]
+  - key: engineering.testing
+    title: Testing strategy
+    summary: Unit, integration and contract tests, mocks and fixtures, and a test plan that finds bugs.
+    skills: [testing.unit_integration, testing.test_design]
+  - key: engineering.code_review
+    title: Code review
+    summary: Reading a pull request for correctness, scalability, security, tests and maintainability.
+    skills: [engineering.debugging, testing.test_design]
+
+- key: projects
+  title: Projects
+  summary: Build flagship projects with real milestones, then defend your own project under interview follow-ups.
+  components: [project]
+  topics:
+  - key: projects.defend
+    title: Defending your project
+    summary: Architecture walkthrough, decisions and alternatives, measurable impact and the incident story.
+    skills: [project.architecture_walkthrough, project.tradeoffs_decisions, project.metrics_impact, project.incident_debugging_story]
+
+- key: behavioral
+  title: Behavioral
+  summary: Evidence-based STAR stories, rehearsed under time, ready for probing follow-ups.
+  components: [behavioral]
+  topics:
+  - key: behavioral.foundations
+    title: Structure and introduction
+    summary: The two-minute introduction, STAR structure and direct answers.
+    skills: [behavioral.self_introduction, communication.structured_answers, communication.followup_handling]
+  - key: behavioral.ownership_impact
+    title: Ownership and impact
+    summary: Stories that show you own outcomes and can measure them.
+    skills: [behavioral.ownership, behavioral.impact]
+  - key: behavioral.people
+    title: Conflict, influence and leadership
+    summary: Disagreement, influence without authority and mentoring.
+    skills: [behavioral.conflict_disagreement, behavioral.influence_leadership]
+  - key: behavioral.judgement
+    title: Failure, ambiguity and decisions
+    summary: Failure and learning, ambiguity, difficult decisions, prioritisation and why you are changing jobs.
+    skills: [behavioral.failure_learning, behavioral.ambiguity, behavioral.difficult_decision, behavioral.prioritization, behavioral.why_change]

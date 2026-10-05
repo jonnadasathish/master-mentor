@@ -1,0 +1,712 @@
+# Learning content: behavioral people stories and failure — disagreement, influence and mentoring, failure and learning.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- conflict and disagreement
+- key: beh.conflict.lesson
+  type: lesson
+  title: Disagreeing well, with data and without a villain
+  skills: [behavioral.conflict_disagreement]
+  minutes: 20
+  difficulty: MEDIUM
+  body:
+    summary: A strong disagreement story shows you understood the other side, argued with evidence against shared criteria, reached a decision, and kept the working relationship, whether or not your view won.
+    what: |-
+      Conflict and disagreement questions ask how you behave when you and a colleague, a lead, a product manager or another team want different things. In engineering the common sources are:
+
+      - **design disagreements** (which database, queue or architecture; build versus buy);
+      - **scope and deadline disagreements** with product;
+      - **code review disagreements**;
+      - **priority disagreements** between teams;
+      - **working-style friction** (communication, responsiveness).
+    why: |-
+      Engineering teams disagree constantly, and that is healthy when it is handled with evidence and respect. Interviewers want to know whether you avoid conflict (and let bad decisions through), escalate too fast, dig in on ego, or work it out. They also listen for whether you can commit to a decision you argued against.
+    when: |-
+      "Tell me about a time you disagreed with a colleague or your manager", "a conflict with another team", "a time you pushed back on a requirement", "a time you received feedback you disagreed with", "a time you were wrong in a technical argument".
+    how: |-
+      1. **Frame the disagreement neutrally.** State both positions fairly, including the strongest version of the other side: "My lead wanted Kafka for order events because the team expected growth; I thought a transactional outbox on our existing PostgreSQL was enough at about 50 events per second."
+      2. **Seek to understand first.** Show you asked what the other person was optimising for (future scale, team experience, a past incident).
+      3. **Agree on criteria before arguing options**: expected volume, operational cost, delivery date, failure modes.
+      4. **Bring evidence**: a quick benchmark, a prototype, numbers from production, a written comparison.
+      5. **Reach a decision** through the agreed process (the tech lead decides, an RFC review, a time-boxed trial). Escalate only with both views written down, and only after trying to resolve it directly.
+      6. **Commit and follow through**, including when you lost. Say what happened afterwards and what each of you learned.
+    mental_model: |-
+      Move the argument from "me versus you" to "both of us versus the problem". Writing the options and criteria in one shared table is the practical version: once both people agree on the criteria, most disagreements become a question of data.
+    tradeoffs: |-
+      Pushing hard on every disagreement burns trust and time; giving in on everything lets avoidable risks through. Pick the hill: argue hard where the decision is costly to reverse (a data model, a public API), and let reversible ones go with a note. Escalating early saves time but can feel like going over someone's head, so tell the other person first and present both views.
+    mistakes:
+      - Telling a story where the other person was simply wrong or difficult, a villain.
+      - A "conflict" that was not really a disagreement ("we discussed it and agreed").
+      - Winning by authority or persistence rather than evidence.
+      - Escalating to a manager before talking to the person directly.
+      - No outcome, or no account of the relationship afterwards.
+      - Never choosing a story where you were the one who was wrong.
+    interview: |-
+      Expect probes such as "what was their best argument?", "what would you have done if the decision went the other way?", "how is your relationship with them now?". If you cannot state the other side's best argument, the interviewer will doubt that you listened. Stories where you changed your mind on evidence are often among the strongest.
+    explain_it:
+      - Both positions, the other side's stated at its strongest.
+      - What each side was optimising for.
+      - The shared criteria and the evidence used.
+      - How the decision was made and who made it.
+      - The outcome, the relationship afterwards and what you learned.
+    example:
+      language: text
+      code: |-
+        Question: Tell me about a time you disagreed with a senior engineer on a design.
+
+        Headline:   I disagreed with our tech lead about adding Kafka for order events; we agreed
+                    on criteria, I ran a load test, and we shipped an outbox first with a clear
+                    trigger for moving to Kafka later.
+        Situation:  We needed order events for three downstream consumers. Our tech lead proposed
+                    Kafka; nobody on the team had operated it.
+        Task:       I was designing the publishing side and owned the delivery date (six weeks).
+        Action:     - Asked what she was optimising for: she had seen a previous system outgrow a
+                      database queue and wanted to avoid a second migration. That was fair.
+                    - Proposed criteria we both accepted: expected events per second in 12 months,
+                      operational load on a team of five, delivery date, ordering guarantees.
+                    - Load-tested an outbox table with a polling publisher on a staging copy: it
+                      handled about 1,500 events per second against a forecast of 200.
+                    - Wrote a one-page comparison and proposed a trigger: move to Kafka if sustained
+                      load passes 500 per second or a fourth consumer needs replay.
+        Result:     She agreed to start with the outbox. We shipped in five weeks.
+        Metrics:    Peak load a year later about 180 events per second; zero lost events in
+                    reconciliation; no new infrastructure to run.
+        Trade-offs: No built-in replay; we added a re-publish script for that case. The decision
+                    is reversible behind the publisher interface.
+        Reflection: Asking what she was optimising for changed the conversation more than the load
+                    test did. I now ask that question first in design reviews.
+      explanation: The other side's reasoning is stated fairly, the disagreement is settled with shared criteria and evidence, and the outcome includes a condition under which the other view wins.
+    internals: |-
+      What interviewers typically listen for: respect for the other person, curiosity about their reasoning, evidence over opinion, a clear decision mechanism, willingness to disagree and commit, and self-awareness about your own part. Blame, sarcasm about colleagues or a story with no resolution are common reasons a conflict answer scores low.
+    edge_cases:
+      - "You lost the argument and the decision turned out fine: say so; it shows you can update."
+      - "You lost and it went badly: describe how you supported the decision anyway and how the team learned, without saying 'I told you so'."
+      - "A conflict with a manager: the same structure, plus how you raised it privately and respected their call."
+    misconceptions:
+      - The best conflict story is one you won. Stories where you changed your mind on evidence are often stronger.
+      - Avoiding conflict shows you are a good team player. Interviewers look for constructive disagreement, not absence of it.
+- key: beh.conflict.check
+  type: concept_check
+  title: "Concept check: judging disagreement answers"
+  skills: [behavioral.conflict_disagreement]
+  minutes: 8
+  difficulty: MEDIUM
+  body:
+    intro: Each question quotes part of an answer to "tell me about a time you disagreed with someone".
+    questions:
+      - id: q1
+        kind: single
+        prompt: Which framing of the disagreement is strongest?
+        options:
+          - "My colleague didn't really understand distributed systems, so I had to explain it to him."
+          - "My lead wanted Kafka because she had seen a database queue outgrown before; I thought an outbox was enough for our volume and our team's experience."
+          - "We had a small disagreement but quickly agreed."
+          - "The product manager kept changing requirements, which was frustrating."
+        answer: [1]
+        explanation: "The second states both positions and the other person's reasoning fairly. The first makes the colleague a villain, the third has no real disagreement, and the fourth is a complaint without a position."
+      - id: q2
+        kind: multi
+        prompt: Which actions in a disagreement story usually earn credit?
+        options:
+          - Asking what the other person was optimising for.
+          - Agreeing on decision criteria before comparing options.
+          - Escalating to the manager before talking to the person.
+          - Running a small benchmark or prototype to settle a factual question.
+        answer: [0, 1, 3]
+        explanation: "Curiosity, shared criteria and evidence move the argument to the problem. Escalating before a direct conversation reads as avoiding the person and usually counts against the candidate."
+      - id: q3
+        kind: single
+        prompt: "The team chose the option the candidate argued against. Which continuation is best?"
+        options:
+          - "So I let them do it their way, and it failed, as I expected."
+          - "I committed to it, wrote the parts I owned as well as I could, and added a metric for the risk I had worried about; it held up for the first year, so I was wrong about the timing."
+          - "I kept raising it in every meeting until they reconsidered."
+          - "I asked to move to a different project."
+        answer: [1]
+        explanation: "Disagree-and-commit with a safeguard, plus an honest update, shows maturity. 'As I expected' is told-you-so, persistent re-litigating wastes time, and leaving avoids the problem."
+      - id: q4
+        kind: single
+        prompt: "Interviewer follow-up: 'What was their best argument?' The candidate says 'Honestly, they didn't have one.' What does this signal?"
+        options:
+          - Strong conviction.
+          - That the candidate may not have listened, or that the conflict was not a real trade-off.
+          - Nothing; it is a neutral answer.
+          - Technical superiority.
+        answer: [1]
+        explanation: "Real engineering disagreements nearly always have a case on both sides. Being unable to state it suggests a listening problem, which is one of the main things the question tests."
+      - id: q5
+        kind: short
+        prompt: When is it reasonable to escalate a technical disagreement, and how should you do it?
+        model_answer: "When a direct conversation has not resolved it and the decision is costly or blocking. Tell the other person you want a third opinion, write both options with the agreed criteria and evidence, and ask the decision owner (tech lead, architect, manager) to decide; then commit to the result."
+        explanation: Escalation is a decision mechanism, not a way to win; doing it openly and with both views preserves trust.
+- key: beh.conflict.story
+  type: behavioral_question
+  title: "Story: a design disagreement with a senior engineer"
+  skills: [behavioral.conflict_disagreement, communication.structured_answers]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: STORY_REHEARSAL, time_limit_seconds: 180}
+  body:
+    prompt: Tell me about a time you disagreed with a more senior engineer or your lead on a technical decision.
+    competency: Constructive disagreement
+    look_for:
+      - States both positions, the other person's at its strongest, without belittling them.
+      - Shows they asked what the other person was optimising for.
+      - Uses agreed criteria and evidence (benchmark, prototype, production data), not persistence.
+      - Explains how the decision was made and who made it.
+      - Describes committing to the outcome and what happened afterwards.
+      - Mentions the working relationship after the disagreement.
+    pitfalls:
+      - A story where the senior person was simply wrong.
+      - No resolution, or a resolution by escalation alone.
+    follow_ups:
+      - prompt: What was the strongest argument for their position?
+        look_for: A fair, specific argument showing real understanding.
+      - prompt: What would you have done if the decision had gone the other way?
+        look_for: Commit and execute well, with a safeguard or metric for the risk; no sabotage or told-you-so.
+      - prompt: Looking back, was there anything they were right about?
+        look_for: An honest concession or update, even a partial one.
+- key: beh.conflict.story_2
+  type: behavioral_question
+  title: "Story: pushing back on product scope or a deadline"
+  skills: [behavioral.conflict_disagreement, behavioral.prioritization]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: STORY_REHEARSAL, time_limit_seconds: 180}
+  body:
+    prompt: Tell me about a time you pushed back on a requirement or a deadline from a product manager or a stakeholder.
+    competency: Disagreement with non-engineering stakeholders
+    look_for:
+      - Explains the stakeholder's goal and constraint (a launch date, a customer promise) fairly.
+      - States the risk of the original request in concrete terms (data loss, outage risk, weeks of rework).
+      - Offers alternatives (reduced scope, phased delivery, a different date) rather than only saying no.
+      - Shows how the trade-off was decided jointly and written down.
+      - Gives the outcome with a number and the effect on the relationship.
+    pitfalls:
+      - "Treating product as the adversary ('they just wanted features')."
+      - Pushing back without proposing anything.
+    follow_ups:
+      - prompt: What did the product manager give up, and how did you make that acceptable?
+        look_for: A specific scope cut or date change and how its cost was reduced (manual workaround, follow-up release).
+      - prompt: What if they had insisted on the original plan?
+        look_for: Make the risk explicit in writing, agree mitigations, escalate if the risk is severe, then commit.
+      - prompt: How do you prevent this kind of disagreement next time?
+        look_for: Involvement earlier in planning, estimates with risks, regular check-ins.
+- key: beh.conflict.story_3
+  type: behavioral_question
+  title: "Story: feedback you disagreed with, or a time you were wrong"
+  skills: [behavioral.conflict_disagreement, behavioral.failure_learning]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: STORY_REHEARSAL, time_limit_seconds: 180}
+  body:
+    prompt: Tell me about a time you received critical feedback, in a code review or from your manager, that you initially disagreed with.
+    competency: Receiving feedback and updating
+    look_for:
+      - Describes the feedback specifically and their initial reaction honestly.
+      - Shows they sought to understand it (asked for examples, asked why) before responding.
+      - Explains what they concluded and why, with evidence.
+      - If they changed their view, says so plainly; if not, explains how they resolved it respectfully.
+      - Names a concrete change in their behaviour or code afterwards.
+    pitfalls:
+      - Feedback that was secretly praise ("they said I care too much").
+      - Defending the original position throughout the retelling.
+    follow_ups:
+      - prompt: How did you feel when you first got the feedback, and what did you do with that?
+        look_for: Honest about the reaction and shows a deliberate step back before responding.
+      - prompt: What did you change afterwards?
+        look_for: A specific, observable change with an example.
+      - prompt: How do you give critical feedback to others now?
+        look_for: Specific, private where appropriate, about the work and its effect, with an example.
+- key: beh.conflict.cards
+  type: revision_card
+  title: "Recall: disagreement stories"
+  skills: [behavioral.conflict_disagreement]
+  minutes: 5
+  body:
+    cards:
+      - front: First move in a design disagreement?
+        back: Ask what the other person is optimising for.
+      - front: How to settle a factual disagreement?
+        back: Agree on criteria, then bring evidence such as a benchmark or prototype.
+      - front: When to escalate?
+        back: After a direct conversation, openly, with both views written down.
+      - front: Your view lost. What does a strong story show?
+        back: You committed, added a safeguard and updated honestly afterwards.
+      - front: The probe that tests listening?
+        back: "\"What was their best argument?\""
+
+# ---------------------------------------------------------------------------------------------- influence, leadership and mentoring
+- key: beh.influence.lesson
+  type: lesson
+  title: Influence without authority, and mentoring that shows results
+  skills: [behavioral.influence_leadership]
+  minutes: 20
+  difficulty: MEDIUM
+  body:
+    summary: Influence stories show how you got people who did not report to you to change what they do, through evidence, making change easy and building allies; mentoring stories show a named person's measurable growth.
+    what: |-
+      Influence without authority means changing a decision or a habit when you cannot tell people what to do: getting your team to adopt contract tests, persuading another team to change an API, leading a cross-team migration as an individual contributor. Leadership at the SDE-2 level is mostly this kind of influence, plus **mentoring**: helping a less experienced engineer become independent.
+    why: |-
+      Most important engineering changes cross team boundaries, and few engineers have formal authority over the people involved. Interviewers use these questions to judge whether you can grow into a senior or lead role: can you get alignment, can you make others more effective, and do you lead by enabling rather than by doing everything yourself?
+    when: |-
+      "Tell me about a time you convinced others to adopt an idea", "a time you led without being the manager", "a time you mentored someone", "a time you improved how your team works", "a cross-team project you drove".
+    how: |-
+      Influence, in the order that usually works:
+
+      1. **Start from their problem, not your solution.** "Every on-call week loses about six hours to flaky end-to-end tests" lands better than "we should adopt contract testing".
+      2. **Bring evidence**: data from production, a prototype, a pilot on one service.
+      3. **Make adoption cheap**: a template, a script, a pairing session, a migration guide, doing the first one for them.
+      4. **Find allies and early adopters**, and let their success persuade the rest.
+      5. **Use the decision process** the organisation already has (RFC, architecture review, team retro).
+      6. **Measure and report back**, so the change sticks.
+
+      Mentoring, made concrete:
+
+      1. Name the person's starting point and goal ("a new graduate who had never been on call").
+      2. Say what you did, specifically: weekly pairing, reviewing their design docs, shadowing then reverse-shadowing on call.
+      3. Show how you stepped back as they grew.
+      4. Give an observable outcome: they led an incident alone after three months, shipped a feature end to end, got promoted.
+    mental_model: |-
+      Influence is lowering the cost and raising the visible benefit of the change until saying yes is the easy option. Mentoring is the same idea for a person: lower the cost of their next step, then remove yourself.
+    tradeoffs: |-
+      Persuading by evidence is slower than escalating to a manager for a mandate, but changes made by persuasion tend to last. Doing the first migration yourself speeds adoption but can make you the permanent owner; plan the handover. In mentoring, solving the problem for someone is faster today and slower for their growth; letting them struggle a little is the point, within limits that protect production.
+    mistakes:
+      - Influence by insistence or by getting a manager to mandate it, described as leadership.
+      - Stories where the outcome is "they agreed" with no adoption or result afterwards.
+      - Mentoring stories with no specific person, actions or growth outcome.
+      - Taking credit for the mentee's achievement.
+      - Leaving out the people who resisted and how their concerns were handled.
+    interview: |-
+      Probes include "who resisted, and why?", "what did you do for the people who were not convinced?", "how did you know the change stuck?", and for mentoring "how did you adjust your approach to that person?". A good answer names a resistor and treats their concern as legitimate.
+    explain_it:
+      - The problem stated in the other people's terms.
+      - The evidence and the pilot.
+      - What you did to make adoption cheap.
+      - Who resisted and how you handled their concern.
+      - Adoption measured afterwards; for mentoring, the person's observable growth.
+    example:
+      language: text
+      code: |-
+        Question: Tell me about a time you influenced other teams without having authority.
+
+        Headline:   I got four teams to adopt consumer-driven contract tests for our internal APIs,
+                    which cut integration-related production incidents from about two a month to
+                    one in the following quarter.
+        Situation:  Our services broke each other through API changes; the shared end-to-end
+                    suite took 50 minutes and failed randomly about one run in five.
+        Task:       I was a backend engineer on one of five teams; nobody had asked me to fix it.
+        Action:     - Collected the data: of the last ten production incidents, six were API
+                      contract breaks between services.
+                    - Piloted contract tests between my team's service and its two consumers, and
+                      measured: tests ran in under two minutes in each pipeline.
+                    - Wrote a short RFC, presented it at the architecture review, and offered to
+                      pair with each team on their first contract.
+                    - One team lead objected that it duplicated their end-to-end tests. I agreed
+                      to keep the end-to-end suite for their critical flow and to revisit after a
+                      quarter with data.
+        Result:     Four of five teams adopted it within two months; the fifth joined later.
+        Metrics:    Contract-break incidents from about two a month to one in the whole quarter;
+                    the end-to-end suite shrank from 50 minutes to 15.
+        Trade-offs: Teams maintain contract files; I wrote a generator to reduce that work.
+        Reflection: The pilot data did more than the RFC; next time I would pilot with the most
+                    sceptical team first.
+      explanation: The change starts from other people's pain, is proven by a pilot, made cheap through pairing and tooling, and the resisting lead's concern is accommodated rather than overruled.
+    internals: |-
+      What interviewers typically listen for in leadership answers: whether you understood other people's incentives, used evidence, made it easy, handled resistance respectfully, and measured adoption. In mentoring answers: a specific person, tailored actions, deliberate stepping back, and an outcome attributed to the mentee.
+    edge_cases:
+      - "The influence failed: a good story if you explain what you learned about the people or the timing."
+      - "You were the formal lead: still show how you persuaded rather than ordered."
+      - "No formal mentee: onboarding a new joiner or helping a peer learn an area counts."
+    misconceptions:
+      - Leadership requires a title. At SDE-2 level it is mostly influence and mentoring without one.
+      - Good mentoring means answering every question quickly. It means building the person's independence.
+- key: beh.influence.check
+  type: concept_check
+  title: "Concept check: influence and mentoring answers"
+  skills: [behavioral.influence_leadership]
+  minutes: 8
+  difficulty: MEDIUM
+  body:
+    intro: Judge each sample from an influence or mentoring answer.
+    questions:
+      - id: q1
+        kind: single
+        prompt: Which opening for an influence story is strongest?
+        options:
+          - "I told the other teams they should use contract testing because it's best practice."
+          - "Six of our last ten production incidents were API contract breaks between services, so I piloted contract tests with two consumers and measured the result."
+          - "My manager made contract testing mandatory after I suggested it."
+          - "I wrote a long document about testing philosophy."
+        answer: [1]
+        explanation: "The second starts from a measured shared problem and a pilot. 'Best practice' is an appeal to authority, a mandate is not influence, and a document without evidence or adoption shows effort, not result."
+      - id: q2
+        kind: multi
+        prompt: Which actions make it cheaper for others to adopt a change?
+        options:
+          - A template or generator for the boilerplate.
+          - Pairing with each team on their first use.
+          - Sending a reminder every week.
+          - Migrating the first service for them as a working example.
+        answer: [0, 1, 3]
+        explanation: "Templates, pairing and a worked first example lower the cost of saying yes. Repeated reminders raise social pressure without lowering cost."
+      - id: q3
+        kind: single
+        prompt: "In a mentoring story, which outcome statement is strongest?"
+        options:
+          - "I helped a junior engineer a lot."
+          - "After three months of weekly design reviews and two shadowed on-call weeks, she led an incident on her own and shipped the refunds export end to end."
+          - "Thanks to me, he got promoted."
+          - "I answered all her questions within minutes."
+        answer: [1]
+        explanation: "The second names specific actions and an observable growth outcome attributed to the mentee. 'A lot' is vague, 'thanks to me' takes the mentee's credit, and fast answers can work against independence."
+      - id: q4
+        kind: single
+        prompt: "A team lead resisted the candidate's proposal. Which handling is best?"
+        options:
+          - Escalated to the director to overrule them.
+          - Ignored them and worked with the other teams.
+          - Asked what their concern was, kept their existing safeguard for one quarter, and agreed to revisit with data.
+          - Told them everyone else had agreed.
+        answer: [2]
+        explanation: "Treating resistance as information and offering a low-risk path keeps the relationship and often converts the resistor. Overruling, ignoring and social pressure win the moment and lose trust."
+      - id: q5
+        kind: short
+        prompt: Why do interviewers ask how you knew a change you championed actually stuck?
+        model_answer: "Agreement in a meeting is cheap; adoption is the real outcome. They want evidence of follow-through: how many teams use it after some months, a metric that moved (incidents, build time), or a process that kept it in place without you."
+        explanation: Influence is measured by changed behaviour, not by a yes in a meeting.
+- key: beh.influence.story
+  type: behavioral_question
+  title: "Story: convincing the team to change a practice"
+  skills: [behavioral.influence_leadership]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: STORY_REHEARSAL, time_limit_seconds: 180}
+  body:
+    prompt: Tell me about a time you convinced your team or other teams to change how they work, without having authority over them.
+    competency: Influence without authority
+    look_for:
+      - States the problem in terms the others cared about, with a number.
+      - Uses evidence (data, pilot, prototype) rather than appeals to best practice.
+      - Describes what they did to make adoption cheap.
+      - Names who resisted and how their concern was handled respectfully.
+      - Gives an adoption outcome and a result metric measured afterwards.
+    pitfalls:
+      - A manager mandate presented as influence.
+      - Ending at "they agreed".
+    follow_ups:
+      - prompt: Who resisted, and were they partly right?
+        look_for: A named role, a legitimate concern, and a concession or accommodation.
+      - prompt: What would you do differently to get adoption faster?
+        look_for: A specific change in approach (pilot with sceptics, earlier involvement, better tooling).
+      - prompt: Is the practice still in use? How do you know?
+        look_for: Current evidence, or an honest account of partial decay and why.
+- key: beh.influence.story_2
+  type: behavioral_question
+  title: "Story: mentoring a less experienced engineer"
+  skills: [behavioral.influence_leadership]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: STORY_REHEARSAL, time_limit_seconds: 180}
+  body:
+    prompt: Tell me about a time you mentored or onboarded someone. What did you do, and how did they grow?
+    competency: Mentoring
+    look_for:
+      - Describes a specific person's starting point and goal.
+      - Names concrete mentoring actions (pairing, design reviews, shadowing, graduated responsibility).
+      - Shows how the approach was tailored to that person.
+      - Shows deliberate stepping back as the person became independent.
+      - Gives an observable growth outcome credited to the mentee.
+    pitfalls:
+      - Generic statements about being helpful.
+      - Taking credit for the mentee's results.
+    follow_ups:
+      - prompt: What was the hardest part of mentoring this person?
+        look_for: A specific difficulty (confidence, overcommitting, a skill gap) and how they adapted.
+      - prompt: When did you let them make a mistake, and why?
+        look_for: A bounded, low-risk mistake allowed for learning, with production protected.
+      - prompt: What did you learn about yourself from mentoring?
+        look_for: A specific insight that changed how they communicate or delegate.
+- key: beh.influence.story_3
+  type: behavioral_question
+  title: "Story: leading a cross-team effort as an individual contributor"
+  skills: [behavioral.influence_leadership, behavioral.ownership]
+  minutes: 15
+  difficulty: HARD
+  observation: {kind: STORY_REHEARSAL, time_limit_seconds: 180}
+  body:
+    prompt: Tell me about a time you led a piece of work that involved several teams, when you were not their manager.
+    competency: Cross-team leadership
+    look_for:
+      - Explains why several teams were needed and what each owned.
+      - Describes how alignment was reached (kick-off, RFC, shared plan with owners and dates).
+      - Shows how progress and blockers were tracked and communicated.
+      - Describes handling at least one slipping dependency without blame.
+      - Gives the outcome with a number and what the teams thought afterwards.
+    pitfalls:
+      - A story where the candidate did all the work themselves.
+      - Leaving out how they handled a team that did not deliver.
+    follow_ups:
+      - prompt: Which team was hardest to align, and why?
+        look_for: Understands that team's incentives and constraints; describes a concrete accommodation.
+      - prompt: How did you keep everyone informed without endless meetings?
+        look_for: A specific mechanism (weekly written update, shared tracker, decision log).
+      - prompt: What would you hand to the next person leading something similar?
+        look_for: Concrete artefacts or lessons (template, plan structure, risk list).
+- key: beh.influence.cards
+  type: revision_card
+  title: "Recall: influence and mentoring"
+  skills: [behavioral.influence_leadership]
+  minutes: 5
+  body:
+    cards:
+      - front: Where does an influence story start?
+        back: With the other people's problem, measured, not with your solution.
+      - front: Strongest persuasion tool for engineers?
+        back: A small pilot with measured results.
+      - front: How to handle a resistor?
+        back: Ask their concern, accommodate it where possible, revisit with data.
+      - front: Outcome of a mentoring story?
+        back: The mentee's observable growth, credited to them.
+      - front: Proof that influence worked?
+        back: Adoption and a metric measured months later, not a yes in a meeting.
+
+# ---------------------------------------------------------------------------------------------- failure and learning
+- key: beh.failure.lesson
+  type: lesson
+  title: Failure stories that show what you changed
+  skills: [behavioral.failure_learning]
+  minutes: 20
+  difficulty: MEDIUM
+  body:
+    summary: A failure story names a real failure you caused or contributed to, its cost, your part without excuses, and the specific change in how you work that you can show you have applied since.
+    what: |-
+      Failure and learning questions ask about something that went wrong and what you took from it: a missed deadline, a bug you shipped, a wrong estimate, a design that did not hold up, a project cancelled after months. "Learning" questions (a time you learned a new technology quickly, a time you had to get up to speed) belong to the same family: the signal is how you learn and how fast you become effective.
+    why: |-
+      Everyone fails; interviewers want to know whether you notice, own it, and get better. A candidate who cannot name a real failure signals either low self-awareness or low honesty. The learning part matters most: a failure followed by a concrete, repeated change in behaviour is strong evidence of growth.
+    when: |-
+      "Tell me about a time you failed", "a time you missed a deadline", "a mistake you made", "a project that did not go as planned", "your biggest professional regret", "a time you had to learn something quickly".
+    how: |-
+      1. **Pick a real failure with real cost**, owned by you, and not a catastrophe that raises doubts about basic judgement. A missed deadline, a production bug, a wrong estimate or a design reworked after launch are all good.
+      2. **State it plainly in the headline**: "I missed a committed date by two weeks on a payment provider integration."
+      3. **Explain your part without excuses.** Context is fine; blame is not. "The sandbox behaved differently from production, and I had not tested against production-like data early enough" owns the decision.
+      4. **Describe what you did when it went wrong**: told stakeholders, re-planned, limited the damage.
+      5. **Name the learning as a mechanism**: what you now do differently, specifically.
+      6. **Show it applied since**: a later project where the new habit made a difference.
+
+      For learning-fast stories: what you had to learn, by when, how you learned (reading code, building a spike, asking an expert, writing it up), and evidence you became effective (shipped, reviewed others' code, fixed an incident).
+    mental_model: |-
+      The failure is the setup; the learning is the story. Spend about a third of the answer on what went wrong and two thirds on what you did about it and what changed afterwards.
+    tradeoffs: |-
+      A small failure is safe but teaches little and may look evasive; a very large one can dominate the interview. Choose something meaningful that you handled well after the fact. Being candid about your part is the point, but the story should not read as a pattern of carelessness, which is why the "applied since" step matters.
+    mistakes:
+      - A disguised strength ("I worked too hard", "I'm a perfectionist").
+      - Blaming others, the process or bad luck for the whole failure.
+      - No concrete learning, or a learning that is only an intention ("I'll communicate better").
+      - No evidence the learning was applied later.
+      - Choosing a failure so severe it raises questions about basic judgement, with no recovery.
+      - Spending most of the answer on the failure and little on the recovery.
+    interview: |-
+      Common probes: "what was your part, specifically?", "when did you first know it was going wrong?", "what would you do differently?", "has it happened again?". The question "when did you first know?" is revealing: a strong answer admits an early warning sign that was missed and names the habit that now catches it.
+    explain_it:
+      - The failure and its cost, stated plainly in the first sentence.
+      - Your part, without blame.
+      - What you did once it went wrong.
+      - The specific mechanism you changed.
+      - A later example where it worked.
+    example:
+      language: text
+      code: |-
+        Question: Tell me about a time you missed a deadline.
+
+        Headline:   I missed a committed date by two weeks on integrating a new identity
+                    verification provider, mainly because I raised the risk too late.
+        Situation:  We had promised a partner a launch date; I estimated the backend integration
+                    at two weeks.
+        Task:       I owned the integration and its estimate.
+        Action:     - In week two I found the provider's sandbox returned simplified responses;
+                      the real API had asynchronous callbacks and different error codes.
+                    - I knew by day eight that two weeks was unrealistic but hoped to catch up;
+                      I told my lead on day twelve. That delay is my failure.
+                    - Once I raised it: re-planned with my lead, proposed shipping the synchronous
+                      path first for the partner's main flow, and wrote a callback handler with
+                      idempotency keys so retried callbacks could not double-verify a user.
+        Result:     Main flow shipped one week late; full integration two weeks late.
+        Metrics:    The partner launch moved by one week; zero duplicate verifications in the
+                    first month across about 9,000 checks.
+        Trade-offs: Shipping the synchronous path first meant a manual review queue for edge
+                    cases for two weeks, which support agreed to staff.
+        Reflection: Two changes since: I spike any third-party integration against real
+                    responses in the first two days before estimating, and I raise schedule risk
+                    as soon as I believe a date is at risk. On the next integration (a tax
+                    provider) the spike exposed rate limits on day one and we planned for them;
+                    it shipped on time.
+      explanation: The candidate owns a specific mistake (raising risk late), shows damage control, and proves the learning with a later project.
+    internals: |-
+      What interviewers typically listen for: honesty about your part, the size of the failure relative to your role, how you behaved when it went wrong (transparency, damage control), the quality of the learning (a mechanism, not a mood), and evidence of growth. These questions are as much about integrity as about competence.
+    edge_cases:
+      - "A team failure: describe your part in it and what you would have done differently in your role."
+      - "A failure with no later chance to apply the learning yet: say what you would do and how you have prepared."
+      - "Learning a technology quickly: the failure part may be absent; focus on the learning method and proof of effectiveness."
+    misconceptions:
+      - A good failure story makes you look nearly perfect. It shows real fallibility and real growth.
+      - Admitting fault loses points. Owning it clearly is usually what earns them.
+- key: beh.failure.check
+  type: concept_check
+  title: "Concept check: judging failure answers"
+  skills: [behavioral.failure_learning]
+  minutes: 8
+  difficulty: MEDIUM
+  body:
+    intro: Judge each sample from an answer to "tell me about a time you failed".
+    questions:
+      - id: q1
+        kind: single
+        prompt: Which choice of failure is strongest for an interview?
+        options:
+          - "I'm a perfectionist, so I sometimes spend too long on code quality."
+          - "I missed a committed integration date by two weeks because I raised the schedule risk four days after I knew about it."
+          - "Our project was cancelled because management changed priorities."
+          - "I once deleted the production database by accident and we lost a week of data."
+        answer: [1]
+        explanation: "The second is real, owned and sized appropriately. Perfectionism is a disguised strength, the cancelled project is someone else's decision, and a catastrophic data loss with no context raises judgement doubts that are hard to recover from in two minutes."
+      - id: q2
+        kind: single
+        prompt: "Which learning statement is strongest?"
+        options:
+          - "I learned to communicate better."
+          - "I learned that third-party sandboxes can't be trusted."
+          - "I now spike every third-party integration against real responses in the first two days before giving an estimate; on the tax provider integration that exposed rate limits on day one."
+          - "I learned a lot about myself."
+        answer: [2]
+        explanation: "A mechanism plus evidence it was applied is the strongest learning. 'Communicate better' and 'learned about myself' are intentions; blaming sandboxes puts the lesson outside the candidate."
+      - id: q3
+        kind: multi
+        prompt: Which phrases suggest the candidate is blaming rather than owning?
+        options:
+          - "The QA team should have caught it."
+          - "I didn't test with production-sized data, so I missed it."
+          - "Product kept changing their minds, so there was nothing I could do."
+          - "My review missed the missing index; I now check query plans for new queries."
+        answer: [0, 2]
+        explanation: "Shifting the whole failure to QA or product removes the candidate's agency. The other two name the candidate's own part and a fix. Context about others is fine if your own part is still clear."
+      - id: q4
+        kind: single
+        prompt: "Follow-up: 'When did you first know it was going wrong?' Which answer is strongest?"
+        options:
+          - "Only at the very end; there were no signs."
+          - "Around day eight, when the callback format didn't match; I hoped to catch up instead of raising it, which was the real mistake."
+          - "I always knew it might fail."
+          - "My manager told me."
+        answer: [1]
+        explanation: "Admitting a missed early signal and naming it as the mistake shows self-awareness and sets up a concrete learning. 'No signs' is rarely credible and leaves nothing to learn."
+      - id: q5
+        kind: single
+        prompt: Roughly how should time be split in a failure answer?
+        options:
+          - Mostly on the failure, briefly on the learning.
+          - About a third on what went wrong and two thirds on the response and the change since.
+          - Entirely on the learning; skip the failure.
+          - Mostly on the context and the people involved.
+        answer: [1]
+        explanation: "The failure sets up the story, but the signal is in the response and the change. Skipping the failure entirely looks evasive."
+      - id: q6
+        kind: short
+        prompt: "In a 'learned something quickly' story, what evidence shows you actually became effective?"
+        model_answer: "Something concrete done with the new knowledge within the time frame: a feature shipped, an incident fixed, code reviews given to others in that area, a design accepted, or a measurable result, plus how long it took."
+        explanation: Learning stories are judged on the speed and proof of effectiveness, not on the number of tutorials read.
+- key: beh.failure.story
+  type: behavioral_question
+  title: "Story: a time you failed"
+  skills: [behavioral.failure_learning]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: STORY_REHEARSAL, time_limit_seconds: 180}
+  body:
+    prompt: Tell me about a time you failed at something at work.
+    competency: Failure and learning
+    look_for:
+      - Names a real failure with a real cost in the first sentence.
+      - States their own part without shifting blame.
+      - Describes what they did once it went wrong (told people, limited damage).
+      - Names a specific mechanism they changed, not an intention.
+      - Gives a later example where the change was applied.
+      - Spends more time on response and learning than on the failure itself.
+    pitfalls:
+      - A disguised strength.
+      - Blaming another team, the process or luck.
+    follow_ups:
+      - prompt: What exactly was your part in it?
+        look_for: A specific decision or omission they own.
+      - prompt: When did you first see a warning sign?
+        look_for: An honest early signal they missed, and how they now catch such signals.
+      - prompt: Has anything similar happened since?
+        look_for: A later situation where the new habit was used, with the result.
+- key: beh.failure.story_2
+  type: behavioral_question
+  title: "Story: a missed deadline"
+  skills: [behavioral.failure_learning, behavioral.prioritization]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: STORY_REHEARSAL, time_limit_seconds: 180}
+  body:
+    prompt: Tell me about a time you missed a deadline or a commitment.
+    competency: Accountability for commitments
+    look_for:
+      - States the commitment, by how much it was missed and the effect on others.
+      - Explains the cause honestly, including their own estimation or communication part.
+      - Describes when and how they told stakeholders and what options they offered.
+      - Shows damage limitation (phased delivery, scope cut, workaround).
+      - Names how they estimate or report risk differently now, with a later example.
+    pitfalls:
+      - "Blaming the requirements or another team entirely."
+      - "Presenting it as a success ('we were only a bit late')."
+    follow_ups:
+      - prompt: How early could you have known, and what stopped you raising it?
+        look_for: Honest about the hesitation (hoping to catch up, not wanting to disappoint) and the habit that replaced it.
+      - prompt: What did you offer the stakeholder when you told them?
+        look_for: Concrete options with trade-offs, not only a new date.
+      - prompt: How do you estimate work with unknowns now?
+        look_for: A specific technique (early spike, ranges, risk buffer for third parties, checkpoints).
+- key: beh.failure.story_3
+  type: behavioral_question
+  title: "Story: learning something new quickly"
+  skills: [behavioral.failure_learning]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: STORY_REHEARSAL, time_limit_seconds: 180}
+  body:
+    prompt: Tell me about a time you had to learn a new technology, codebase or domain quickly to deliver something.
+    competency: Learning
+    look_for:
+      - States what had to be learned, why, and the time available.
+      - Describes a deliberate learning method (reading code paths, a spike, asking an expert, writing notes).
+      - Shows how they prioritised what to learn first for the task.
+      - Gives proof of effectiveness (shipped, fixed an incident, reviewed others' work) with a time frame.
+      - Mentions a mistake made while learning and how they caught it.
+    pitfalls:
+      - Listing tutorials and courses with no delivered result.
+      - Claiming expertise after a few days.
+    follow_ups:
+      - prompt: What was the most confusing part, and how did you get past it?
+        look_for: A specific concept or code path and the method used to understand it.
+      - prompt: How did you know your understanding was good enough to ship?
+        look_for: A check (tests, review by an expert, staging run, small first change).
+      - prompt: How would you speed up the next person's learning in that area?
+        look_for: A concrete artefact they produced or would produce (notes, diagram, onboarding doc).
+- key: beh.failure.cards
+  type: revision_card
+  title: "Recall: failure and learning stories"
+  skills: [behavioral.failure_learning]
+  minutes: 5
+  body:
+    cards:
+      - front: What makes a good failure to talk about?
+        back: Real, owned by you, with real cost, and recovered from.
+      - front: Time split in a failure answer?
+        back: About a third on the failure, two thirds on response and change.
+      - front: Learning or intention?
+        back: A changed habit or check is a learning; "communicate better" is an intention.
+      - front: Strongest closing for a failure story?
+        back: A later project where the new habit made a difference.
+      - front: "Probe that tests self-awareness?"
+        back: "\"When did you first know it was going wrong?\""

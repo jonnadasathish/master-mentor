@@ -1,0 +1,1544 @@
+# Learning content: thread-safe object designs and timed machine coding; case studies Inventory, Ride Booking, rate limiter and Splitwise ledger.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- concurrency safety
+- key: lld.concurrency_safety.lesson
+  type: lesson
+  title: Thread-safe object designs with locks, queues and immutability
+  skills: [lld.concurrency_safety]
+  minutes: 30
+  difficulty: HARD
+  body:
+    summary: Find the invariant that concurrent callers can break, put the lock inside the object that owns it, make check-and-act one atomic step, and prefer immutability or a single writer when you can.
+    what: |-
+      A design is thread-safe when its invariants hold no matter how concurrent calls interleave. In LLD rounds the shared state is usually an in-memory map of entities (spots, seats, stock, drivers) and the invariant is "no double assignment" or "never below zero". The tools:
+
+      - **Mutual exclusion** (`threading.Lock`, `RLock`): only one thread runs a critical section at a time.
+      - **Atomic check-and-act**: the check (is the seat free?) and the action (assign it) happen under the same lock.
+      - **Lock granularity**: one coarse lock for the whole object, or finer locks per entity (per seat, per SKU), or lock striping (N locks chosen by hash of the key).
+      - **Lock ordering**: when one operation needs several locks, always acquire them in one global order (for example sorted by id) to avoid deadlock.
+      - **Thread-safe queues** (`queue.Queue`): hand work to a single writer thread so the state itself needs no lock.
+      - **Condition variables** (`threading.Condition`): wait until a predicate becomes true (a slot frees up), always in a `while` loop.
+      - **Immutability**: frozen dataclasses and tuples can be shared freely; publishing a new immutable snapshot replaces in-place mutation.
+    why: |-
+      Race conditions in object designs look correct in every single-threaded test and fail under load: two gates assign the same spot, two checkouts sell the last item, two drivers accept the same ride. They are hard to reproduce and costly in production (overselling, double charging). Interviewers ask "what if two requests arrive at once?" in almost every LLD round because it separates designs that have a clear owner for each invariant from those that do not.
+    when: |-
+      - Whenever the requirements mention several gates, clerks, users or worker threads acting on shared entities.
+      - Whenever a method reads state, decides, then writes (check-then-act, read-modify-write).
+      - Whenever an operation touches two entities that each have locks (transfer, multi-item reservation).
+      - Not needed for objects confined to one thread or for immutable values.
+    how: |-
+      1. **Name the invariant** ("a seat has at most one confirmed booking").
+      2. **Find the owner**: the object that holds the state the invariant is about. Put the lock there, not in callers.
+      3. **Make the critical section cover the check and the act**, and nothing slow: no network calls, no sleeping, no user callbacks inside the lock.
+      4. **Choose granularity**: start with one lock per owner object; move to per-entity locks or striping only if contention is real, and say so.
+      5. **Order multiple locks**: `for lock in sorted(locks_by_id)`, or acquire a coarse lock for multi-entity operations.
+      6. **Prefer structure over locks** where possible: a single writer thread draining a `queue.Queue`, immutable snapshots for readers, `collections.deque` appends from one producer.
+      7. **Test it**: start many threads behind a `threading.Barrier`, hammer the operation, assert the invariant (exactly one winner, stock never negative).
+
+      Python specifics (CPython): the GIL lets only one thread run Python bytecode at a time in the default build, but it can switch threads between bytecodes, so `count += 1` (load, add, store) and `if key not in d: d[key] = v` are **not** atomic as compound operations. Single operations on built-in containers such as `list.append` or `dict[key] = v` do not corrupt the container, but that does not make your invariant safe. CPython 3.13 added an optional free-threaded build without the GIL (PEP 703), which makes explicit locking even more important.
+    mental_model: |-
+      Treat each lock as the key to one room that holds an invariant. A thread must hold the key for the whole time it looks around and rearranges the room. Two rooms are always entered in the same order. Anything slow happens outside, with the door unlocked.
+    tradeoffs: |-
+      A coarse lock is easy to prove correct and often fast enough (lock acquisition costs well under a microsecond uncontended), but it serialises everything. Fine-grained locks increase parallelism and the risk of deadlocks and forgotten locks. Optimistic approaches (version numbers, compare-and-set, retries) avoid blocking but need a retry policy. A single writer thread removes locking from the domain object at the cost of latency and a queue to manage. Immutability costs allocation on every change.
+    mistakes:
+      - Locking only the write, not the check before it.
+      - Putting the lock in the service caller while other callers reach the object directly.
+      - Calling the payment gateway or a listener while holding the lock, so one slow call blocks every thread.
+      - Acquiring two entity locks in argument order, so `transfer(a, b)` and `transfer(b, a)` deadlock.
+      - Waiting on a condition with `if` instead of `while`, missing spurious wakeups or a competing consumer.
+      - Assuming the GIL makes compound operations atomic.
+      - Returning internal mutable collections from a locked object, so callers iterate them unlocked.
+    interview: |-
+      Expect the follow-up "two requests at the same time" on parking, booking, inventory and ride matching. A strong answer names the invariant, shows the lock in the owning class, keeps I/O outside it, and mentions the next step for scale (per-entity locks, striping, or in a real system a database row lock or unique constraint). Also expect "how would you test this?".
+    explain_it:
+      - State the invariant concurrent callers could break and show the interleaving that breaks it.
+      - Point at the lock, its owner and exactly what the critical section covers.
+      - Explain granularity and lock ordering choices.
+      - Describe the concurrency test that would catch a regression.
+    example:
+      language: python
+      code: |-
+        import threading
+        from dataclasses import dataclass
+
+
+        class SeatTaken(Exception):
+            pass
+
+
+        @dataclass(frozen=True)
+        class Booking:                                    # immutable: safe to hand out
+            seat: str
+            user_id: str
+
+
+        class ShowSeats:
+            """Owns the invariant: each seat has at most one booking."""
+
+            def __init__(self, seats: list[str]) -> None:
+                self._bookings: dict[str, Booking | None] = {s: None for s in seats}
+                self._lock = threading.Lock()
+
+            def book(self, seats: list[str], user_id: str) -> list[Booking]:
+                with self._lock:                          # check and act together, all seats or none
+                    unknown = [s for s in seats if s not in self._bookings]
+                    if unknown:
+                        raise KeyError(unknown)
+                    taken = [s for s in seats if self._bookings[s] is not None]
+                    if taken:
+                        raise SeatTaken(taken)
+                    made = [Booking(s, user_id) for s in seats]
+                    for b in made:
+                        self._bookings[b.seat] = b
+                    return made
+
+            def available(self) -> list[str]:
+                with self._lock:
+                    return [s for s, b in self._bookings.items() if b is None]   # a copy, not the dict
+
+
+        def test_only_one_winner() -> None:
+            show = ShowSeats(["A1"])
+            barrier = threading.Barrier(20)
+            wins: list[str] = []
+
+            def attempt(uid: str) -> None:
+                barrier.wait()
+                try:
+                    show.book(["A1"], uid)
+                    wins.append(uid)
+                except SeatTaken:
+                    pass
+
+            threads = [threading.Thread(target=attempt, args=(f"u{i}",)) for i in range(20)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+            assert len(wins) == 1
+      explanation: One coarse lock makes multi-seat booking all-or-nothing without lock ordering; per-seat locks would need sorted acquisition. The test uses a barrier so threads start together.
+    internals: |-
+      CPython's default build switches the running thread every few milliseconds (`sys.getswitchinterval()`, 5 ms by default) or when a thread blocks on I/O, and the switch can happen between any two bytecodes. `x += 1` compiles to separate load, add and store steps, so two threads can both load the old value. Whether you observe lost updates in a quick experiment depends on the CPython version and timing; correctness must not depend on it.
+    edge_cases:
+      - Re-entrant calls (a locked method calling another locked method on the same object) deadlock with `Lock`; use `RLock` or restructure into a private unlocked helper.
+      - Readers that need a consistent view of several fields must also take the lock, or read an immutable snapshot.
+      - Time-based expiry (holds that lapse) must be checked under the same lock as the booking that might reuse the slot.
+    misconceptions:
+      - The GIL makes Python code thread-safe. It protects the interpreter's internals, not your invariants.
+      - More locks means more safety. More locks means more ways to deadlock; use the fewest that protect the invariants.
+- key: lld.concurrency_safety.check
+  type: concept_check
+  title: "Concept check: thread-safe designs"
+  skills: [lld.concurrency_safety]
+  minutes: 10
+  difficulty: HARD
+  body:
+    intro: Look for the interleaving that breaks the invariant.
+    questions:
+      - id: q1
+        kind: single
+        prompt: Four threads each call this 100,000 times on a shared Counter in the default CPython build. Which statement is correct?
+        code:
+          language: python
+          code: |-
+            class Counter:
+                def __init__(self):
+                    self.value = 0
+
+                def incr(self):
+                    self.value += 1
+        options:
+          - The result is always 400,000 because the GIL makes each statement atomic
+          - The result is not guaranteed to be 400,000, because += is a read, an add and a write and threads can switch between them
+          - The program raises a RuntimeError on concurrent access
+          - The result is always lower than 400,000
+        answer: [1]
+        explanation: "The GIL serialises bytecodes, not statements; a switch between the load and the store loses an update. 'Always lower' is wrong too: lost updates may or may not show up in a given run or version. Correctness needs a lock (or itertools.count, or a single writer)."
+      - id: q2
+        kind: single
+        prompt: What can happen when one thread runs transfer(a, b) while another runs transfer(b, a)?
+        code:
+          language: python
+          code: |-
+            def transfer(src, dst, amount):
+                with src.lock:
+                    with dst.lock:
+                        src.withdraw(amount)
+                        dst.deposit(amount)
+        options:
+          - Nothing, each account has its own lock
+          - Deadlock, each thread holds one lock and waits for the other; fix by acquiring locks in a global order such as by account id
+          - A lost update on the balance
+          - The second transfer is silently skipped
+        answer: [1]
+        explanation: "Thread 1 holds a.lock and waits for b.lock; thread 2 holds b.lock and waits for a.lock. Per-account locks are fine; acquiring them in argument order is the bug. Sort by id (or use one coarse lock) to break the cycle."
+      - id: q3
+        kind: multi
+        prompt: Which designs keep 'each seat booked at most once' under concurrent requests?
+        options:
+          - One lock covering both the availability check and the assignment
+          - Check availability without the lock, then take the lock only to write
+          - Per-seat locks acquired in sorted seat order for multi-seat bookings
+          - A single writer thread that applies booking requests from a queue.Queue
+        answer: [0, 2, 3]
+        explanation: "All three make check-and-act atomic. Checking outside the lock lets two threads both see the seat as free and then both write, the classic check-then-act race."
+      - id: q4
+        kind: single
+        prompt: Why must a consumer wait on a Condition inside a while loop rather than an if?
+        options:
+          - Because while is faster
+          - Because after waking, the predicate may be false again (another consumer took the item, or a spurious wakeup), so it must be rechecked
+          - Because Condition.wait returns immediately
+          - Because if statements cannot contain wait
+        answer: [1]
+        explanation: "wait releases and reacquires the lock; by the time this thread runs, the state may have changed. The while loop rechecks the predicate under the lock before acting."
+      - id: q5
+        kind: single
+        prompt: A ParkingLot.park method holds its lock while it calls a payment pre-authorisation that can take two seconds. What is the main problem?
+        options:
+          - Lots of memory use
+          - Every other gate blocks for the duration of a remote call; slow I/O should happen outside the critical section
+          - Payment calls are not thread-safe
+          - There is no problem because the lock is correct
+        answer: [1]
+        explanation: "Correct but slow: the lock serialises all gates behind a network call. Reserve the spot under the lock, call payment outside, then confirm or release under the lock again."
+      - id: q6
+        kind: short
+        prompt: Why do immutable value objects reduce the amount of locking a design needs?
+        model_answer: "An immutable object never changes after construction, so any number of threads can read it without synchronisation and there is no torn or half-updated state. Mutation becomes replacing a reference to a new object, which can be done under one short lock (or by a single writer), and readers holding the old object still see a consistent snapshot."
+        explanation: Immutability shrinks the shared mutable state, which is the only state locks need to protect.
+- key: lld.concurrency_safety.oversell_debug
+  type: debugging_exercise
+  title: "Debugging: flash sale oversells the last units"
+  skills: [lld.concurrency_safety, lld.class_design]
+  minutes: 20
+  difficulty: HARD
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 1200}
+  body:
+    scenario: |-
+      During a flash sale with 100 units, 107 orders were confirmed. The inventory module runs in one process with a thread pool handling checkout requests. Unit tests all pass.
+    artifacts:
+      language: python
+      code: |-
+        import threading
+
+
+        class Inventory:
+            def __init__(self, stock: dict[str, int]) -> None:
+                self._stock = stock
+                self._lock = threading.Lock()
+
+            def available(self, sku: str) -> int:
+                return self._stock.get(sku, 0)
+
+            def decrement(self, sku: str, qty: int) -> None:
+                with self._lock:
+                    self._stock[sku] -= qty
+
+
+        class CheckoutService:
+            def __init__(self, inventory: Inventory, payments) -> None:
+                self._inventory, self._payments = inventory, payments
+
+            def checkout(self, order_id: str, sku: str, qty: int) -> bool:
+                if self._inventory.available(sku) < qty:
+                    return False
+                self._payments.charge(order_id)           # 200-800 ms remote call
+                self._inventory.decrement(sku, qty)
+                return True
+    symptoms:
+      - Stock for the sale SKU ends at -7.
+      - The oversell happens only under load; replaying the orders one by one never reproduces it.
+    tasks:
+      - Explain the interleaving that oversells.
+      - Fix the design so the invariant 'stock never negative' is owned and enforced by Inventory.
+      - Keep the slow payment call outside any lock and handle payment failure.
+      - Describe a test that reproduces the bug before the fix.
+    hints:
+      - The lock protects the decrement but not the decision.
+      - Reserve first, charge second, then commit or release.
+    reference: |-
+      The check (`available`) and the act (`decrement`) are separate calls, and a 200 to 800 ms payment call sits between them. Many threads read 1 unit available, all charge, all decrement, so stock goes negative. The lock in `decrement` only prevents a torn write; it does not protect the invariant.
+
+      Fix: give Inventory an atomic `reserve(sku, qty) -> bool` that checks and decrements under one lock and refuses if stock would go negative, plus `release(sku, qty)` for compensation. Checkout reserves first, charges outside the lock, and releases on payment failure. With reservations that may be abandoned (user closes the page), track them with an expiry. Test: a Barrier releasing 200 threads that each try to buy one of 100 units against a fake payment with a small delay; assert exactly 100 successes and stock 0.
+    solution:
+      language: python
+      code: |-
+        class OutOfStock(Exception):
+            pass
+
+
+        class Inventory:
+            def __init__(self, stock: dict[str, int]) -> None:
+                self._stock = dict(stock)
+                self._lock = threading.Lock()
+
+            def reserve(self, sku: str, qty: int) -> None:
+                if qty <= 0:
+                    raise ValueError("qty must be positive")
+                with self._lock:
+                    have = self._stock.get(sku, 0)
+                    if have < qty:
+                        raise OutOfStock(sku)
+                    self._stock[sku] = have - qty
+
+            def release(self, sku: str, qty: int) -> None:
+                with self._lock:
+                    self._stock[sku] = self._stock.get(sku, 0) + qty
+
+
+        class CheckoutService:
+            def checkout(self, order_id: str, sku: str, qty: int) -> bool:
+                try:
+                    self._inventory.reserve(sku, qty)
+                except OutOfStock:
+                    return False
+                try:
+                    self._payments.charge(order_id)       # outside the lock
+                except Exception:
+                    self._inventory.release(sku, qty)     # compensate
+                    raise
+                return True
+    rubric:
+      - {key: interleaving, label: "Describes the concrete interleaving where several threads pass the check before any decrement", points: 3}
+      - {key: atomic_owner, label: "Moves check-and-decrement into one locked Inventory method that refuses going negative", points: 3}
+      - {key: io_outside, label: "Keeps the payment call outside the lock and releases stock on payment failure", points: 2}
+      - {key: repro_test, label: "Describes a barrier-based concurrent test with an exact expected count", points: 2}
+    follow_ups:
+      - prompt: The service now runs on four machines with a shared MySQL database. Does the lock still help?
+        look_for: "No, an in-process lock only covers one process; use a conditional update (UPDATE ... SET stock = stock - ? WHERE sku = ? AND stock >= ?) and check rows affected, or a row lock in a transaction."
+      - prompt: Users abandon checkout after reserving. How do you avoid stock stuck in reservations?
+        look_for: "Reservations with expiry timestamps; an expiry job (or lazy check on reserve) releases them under the same lock; payment confirmation commits only unexpired reservations."
+- key: lld.concurrency_safety.interview
+  type: interview_question
+  title: "Interview question: make an LRU cache thread-safe"
+  skills: [lld.concurrency_safety, design_ds.core]
+  minutes: 15
+  difficulty: HARD
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    prompt: "You have an LRU cache class built on an OrderedDict with get and put. It will now be shared by 32 request threads. Explain what can go wrong, how you would make it thread-safe, and how you would reduce contention if one lock becomes a bottleneck."
+    key_points:
+      - "Names the races: get moves the key to the end (a write), put inserts then evicts, so concurrent calls can corrupt the order or evict the wrong key or exceed capacity."
+      - "Uses one lock around the whole body of get and put, because even reads mutate recency; a reader-writer lock does not help here."
+      - "Keeps expensive work (loading a missing value from the database) outside the lock, and addresses duplicate loads (per-key loading future or accepting duplicates)."
+      - "Reduces contention with striping: N independent LRU shards chosen by hash of the key, each with its own lock and capacity / N, accepting approximate global LRU."
+      - Describes a concurrency test asserting size never exceeds capacity.
+    model_answer: "Every operation mutates recency, so get and put both take the same lock for their full body; OrderedDict.move_to_end and popitem(last=False) are then safe. A read-write lock buys nothing because there are no pure reads. Loading on miss happens outside the lock: check under the lock, release, load, then put under the lock; to avoid a stampede I would keep a per-key in-flight future so concurrent misses for the same key wait for one load. If the lock is hot, shard the cache into 16 LRUs by hash(key) % 16, each with its own lock; eviction becomes per shard, an acceptable approximation. Test with many threads doing random get and put and assert len never exceeds capacity and no exceptions."
+    pitfalls:
+      - Locking only put because get is a read.
+      - Holding the lock while loading from the database.
+    follow_ups:
+      - prompt: Why does functools.lru_cache not need you to add a lock for basic safety?
+        look_for: "Its C implementation keeps its internal structure consistent under threads in CPython, but it does not prevent two threads from computing the same missing value at once."
+      - prompt: How would TTL expiry change the locking?
+        look_for: "Store expiry with the value; check it under the same lock in get; eviction of expired entries happens lazily or by a sweeper that also takes the shard lock."
+      - prompt: When would you choose a single owner thread with a queue instead?
+        look_for: "When operations are few and latency per call matters less than simplicity, or when the cache must coordinate with other single-threaded state; not for a hot read path."
+- key: lld.concurrency_safety.cards
+  type: revision_card
+  title: "Recall: thread-safe designs"
+  skills: [lld.concurrency_safety]
+  minutes: 5
+  body:
+    cards:
+      - front: Check-then-act race?
+        back: Two threads both pass the check before either acts; lock the check and the act together.
+      - front: Where does the lock live?
+        back: In the object that owns the invariant, not in its callers.
+      - front: Avoiding deadlock with two locks?
+        back: Acquire locks in one global order, such as sorted by id.
+      - front: Does the GIL make `x += 1` atomic?
+        back: No; threads can switch between the load and the store.
+      - front: Condition wait idiom?
+        back: "while not predicate(): cond.wait() — recheck after every wakeup."
+      - front: What never goes inside a critical section?
+        back: Network calls, sleeps and user callbacks.
+
+# ---------------------------------------------------------------------------------------------- machine coding
+- key: lld.machine_coding.lesson
+  type: lesson
+  title: Machine coding in 90 minutes, working code first
+  skills: [lld.machine_coding]
+  minutes: 30
+  difficulty: MEDIUM
+  body:
+    summary: Working, modular, tested code beats an elegant unfinished design; plan the 90 minutes, get an end-to-end skeleton running early, and add depth in layers.
+    what: |-
+      A machine-coding round asks you to build a small but complete program in 60 to 120 minutes (90 is common): a parking lot, a ledger, a rate limiter, a snake-and-ladder game, a key-value store. The program usually runs in memory with a command-line or test driver. It is judged on:
+
+      - **Does it run** and handle the stated use cases, including invalid input?
+      - **Structure**: models, services and strategies separated; no god file.
+      - **Readability**: names from the domain, small functions, type hints.
+      - **Extensibility**: the follow-up change fits without a rewrite.
+      - **Tests**: at least the core rules and a few edge cases.
+      - **Communication**: you can explain what you built and what you cut.
+    why: |-
+      The round tests whether you can turn a design into working code under time pressure, which is closer to day-to-day engineering than a whiteboard design. The most common failure is not bad code but unfinished code: forty minutes on class hierarchies, nothing runs at minute 80. A plan and an early skeleton prevent that.
+    when: |-
+      Whenever the prompt says "implement", "working code" or gives you a long time box with a laptop. Also use the same plan for take-home assignments, scaled up.
+    how: |-
+      A 90-minute plan you can say out loud:
+
+      - **0 to 10 min, requirements**: list use cases and commands, edge cases, what is out of scope; confirm the input and output format.
+      - **10 to 20 min, model**: entities, value objects, enums, the main service interface and one strategy seam. Write them as code, not diagrams.
+      - **20 to 30 min, skeleton end to end**: one use case working through the driver or a test, even with hard-coded parts.
+      - **30 to 65 min, core logic**: the remaining use cases, validation and errors, one at a time, running after each.
+      - **65 to 80 min, tests**: core rules, edge cases, and one test per bug you hit.
+      - **80 to 90 min, polish and explain**: names, a short README or docstring, demo, list of what you would do next.
+
+      Structure for a single-file or small-package Python solution: `models.py` (dataclasses, enums), `strategies.py` (interfaces and implementations), `service.py` (use cases), `repository.py` (in-memory store behind a Protocol, only if storage is likely to change), `main.py` (driver), `test_*.py`. Inject the clock, IDs and randomness. Raise domain exceptions and convert them to messages only in the driver.
+    mental_model: |-
+      Build a thin vertical slice first, then thicken it. A slice that runs end to end at minute 30 is insurance; every later minute adds value on top of something that already works. Horizontal building (all models, then all services, then the driver) delivers nothing until the very end.
+    tradeoffs: |-
+      Time spent on abstractions is time not spent on use cases and tests. Add a seam where the prompt names variants or where the obvious follow-up will land (strategy for pricing or splits), and keep everything else concrete. A repository interface helps if the follow-up is persistence; otherwise a dictionary inside the service is fine. Tests cost minutes but catch the bugs that would otherwise surface in the demo.
+    mistakes:
+      - Designing for 40 minutes and coding for 20.
+      - No runnable path until the end, so a late bug means nothing works.
+      - Patterns for their own sake (abstract factories for one class).
+      - Printing inside domain code instead of returning values, which makes testing hard.
+      - Floats for money, wall-clock time inside logic, random IDs that make tests non-deterministic.
+      - Ignoring invalid input (unknown user, negative amount) because the happy path took all the time.
+      - Not leaving time to explain trade-offs and next steps.
+    interview: |-
+      Narrate the plan at the start ("ten minutes requirements, skeleton by thirty, tests from sixty-five"), and keep to it; if you are behind, say what you are cutting. Interviewers typically ask for one change near the end (a new split type, a new rule) to see whether your structure absorbs it. They read the code: domain names, small functions, no duplication, clear errors. Running the tests in front of them is strong evidence.
+    explain_it:
+      - State the plan with time boxes before coding.
+      - Show the module layout and what each module owns.
+      - Run the driver or tests to demonstrate each use case.
+      - Explain the seam that the follow-up change uses and what you cut.
+    example:
+      language: python
+      code: |-
+        # Typical layout, single package:
+        #   models.py      dataclasses and enums, no I/O
+        #   strategies.py  Protocols plus implementations (the variation points)
+        #   service.py     use cases, raises domain errors
+        #   main.py        parses commands, prints results, converts errors to messages
+        #   test_service.py
+        #
+        # main.py: a driver that stays thin
+        import sys
+
+        from service import LedgerService, DomainError
+
+
+        def run(lines: list[str], service: LedgerService) -> list[str]:
+            out = []
+            for line in lines:
+                cmd, *args = line.split()
+                try:
+                    if cmd == "EXPENSE":
+                        service.add_equal_expense(payer=args[0], total_paise=int(args[1]), participants=args[2:])
+                        out.append("OK")
+                    elif cmd == "SHOW":
+                        out.extend(f"{u} {v}" for u, v in sorted(service.balances().items()))
+                    else:
+                        out.append(f"unknown command {cmd}")
+                except (DomainError, ValueError, IndexError) as exc:
+                    out.append(f"error: {exc}")
+            return out
+
+
+        if __name__ == "__main__":
+            print("\n".join(run(sys.stdin.read().splitlines(), LedgerService())))
+      explanation: The driver only parses and prints; it returns lines so it is testable too. A command table would replace the if/elif once there are more than a handful of commands.
+    edge_cases:
+      - Input parsing errors must not crash the whole run; report per command.
+      - Deterministic IDs (a counter or injected generator) make output and tests stable.
+      - Running out of time on a feature; leave a clearly named stub with a TODO and mention it.
+    misconceptions:
+      - More classes show better design. Working use cases with clear seams show it.
+      - Tests are optional in machine coding. A few focused tests are often what separates a pass from a strong pass.
+- key: lld.machine_coding.worked
+  type: worked_example
+  title: "Worked example: the first 45 minutes of a key-value store with TTL"
+  skills: [lld.machine_coding, lld.class_design, execution.testing_dry_run]
+  minutes: 20
+  difficulty: MEDIUM
+  body:
+    problem: "The prompt: build an in-memory key-value store supporting set with an optional time-to-live, get, delete and a count of live keys; later, the interviewer will ask for something new. Follow the 90-minute plan through the first 45 minutes, with the code you would actually write."
+    steps:
+      - title: Requirements in writing (minutes 0 to 8)
+        text: "Use cases: set(key, value, ttl_ms optional), get(key) returning the value or None, delete(key) returning whether it existed, count() of non-expired keys. Edge cases: overwrite resets TTL, ttl_ms must be positive, an expired key behaves as missing. Out of scope: persistence, eviction by memory size. Concurrency: assume several threads; one lock is fine."
+      - title: Model with an injected clock (minutes 8 to 15)
+        text: The only variation the prompt hints at is time, so the clock is injected; that also makes TTL testable without sleeping. An entry is an immutable value with an optional expiry.
+        code:
+          language: python
+          code: |-
+            from dataclasses import dataclass
+            from typing import Callable, Generic, TypeVar
+
+            V = TypeVar("V")
+            Clock = Callable[[], int]          # milliseconds
+
+
+            @dataclass(frozen=True)
+            class Entry(Generic[V]):
+                value: V
+                expires_at_ms: int | None
+
+                def alive(self, now_ms: int) -> bool:
+                    return self.expires_at_ms is None or now_ms < self.expires_at_ms
+      - title: Skeleton running end to end (minutes 15 to 25)
+        text: "Write the whole class with simple bodies first and run one test immediately. Expired entries are removed lazily on access; count needs a sweep, which is O(n) and acceptable here (say so)."
+        code:
+          language: python
+          code: |-
+            import threading
+
+
+            class TTLStore(Generic[V]):
+                def __init__(self, clock: Clock) -> None:
+                    self._clock = clock
+                    self._data: dict[str, Entry[V]] = {}
+                    self._lock = threading.Lock()
+
+                def set(self, key: str, value: V, ttl_ms: int | None = None) -> None:
+                    if ttl_ms is not None and ttl_ms <= 0:
+                        raise ValueError("ttl_ms must be positive")
+                    expires = None if ttl_ms is None else self._clock() + ttl_ms
+                    with self._lock:
+                        self._data[key] = Entry(value, expires)
+
+                def get(self, key: str) -> V | None:
+                    with self._lock:
+                        entry = self._data.get(key)
+                        if entry is None:
+                            return None
+                        if not entry.alive(self._clock()):
+                            del self._data[key]
+                            return None
+                        return entry.value
+
+                def delete(self, key: str) -> bool:
+                    with self._lock:
+                        entry = self._data.pop(key, None)
+                        return entry is not None and entry.alive(self._clock())
+
+                def count(self) -> int:
+                    with self._lock:
+                        now = self._clock()
+                        expired = [k for k, e in self._data.items() if not e.alive(now)]
+                        for k in expired:
+                            del self._data[k]
+                        return len(self._data)
+      - title: Tests that pin the rules (minutes 25 to 40)
+        text: "A fake clock is just a mutable list or a small class. Test the boundary exactly: an entry set at 0 with ttl 100 is alive at 99 and gone at 100, because expiry is exclusive."
+        code:
+          language: python
+          code: |-
+            class FakeClock:
+                def __init__(self) -> None:
+                    self.now = 0
+                def __call__(self) -> int:
+                    return self.now
+
+
+            def test_ttl_boundary() -> None:
+                clock = FakeClock()
+                store: TTLStore[str] = TTLStore(clock)
+                store.set("a", "x", ttl_ms=100)
+                clock.now = 99
+                assert store.get("a") == "x"
+                clock.now = 100
+                assert store.get("a") is None
+
+
+            def test_overwrite_resets_ttl_and_count_ignores_expired() -> None:
+                clock = FakeClock()
+                store: TTLStore[int] = TTLStore(clock)
+                store.set("a", 1, ttl_ms=10)
+                store.set("b", 2)
+                clock.now = 5
+                store.set("a", 3, ttl_ms=10)      # now expires at 15
+                clock.now = 12
+                assert store.get("a") == 3
+                assert store.count() == 2
+                clock.now = 15
+                assert store.count() == 1
+      - title: Check the plan and prepare for the change (minutes 40 to 45)
+        text: "Everything runs at minute 40, so the remaining time goes to a driver, invalid input and the likely follow-up. Say: if asked for a memory cap with LRU eviction, the dict becomes an OrderedDict with move_to_end on get and popitem(last=False) on overflow, all inside the existing lock; if asked for transactions, a layered dict of pending writes on top of the store."
+    takeaways:
+      - Write requirements as a short list in the file before code.
+      - Inject time; it makes TTL logic testable at exact boundaries.
+      - Get one use case running by minute 25, then layer.
+      - Name the follow-up seam before the interviewer asks.
+    complexity: set, get and delete are average O(1); count is O(n) because it sweeps expired entries, which a heap of expiry times could make amortised cheaper.
+- key: lld.machine_coding.check
+  type: concept_check
+  title: "Concept check: machine-coding strategy"
+  skills: [lld.machine_coding]
+  minutes: 8
+  difficulty: MEDIUM
+  body:
+    intro: These are judgement calls under a 90-minute clock.
+    questions:
+      - id: q1
+        kind: single
+        prompt: It is minute 60 of 90. Three of five use cases work, one is half done, and you have no tests. What is the best move?
+        options:
+          - Start the remaining use case to show full coverage
+          - Finish or stub the half-done one, write tests for the working core, and state what is cut
+          - Refactor the class hierarchy to make it cleaner
+          - Rewrite with a better design now that you understand the problem
+        answer: [1]
+        explanation: "Consolidate: working and tested beats broad and broken. Starting another feature is tempting because coverage looks better, but it risks ending with nothing demonstrably correct."
+      - id: q2
+        kind: single
+        prompt: What is the main problem with this test?
+        code:
+          language: python
+          code: |-
+            def test_token_refills():
+                limiter = TokenBucket(capacity=1, refill_per_second=1)
+                assert limiter.try_acquire()
+                assert not limiter.try_acquire()
+                time.sleep(1.1)
+                assert limiter.try_acquire()
+        options:
+          - It should use assertEqual
+          - It depends on wall-clock time, so it is slow and can be flaky; inject a clock and advance it
+          - It tests too little
+          - Token buckets cannot be tested
+        answer: [1]
+        explanation: "Real sleeping makes the suite slow and timing-dependent on loaded CI machines. An injected clock lets the test step exactly to the boundary. Assertion style is irrelevant."
+      - id: q3
+        kind: multi
+        prompt: Which are signals of a strong machine-coding submission?
+        options:
+          - Domain exceptions raised in services and converted to messages only in the driver
+          - Every class has an abstract base class
+          - Money as integers and time and IDs injected
+          - A few tests on the core rules and edge cases that run in seconds
+          - All logic in one function for speed of writing
+        answer: [0, 2, 3]
+        explanation: "Clear error boundaries, deterministic inputs and fast tests show engineering discipline. Abstract bases for every class add ceremony without seams; one giant function fails the modularity bar."
+      - id: q4
+        kind: single
+        prompt: When is an in-memory repository interface (Protocol) worth adding in a 90-minute round?
+        options:
+          - Always, it is required for clean architecture
+          - When persistence is a likely follow-up or the prompt mentions storage; otherwise a dict in the service is enough
+          - Never, it is over-engineering
+          - Only if the interviewer asks for SQL
+        answer: [1]
+        explanation: "Seams go where change is predicted. 'Always' and 'never' both ignore the prompt; a one-line dict is fine when storage is not a variation point."
+      - id: q5
+        kind: short
+        prompt: Describe what you say and show in the last ten minutes of a machine-coding round.
+        model_answer: "Run the driver or tests to show each use case working, including one invalid input. Walk the module layout briefly and point at the seam a likely change would use. List what I cut or would improve with more time (for example persistence, concurrency, more tests), and any known limitation or bug, honestly."
+        explanation: The demo plus an honest list of gaps is part of the score; ending mid-feature without a demo wastes working code.
+- key: lld.machine_coding.interview
+  type: interview_question
+  title: "Interview question: plan a 90-minute build before writing code"
+  skills: [lld.machine_coding, execution.time_management]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: "You have 90 minutes to build an in-memory job scheduler library: callers submit jobs with a run-at time and an optional repeat interval, cancel jobs, and a run_due(now) call executes due jobs in time order. Before writing code, explain your plan: requirements questions, the module layout, the core data structure, the time boxes, and which tests you will write."
+    key_points:
+      - "Asks about ordering ties, failure of a job (retry or not), repeat drift (from scheduled time vs from completion), and concurrency of submit with run_due."
+      - "Chooses a heap of (run_at, sequence, job_id) with lazy deletion for cancel, and states O(log n) submit and pop."
+      - "Lays out models (Job, JobStatus), scheduler service, an injected clock or explicit now, and a thin driver."
+      - Gives explicit time boxes with a runnable skeleton by around minute 30.
+      - "Names concrete tests: ordering, tie-break by submission order, cancel before due, repeat reschedules from scheduled time, failing job does not stop others."
+    model_answer: "First I would confirm: same run_at ordered by submission; a failing job is recorded and the rest still run; repeats schedule from the planned time to avoid drift; submit and run_due may be called from different threads. Core: a min-heap of (run_at, seq, job_id) plus a dict of jobs; cancel marks the job cancelled and run_due skips it when popped (lazy deletion). Layout: models.py with Job and JobStatus, scheduler.py with submit, cancel and run_due(now), test_scheduler.py, and a tiny demo. Time boxes: requirements to 10, models to 20, submit and run_due working by 30, cancel, repeat and errors by 60, tests to 80, demo and notes to 90. One lock guards the heap and dict; job callables run outside the lock so a slow job does not block submit."
+    pitfalls:
+      - Sorting a list on every submit, O(n log n) each time.
+      - Running jobs while holding the scheduler lock.
+    follow_ups:
+      - prompt: A repeating job takes longer than its interval. What happens in your design?
+        look_for: "Next run is computed from the planned time; if it is already past, either run immediately once (skip missed runs) or run catch-up runs; state the chosen policy and test it."
+      - prompt: How would you add priorities without breaking existing callers?
+        look_for: "Optional priority parameter with a default; heap key becomes (run_at, -priority, seq); existing tests still pass."
+      - prompt: How do you test this without real time passing?
+        look_for: "run_due takes now explicitly or the clock is injected; tests advance a fake clock across boundaries."
+- key: lld.machine_coding.cards
+  type: revision_card
+  title: "Recall: machine coding"
+  skills: [lld.machine_coding]
+  minutes: 5
+  body:
+    cards:
+      - front: When should something run end to end?
+        back: By about minute 25 to 30 of 90, even if parts are stubbed.
+      - front: Order of building?
+        back: Thin vertical slice first, then add use cases one at a time, running after each.
+      - front: What to inject for testability?
+        back: Clock, ID generator and randomness.
+      - front: Where are errors turned into messages?
+        back: Only in the driver; services raise domain exceptions.
+      - front: Behind schedule at minute 60?
+        back: Consolidate and test what works, stub the rest, say what is cut.
+      - front: Last ten minutes?
+        back: Demo the use cases, show the seam for the next change, list gaps honestly.
+
+# ---------------------------------------------------------------------------------------------- case: inventory system
+- key: lld.concurrency_safety.inventory_system
+  type: design_exercise
+  title: "Design: inventory and reservation system (45 minutes)"
+  skills: [lld.concurrency_safety, lld.class_design, lld.requirements_entities, lld.extensibility]
+  minutes: 60
+  difficulty: HARD
+  observation: {kind: LLD_DESIGN, time_limit_seconds: 2700}
+  body:
+    prompt: |-
+      Design the inventory module of an online store. Checkout reserves stock for all lines of an order, payment confirmation commits the reservation, and failure or timeout releases it. Warehouse staff receive and adjust stock. Many checkout threads run concurrently. Give the classes, the stock model and signatures for reserve, commit, release and expiry.
+    requirements:
+      functional:
+        - Track per SKU the quantity on hand and the quantity reserved; available equals on hand minus reserved.
+        - Reserve all lines of an order or none, with an expiry time.
+        - Commit a reservation on payment (stock leaves the warehouse) or release it on failure or expiry.
+        - Receive stock and record manual adjustments with a reason.
+        - Raise a low-stock event when available drops below a per-SKU threshold.
+      non_functional:
+        - Available stock never goes negative under concurrent checkouts.
+        - No deadlocks when orders contain the same SKUs in different orders.
+        - Every stock change is recorded in an append-only movement log.
+        - Multi-warehouse support is a likely follow-up.
+    approach:
+      - "Clarify: single warehouse first, backorders allowed or not, reservation timeout, partial reservation acceptable or not, who adjusts stock."
+      - "Entities: StockItem (sku, on_hand, reserved, threshold), Reservation (id, order_id, lines, expires_at, status). Values: ReservationLine (sku, qty), StockMovement (sku, delta_on_hand, delta_reserved, reason, at)."
+      - "Invariants: 0 <= reserved <= on_hand per SKU; a reservation is committed or released at most once."
+      - "Concurrency: per-SKU locks acquired in sorted SKU order for multi-line reservations (or one coarse lock; state the trade-off); reservation status changes under the reservation's lock or the same coarse lock."
+      - "Expiry: a sweeper calls release_expired(now); commit refuses expired reservations, so a late payment triggers a refund path."
+      - "Low-stock: observer notified after the lock is released."
+      - "Walk through: two orders reserving the last unit of SKU A and SKU B in opposite line order."
+    hints:
+      - Sorting SKUs before locking removes the deadlock between orders with lines A, B and B, A.
+      - Keep reserved as a separate counter rather than decrementing on hand at reserve time; it makes release and reporting clean.
+      - Collect events while holding locks, publish them after releasing.
+    reference: |-
+      Main classes and responsibilities:
+
+      - `StockItem`: owns on_hand, reserved and the invariant; `can_reserve(qty)`, `reserve(qty)`, `release(qty)`, `commit(qty)`, `receive(qty)`.
+      - `Reservation`: lines, expiry, status ACTIVE, COMMITTED, RELEASED, EXPIRED; transitions guarded.
+      - `InventoryService`: reserve, commit, release, release_expired, receive, adjust; acquires SKU locks in sorted order.
+      - `LockRegistry` or striped locks: one lock per SKU created on demand under a registry lock.
+      - `MovementLog` (append-only), `StockEvents` (observer for low stock).
+
+      Trade-offs to state: per-SKU sorted locks give parallelism across unrelated SKUs; one coarse lock is simpler and adequate for moderate traffic. In a real multi-instance deployment the same invariant moves to the database (conditional UPDATE with available >= qty, or row locks in a transaction) and the in-process locks only protect a cache.
+    code:
+      language: python
+      code: |-
+        from __future__ import annotations
+
+        import threading
+        from contextlib import ExitStack
+        from dataclasses import dataclass, field
+        from enum import Enum
+        from typing import Callable
+
+
+        class InsufficientStock(Exception):
+            pass
+
+
+        @dataclass
+        class StockItem:
+            sku: str
+            on_hand: int = 0
+            reserved: int = 0
+            low_threshold: int = 0
+
+            @property
+            def available(self) -> int:
+                return self.on_hand - self.reserved
+
+            def reserve(self, qty: int) -> None:
+                if qty > self.available:
+                    raise InsufficientStock(self.sku)
+                self.reserved += qty
+
+            def release(self, qty: int) -> None:
+                self.reserved -= qty
+
+            def commit(self, qty: int) -> None:          # goods leave: both counters drop
+                self.reserved -= qty
+                self.on_hand -= qty
+
+            def receive(self, qty: int) -> None:
+                self.on_hand += qty
+
+
+        @dataclass(frozen=True)
+        class ReservationLine:
+            sku: str
+            qty: int
+
+
+        class ReservationStatus(Enum):
+            ACTIVE = "ACTIVE"
+            COMMITTED = "COMMITTED"
+            RELEASED = "RELEASED"
+            EXPIRED = "EXPIRED"
+
+
+        @dataclass
+        class Reservation:
+            reservation_id: str
+            order_id: str
+            lines: tuple[ReservationLine, ...]
+            expires_at_ms: int
+            status: ReservationStatus = ReservationStatus.ACTIVE
+
+
+        class InventoryService:
+            def __init__(self, items: dict[str, StockItem], clock_ms: Callable[[], int],
+                         new_id: Callable[[], str], on_low_stock: Callable[[str, int], None]) -> None:
+                self._items = items
+                self._clock, self._new_id, self._on_low = clock_ms, new_id, on_low_stock
+                self._sku_locks: dict[str, threading.Lock] = {sku: threading.Lock() for sku in items}
+                self._reservations: dict[str, Reservation] = {}
+                self._res_lock = threading.Lock()
+
+            def reserve(self, order_id: str, lines: list[ReservationLine], ttl_ms: int) -> Reservation:
+                merged: dict[str, int] = {}
+                for line in lines:
+                    if line.qty <= 0:
+                        raise ValueError("qty must be positive")
+                    merged[line.sku] = merged.get(line.sku, 0) + line.qty
+                low: list[tuple[str, int]] = []
+                with ExitStack() as stack:
+                    for sku in sorted(merged):                     # global lock order: no deadlock
+                        stack.enter_context(self._sku_locks[sku])
+                    for sku, qty in merged.items():                # check everything first: all or none
+                        if self._items[sku].available < qty:
+                            raise InsufficientStock(sku)
+                    for sku, qty in merged.items():
+                        item = self._items[sku]
+                        item.reserve(qty)
+                        if item.available < item.low_threshold:
+                            low.append((sku, item.available))
+                res = Reservation(self._new_id(), order_id,
+                                  tuple(ReservationLine(s, q) for s, q in sorted(merged.items())),
+                                  self._clock() + ttl_ms)
+                with self._res_lock:
+                    self._reservations[res.reservation_id] = res
+                for sku, available in low:                         # publish outside the locks
+                    self._on_low(sku, available)
+                return res
+
+            def commit(self, reservation_id: str) -> None: ...
+            def release(self, reservation_id: str) -> None: ...
+            def release_expired(self) -> int: ...
+            def receive(self, sku: str, qty: int, reason: str) -> None: ...
+            # commit and release: claim the status transition under _res_lock first (ACTIVE -> COMMITTED
+            # or RELEASED, refusing expired or already-finished reservations), then apply the stock
+            # change under the sorted SKU locks, and append StockMovement records.
+      explanation: "Reserve checks every line before changing any, under all the SKU locks in sorted order, so it is all-or-nothing and deadlock-free. Status transitions are claimed once under the reservation lock, so a commit racing an expiry cannot apply both. Unknown SKUs raise KeyError here; a real version maps that to a domain error."
+    rubric:
+      - {key: clarification, label: "Asks about backorders and partial reservations and timeout and single vs multi-warehouse", points: 2}
+      - {key: responsibilities, label: "StockItem owns on_hand and reserved and the invariant while Reservation owns its lifecycle", points: 2}
+      - {key: abstractions, label: "Separates reserved from on hand and logs movements and publishes low-stock events through an observer", points: 2}
+      - {key: extensibility, label: "Shows how multi-warehouse or backorders fit without rewriting reserve", points: 1}
+      - {key: tradeoffs, label: "Explains sorted per-SKU locks vs one coarse lock and in-process locks vs database conditions", points: 1}
+      - {key: edge_cases, label: "Covers duplicate SKUs in one order and commit racing expiry and double release", points: 1}
+      - {key: testability, label: "Describes a concurrent test for the last unit and an expiry test with a fake clock", points: 1}
+    follow_ups:
+      - prompt: "Change request: stock lives in three warehouses; reserve from the nearest one that can fill the whole order, else split."
+        look_for: "StockItem keyed by (warehouse, sku); a FulfilmentStrategy picks warehouses; reservation lines gain a warehouse; locks still sorted by (warehouse, sku)."
+      - prompt: "Change request: allow backorders for some SKUs."
+        look_for: "Per-SKU policy permits available to go negative up to a limit, or a separate backordered counter; the invariant is stated per policy, not dropped."
+      - prompt: "Change request: an audit asks why stock of a SKU changed last Tuesday."
+        look_for: "The append-only movement log with reason, actor, reservation id and timestamp answers it; on hand can be rebuilt from movements."
+      - prompt: The service is deployed on several instances. What replaces the in-process locks?
+        look_for: "A conditional UPDATE (available >= qty) per line in one transaction with rows locked in sorted order, or SELECT ... FOR UPDATE; reservation status as a guarded UPDATE with an expected status."
+
+# ---------------------------------------------------------------------------------------------- case: ride booking
+- key: lld.class_design.ride_booking
+  type: design_exercise
+  title: "Design: ride booking, the object model (45 minutes)"
+  skills: [lld.class_design, lld.concurrency_safety, lld.design_patterns, lld.requirements_entities]
+  minutes: 60
+  difficulty: HARD
+  observation: {kind: LLD_DESIGN, time_limit_seconds: 2700}
+  body:
+    prompt: |-
+      Design the core classes of a ride-booking service: riders request rides, the system finds nearby available drivers, a driver accepts, and the trip moves through its lifecycle to payment. This is the object design inside one service, not the distributed architecture. Give classes, the trip state machine, the matching and fare abstractions and the signatures for request, accept, start, complete and cancel.
+    requirements:
+      functional:
+        - Riders request a ride from pickup to drop-off with a vehicle category.
+        - Matching offers the ride to nearby available drivers of that category, one at a time or in a batch.
+        - A driver accepts or declines; the first acceptance wins.
+        - "Trip lifecycle: REQUESTED, DRIVER_ASSIGNED, IN_PROGRESS, COMPLETED, or CANCELLED (by rider or driver, with rules)."
+        - Fare is computed at completion from distance, time and category; surge may apply.
+        - Riders and drivers rate each other after completion.
+      non_functional:
+        - A driver is never assigned to two active trips, even when two offers are accepted at the same moment.
+        - Matching and pricing algorithms will change.
+        - Location lookups are behind an interface (no real geo index needed).
+    approach:
+      - "Clarify: categories, offer strategy (sequential vs broadcast), cancellation fees, pooling out of scope, payment after the trip."
+      - "Entities: Rider, Driver (status OFFLINE, AVAILABLE, ON_TRIP), Trip. Values: Location, FareBreakdown, Rating. Enums: TripStatus, VehicleCategory."
+      - "Trip enforces its transitions; Driver availability is owned by a DriverPool that does an atomic compare-and-set from AVAILABLE to ON_TRIP."
+      - "Strategies: MatchingStrategy (nearest available, rating-weighted), FarePolicy (base, per km, per minute) with a SurgeFare wrapper."
+      - "RideService orchestrates: request (create trip, ask matcher for candidates, send offers), accept (claim driver atomically, assign trip), start, complete (fare, release driver), cancel."
+      - "Observer for trip events (notify rider, analytics)."
+      - "Walk through: two drivers accept the same request at once; then one driver accepts two requests at once."
+    hints:
+      - Two races exist, one per entity; each needs its own owner.
+      - Offers expire; an accept after expiry or after another driver won is rejected cleanly.
+    reference: |-
+      Main classes and responsibilities:
+
+      - `Trip`: id, rider, pickup, drop-off, category, status, driver_id, timestamps, fare; `assign(driver_id)`, `start()`, `complete(fare)`, `cancel(by, reason)`, each guarded.
+      - `DriverPool`: driver states and last locations; `nearby(location, category, limit)`, `try_claim(driver_id) -> bool`, `release(driver_id)`; one lock.
+      - `MatchingStrategy`: `candidates(trip, pool) -> list[driver_id]`.
+      - `FarePolicy`: `fare(trip, distance_m, duration_s) -> FareBreakdown`; SurgeFare(base, multiplier_source).
+      - `RideService`: request_ride, accept, start_trip, complete_trip, cancel; per-trip lock for status changes.
+      - `TripEvents`: observer interface.
+
+      Trade-offs to state: sequential offers are fair and simple but slow; broadcast is fast but needs first-accept-wins and clear rejection for the losers. Accept takes two locks (trip and driver pool); always take them in the same order (trip first, then pool) or claim the driver first and roll back if the trip was already assigned.
+    code:
+      language: python
+      code: |-
+        from __future__ import annotations
+
+        import threading
+        from dataclasses import dataclass
+        from enum import Enum
+        from typing import Protocol
+
+
+        @dataclass(frozen=True)
+        class Location:
+            lat_e6: int        # micro-degrees as integers
+            lng_e6: int
+
+
+        class VehicleCategory(Enum):
+            BIKE = "BIKE"
+            AUTO = "AUTO"
+            CAR = "CAR"
+
+
+        class DriverStatus(Enum):
+            OFFLINE = "OFFLINE"
+            AVAILABLE = "AVAILABLE"
+            ON_TRIP = "ON_TRIP"
+
+
+        class TripStatus(Enum):
+            REQUESTED = "REQUESTED"
+            DRIVER_ASSIGNED = "DRIVER_ASSIGNED"
+            IN_PROGRESS = "IN_PROGRESS"
+            COMPLETED = "COMPLETED"
+            CANCELLED = "CANCELLED"
+
+
+        TRIP_TRANSITIONS: dict[TripStatus, frozenset[TripStatus]] = {
+            TripStatus.REQUESTED: frozenset({TripStatus.DRIVER_ASSIGNED, TripStatus.CANCELLED}),
+            TripStatus.DRIVER_ASSIGNED: frozenset({TripStatus.IN_PROGRESS, TripStatus.CANCELLED}),
+            TripStatus.IN_PROGRESS: frozenset({TripStatus.COMPLETED}),
+        }
+
+
+        class IllegalTransition(Exception):
+            pass
+
+
+        @dataclass
+        class Trip:
+            trip_id: str
+            rider_id: str
+            pickup: Location
+            dropoff: Location
+            category: VehicleCategory
+            status: TripStatus = TripStatus.REQUESTED
+            driver_id: str | None = None
+            fare_paise: int | None = None
+
+            def _move(self, to: TripStatus) -> None:
+                if to not in TRIP_TRANSITIONS.get(self.status, frozenset()):
+                    raise IllegalTransition(f"{self.status.value} -> {to.value}")
+                self.status = to
+
+            def assign(self, driver_id: str) -> None:
+                self._move(TripStatus.DRIVER_ASSIGNED)
+                self.driver_id = driver_id
+
+            def start(self) -> None:
+                self._move(TripStatus.IN_PROGRESS)
+
+            def complete(self, fare_paise: int) -> None:
+                self._move(TripStatus.COMPLETED)
+                self.fare_paise = fare_paise
+
+            def cancel(self) -> None:
+                self._move(TripStatus.CANCELLED)
+
+
+        class DriverPool:
+            def __init__(self) -> None:
+                self._status: dict[str, DriverStatus] = {}
+                self._category: dict[str, VehicleCategory] = {}
+                self._location: dict[str, Location] = {}
+                self._lock = threading.Lock()
+
+            def try_claim(self, driver_id: str) -> bool:
+                """Atomic compare-and-set AVAILABLE -> ON_TRIP; False if someone else claimed first."""
+                with self._lock:
+                    if self._status.get(driver_id) is not DriverStatus.AVAILABLE:
+                        return False
+                    self._status[driver_id] = DriverStatus.ON_TRIP
+                    return True
+
+            def release(self, driver_id: str) -> None:
+                with self._lock:
+                    if self._status.get(driver_id) is DriverStatus.ON_TRIP:
+                        self._status[driver_id] = DriverStatus.AVAILABLE
+
+            def nearby(self, at: Location, category: VehicleCategory, limit: int) -> list[str]: ...
+
+
+        class MatchingStrategy(Protocol):
+            def candidates(self, trip: Trip, pool: DriverPool) -> list[str]: ...
+
+
+        class FarePolicy(Protocol):
+            def fare_paise(self, trip: Trip, distance_m: int, duration_s: int) -> int: ...
+
+
+        class RideService:
+            def __init__(self, pool: DriverPool, matcher: MatchingStrategy, fares: FarePolicy, events) -> None:
+                self._pool, self._matcher, self._fares, self._events = pool, matcher, fares, events
+                self._trips: dict[str, Trip] = {}
+                self._trip_locks: dict[str, threading.Lock] = {}
+
+            def request_ride(self, rider_id: str, pickup: Location, dropoff: Location,
+                             category: VehicleCategory) -> Trip: ...
+
+            def accept(self, trip_id: str, driver_id: str) -> bool:
+                with self._trip_locks[trip_id]:                 # order: trip lock, then pool lock
+                    trip = self._trips[trip_id]
+                    if trip.status is not TripStatus.REQUESTED:
+                        return False                            # another driver won, or rider cancelled
+                    if not self._pool.try_claim(driver_id):
+                        return False                            # this driver is busy with another trip
+                    trip.assign(driver_id)
+                self._events.publish("driver_assigned", trip_id)  # outside the lock
+                return True
+
+            def start_trip(self, trip_id: str, driver_id: str) -> None: ...
+            def complete_trip(self, trip_id: str, distance_m: int, duration_s: int) -> int: ...
+            def cancel(self, trip_id: str, by: str) -> None: ...
+      explanation: The trip lock decides which driver wins a trip; the pool's compare-and-set decides which trip wins a driver. Locks are always taken in the order trip then pool, so there is no cycle.
+    rubric:
+      - {key: clarification, label: "Asks about offer strategy and categories and cancellation rules and pooling scope", points: 2}
+      - {key: responsibilities, label: "Trip guards its lifecycle and DriverPool owns driver availability with an atomic claim", points: 2}
+      - {key: abstractions, label: "Matching and fare are strategies with surge as a wrapper and events go through an observer", points: 2}
+      - {key: extensibility, label: "Shows a new matching rule or a new category as a contained change", points: 1}
+      - {key: tradeoffs, label: "Explains sequential vs broadcast offers and the lock ordering choice", points: 1}
+      - {key: edge_cases, label: "Covers two drivers accepting one trip and one driver accepting two trips and rider cancel during accept", points: 1}
+      - {key: testability, label: "Describes a concurrent accept test and fare tests with fixed inputs", points: 1}
+    follow_ups:
+      - prompt: "Change request: scheduled rides booked for a future time."
+        look_for: "Trip gains SCHEDULED status and a pickup time; a scheduler triggers matching shortly before; the rest of the lifecycle is reused."
+      - prompt: "Change request: shared rides with two riders."
+        look_for: "A model change: a trip with ordered stops and per-rider fares; matching considers detour; acknowledge it is not a one-class change."
+      - prompt: "Change request: a cancellation fee if the rider cancels more than five minutes after assignment."
+        look_for: "A CancellationPolicy strategy using assignment time from an injected clock; Trip records who cancelled and when."
+      - prompt: A driver's app goes offline mid-trip. What does the design do?
+        look_for: "Trip stays IN_PROGRESS; a heartbeat timeout raises an alert or support flow; the driver stays ON_TRIP until completion or an admin action; no silent release."
+
+# ---------------------------------------------------------------------------------------------- machine coding: rate limiter
+- key: lld.machine_coding.rate_limiter
+  type: design_exercise
+  title: "Machine coding: in-memory rate limiter library (90 minutes)"
+  skills: [lld.machine_coding, lld.concurrency_safety, lld.design_patterns, execution.bug_free_coding]
+  minutes: 120
+  difficulty: HARD
+  observation: {kind: MACHINE_CODING, time_limit_seconds: 5400}
+  body:
+    prompt: |-
+      Build a small Python library that rate-limits calls per key (user id, API key). It must support at least two algorithms, token bucket and sliding-window log, chosen per rule; be safe to call from many threads; and report how long a rejected caller should wait. Deliver working code, a short demo and tests that run without sleeping.
+    requirements:
+      functional:
+        - "`allow(key) -> Decision` with allowed and retry_after_ms."
+        - Token bucket with capacity and refill rate in tokens per second.
+        - Sliding-window log with a limit per window in milliseconds.
+        - Rules are configured per key prefix (for example free users vs paid users) with a default rule.
+        - Limiter state for idle keys can be cleaned up.
+      non_functional:
+        - Thread-safe; no request is allowed beyond the limit under concurrency.
+        - Deterministic tests with an injected clock; no floats in the arithmetic.
+        - New algorithms (fixed window, leaky bucket) must plug in without editing the facade.
+    approach:
+      - "Minutes 0 to 10: confirm per-key semantics, integer time in milliseconds, retry_after meaning, whether the clock can go backwards (treat as no time passed)."
+      - "Minutes 10 to 20: Decision value, Clock type, Limiter protocol `try_acquire(now_ms) -> Decision`, rule config."
+      - "Minutes 20 to 35: token bucket with integer millitokens; one passing test."
+      - "Minutes 35 to 50: sliding-window log with a deque per key; tests at the window boundary."
+      - "Minutes 50 to 65: RateLimiter facade with per-key limiter creation via a factory, a registry lock and per-limiter locks; prefix-based rules."
+      - "Minutes 65 to 80: concurrency test with a frozen clock, idle cleanup, invalid configuration errors."
+      - "Minutes 80 to 90: demo, complexity notes, what you would add (distributed store, fixed window)."
+    hints:
+      - "Token bucket without floats: store millitokens; a rate of r tokens per second adds exactly r millitokens per millisecond."
+      - "Sliding-window log: evict timestamps at or before now minus window, then allow if the deque length is below the limit."
+      - "retry_after for the log is oldest timestamp plus window minus now."
+    reference: |-
+      Structure:
+
+      - `Decision` (frozen value), `Clock = Callable[[], int]`.
+      - `Limiter` protocol and two implementations, each with its own lock so different keys never contend.
+      - `LimiterFactory = Callable[[int], Limiter]` (receives now_ms) per rule; `Rule(prefix, factory)`; first matching prefix wins, then the default.
+      - `RateLimiter` facade: registry dict guarded by a lock for creation only, `allow(key)`, `cleanup(idle_ms)`.
+
+      Complexity: token bucket O(1) time and space per key. Sliding-window log O(limit) memory per key and amortised O(1) per call (each timestamp is appended and evicted once). Trade-off to state: the log is exact but memory-heavy for large limits; a sliding-window counter (two fixed windows weighted) is approximate and O(1).
+    code:
+      language: python
+      code: |-
+        from __future__ import annotations
+
+        import threading
+        from collections import deque
+        from dataclasses import dataclass
+        from typing import Callable, Protocol
+
+        Clock = Callable[[], int]                     # milliseconds, monotonic in production
+
+
+        @dataclass(frozen=True)
+        class Decision:
+            allowed: bool
+            retry_after_ms: int = 0
+
+
+        class Limiter(Protocol):
+            def try_acquire(self, now_ms: int) -> Decision: ...
+            def last_used_ms(self) -> int: ...
+
+
+        class TokenBucket:
+            SCALE = 1000                              # millitokens per token
+
+            def __init__(self, capacity: int, refill_per_second: int, now_ms: int) -> None:
+                if capacity <= 0 or refill_per_second <= 0:
+                    raise ValueError("capacity and refill rate must be positive")
+                self._cap = capacity * self.SCALE
+                self._rate = refill_per_second        # millitokens per millisecond
+                self._tokens = self._cap
+                self._last = now_ms
+                self._used = now_ms
+                self._lock = threading.Lock()
+
+            def try_acquire(self, now_ms: int) -> Decision:
+                with self._lock:
+                    if now_ms > self._last:           # a clock going backwards adds nothing
+                        self._tokens = min(self._cap, self._tokens + (now_ms - self._last) * self._rate)
+                        self._last = now_ms
+                    self._used = max(self._used, now_ms)
+                    if self._tokens >= self.SCALE:
+                        self._tokens -= self.SCALE
+                        return Decision(True)
+                    missing = self.SCALE - self._tokens
+                    return Decision(False, (missing + self._rate - 1) // self._rate)
+
+            def last_used_ms(self) -> int:
+                with self._lock:
+                    return self._used
+
+
+        class SlidingWindowLog:
+            def __init__(self, limit: int, window_ms: int, now_ms: int) -> None:
+                if limit <= 0 or window_ms <= 0:
+                    raise ValueError("limit and window must be positive")
+                self._limit, self._window = limit, window_ms
+                self._hits: deque[int] = deque()
+                self._used = now_ms
+                self._lock = threading.Lock()
+
+            def try_acquire(self, now_ms: int) -> Decision:
+                with self._lock:
+                    self._used = max(self._used, now_ms)
+                    boundary = now_ms - self._window
+                    while self._hits and self._hits[0] <= boundary:
+                        self._hits.popleft()
+                    if len(self._hits) < self._limit:
+                        self._hits.append(now_ms)
+                        return Decision(True)
+                    return Decision(False, self._hits[0] + self._window - now_ms)
+
+            def last_used_ms(self) -> int:
+                with self._lock:
+                    return self._used
+
+
+        LimiterFactory = Callable[[int], Limiter]
+
+
+        @dataclass(frozen=True)
+        class Rule:
+            prefix: str
+            factory: LimiterFactory
+
+
+        class RateLimiter:
+            def __init__(self, rules: list[Rule], default: LimiterFactory, clock: Clock) -> None:
+                self._rules, self._default, self._clock = rules, default, clock
+                self._limiters: dict[str, Limiter] = {}
+                self._registry_lock = threading.Lock()
+
+            def _factory_for(self, key: str) -> LimiterFactory:
+                for rule in self._rules:
+                    if key.startswith(rule.prefix):
+                        return rule.factory
+                return self._default
+
+            def _limiter(self, key: str, now_ms: int) -> Limiter:
+                limiter = self._limiters.get(key)
+                if limiter is None:
+                    with self._registry_lock:         # create once even if two threads race here
+                        limiter = self._limiters.get(key)
+                        if limiter is None:
+                            limiter = self._factory_for(key)(now_ms)
+                            self._limiters[key] = limiter
+                return limiter
+
+            def allow(self, key: str) -> Decision:
+                now = self._clock()
+                return self._limiter(key, now).try_acquire(now)
+
+            def cleanup(self, idle_ms: int) -> int:
+                now = self._clock()
+                with self._registry_lock:
+                    idle = [k for k, l in self._limiters.items() if now - l.last_used_ms() >= idle_ms]
+                    for k in idle:
+                        del self._limiters[k]
+                    return len(idle)
+
+
+        # ------------------------------------------------------------------ tests (pytest)
+        class FakeClock:
+            def __init__(self, now: int = 0) -> None:
+                self.now = now
+
+            def __call__(self) -> int:
+                return self.now
+
+
+        def test_token_bucket_refills_exactly() -> None:
+            clock = FakeClock()
+            rl = RateLimiter([], lambda now: TokenBucket(2, 1, now), clock)
+            assert rl.allow("u").allowed and rl.allow("u").allowed
+            denied = rl.allow("u")
+            assert not denied.allowed and denied.retry_after_ms == 1000
+            clock.now = 999
+            assert not rl.allow("u").allowed
+            clock.now = 1000
+            assert rl.allow("u").allowed
+
+
+        def test_sliding_window_boundary() -> None:
+            clock = FakeClock()
+            rl = RateLimiter([], lambda now: SlidingWindowLog(3, 1000, now), clock)
+            for t in (0, 1, 2):
+                clock.now = t
+                assert rl.allow("k").allowed
+            clock.now = 3
+            assert rl.allow("k") == Decision(False, 997)
+            clock.now = 1000
+            assert rl.allow("k").allowed            # the hit at 0 has left the window
+
+
+        def test_rules_by_prefix_and_keys_independent() -> None:
+            clock = FakeClock()
+            rules = [Rule("paid:", lambda now: TokenBucket(5, 5, now))]
+            rl = RateLimiter(rules, lambda now: TokenBucket(1, 1, now), clock)
+            assert rl.allow("free:a").allowed and not rl.allow("free:a").allowed
+            assert rl.allow("free:b").allowed
+            assert all(rl.allow("paid:x").allowed for _ in range(5))
+
+
+        def test_concurrent_callers_never_exceed_capacity() -> None:
+            clock = FakeClock()                       # frozen: no refill during the test
+            rl = RateLimiter([], lambda now: TokenBucket(10, 1, now), clock)
+            barrier = threading.Barrier(50)
+            allowed: list[bool] = []
+            guard = threading.Lock()
+
+            def call() -> None:
+                barrier.wait()
+                d = rl.allow("shared")
+                with guard:
+                    allowed.append(d.allowed)
+
+            threads = [threading.Thread(target=call) for _ in range(50)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+            assert allowed.count(True) == 10
+      explanation: "Integer millitokens keep the bucket exact. The double-checked creation in _limiter is safe because the unlocked read is only an optimisation (a dict get) and creation happens under the registry lock. cleanup can race with an in-flight allow on a key being removed; the next allow simply creates a fresh limiter, which is acceptable for idle keys and worth stating."
+    rubric:
+      - {key: clarification, label: "Confirms per-key semantics and integer milliseconds and retry_after meaning and clock behaviour before coding", points: 1}
+      - {key: responsibilities, label: "Algorithms and facade and rule selection are separate units with one job each", points: 2}
+      - {key: abstractions, label: "A Limiter protocol with a factory per rule so a new algorithm needs no facade change", points: 2}
+      - {key: extensibility, label: "Adds or sketches a third algorithm such as fixed window through the same protocol", points: 1}
+      - {key: tradeoffs, label: "States memory and accuracy trade-off of log vs bucket and per-key locks vs one global lock", points: 1}
+      - {key: edge_cases, label: "Handles window boundary and clock going backwards and invalid configuration and idle cleanup", points: 1}
+      - {key: testability, label: "Tests run with a fake clock including an exact boundary and a concurrent test with an exact count", points: 2}
+    follow_ups:
+      - prompt: "Change request: some endpoints cost more than one token."
+        look_for: "try_acquire(now_ms, cost=1) with cost times SCALE; the log appends cost entries or switches to a weighted counter; retry_after uses the missing amount."
+      - prompt: "Change request: limits must hold across five application instances."
+        look_for: "State moves to a shared store with atomic operations (for example a Redis script or sorted set per key); the Limiter protocol stays and a RemoteTokenBucket adapter implements it; mention clock skew and fail-open vs fail-closed."
+      - prompt: "Change request: add a fixed-window counter for a cheap rule on a hot path."
+        look_for: "New class with window start and count, O(1) memory; registered as a factory in a rule; note the burst at window edges (up to twice the limit)."
+      - prompt: How does memory grow with a million distinct keys?
+        look_for: "One limiter object per key, plus up to limit timestamps for the log; cleanup by idle time, or an LRU bound on the registry."
+
+# ---------------------------------------------------------------------------------------------- machine coding: splitwise ledger
+- key: lld.machine_coding.splitwise_ledger
+  type: design_exercise
+  title: "Machine coding: Splitwise-style ledger with tests (90 minutes)"
+  skills: [lld.machine_coding, lld.class_design, execution.testing_dry_run, python.oop]
+  minutes: 120
+  difficulty: MEDIUM
+  observation: {kind: MACHINE_CODING, time_limit_seconds: 5400}
+  body:
+    prompt: |-
+      Implement a working expense-sharing ledger for one group: add expenses with equal, exact and percent splits, record settlements, show net balances and who owes whom, and suggest transfers that settle everyone. Amounts are integer paise. Deliver the code, a test file that covers the rules, and a short demo. The 45-minute design version of this case is a separate exercise; here the bar is running, tested code.
+    requirements:
+      functional:
+        - Register users; expenses reference only registered users.
+        - Equal split distributes remainder paise to the first participants in the given order.
+        - Exact split must cover every participant and sum to the total; percent split uses basis points summing to 10000.
+        - Pairwise balances are netted (if A owes B 300 and B owes A 100, show A owes B 200).
+        - A settlement may not exceed what the debtor owes the creditor.
+        - Suggested transfers settle all net balances in at most n minus 1 transfers.
+      non_functional:
+        - Net balances always sum to zero; tests assert it.
+        - New split types plug in without changing the ledger.
+        - Deterministic output (sorted users, deterministic tie-breaks).
+    approach:
+      - "Minutes 0 to 10: confirm rounding rule, whether the payer must be a participant (no), overpayment rule, output format."
+      - "Minutes 10 to 20: SplitStrategy protocol and three strategies, Transfer value, LedgerError."
+      - "Minutes 20 to 35: Ledger.add_expense with net and pairwise updates; first test for 1000 split three ways."
+      - "Minutes 35 to 50: settle with validation, pairwise netting, owes() listing."
+      - "Minutes 50 to 65: suggest_transfers with two heaps; test on a known example."
+      - "Minutes 65 to 80: tests for invalid splits, unknown users, overpayment and the zero-sum property."
+      - "Minutes 80 to 90: demo, explain the greedy limitation and the next change (multiple groups, currencies)."
+    hints:
+      - "Net map: payer gains the total, each participant loses their share; the sum stays zero by construction."
+      - "Pairwise netting: before adding a debt from X to Y, cancel against any debt from Y to X."
+      - "Greedy settlement: repeatedly match the largest creditor with the largest debtor; each step zeroes at least one person."
+    reference: |-
+      Structure: `splits.py` (SplitStrategy and implementations), `ledger.py` (Ledger, Transfer, LedgerError), `test_ledger.py`, `main.py` (demo). The ledger keeps two views updated in the same method: net balances per user and netted pairwise debts. Everything is O(participants) per expense; suggest_transfers is O(n log n).
+
+      The greedy suggestion is not always the minimum number of transfers: finding the minimum is equivalent to splitting the balances into as many zero-sum groups as possible, which is NP-hard in general. Say this, and offer an exact search only for very small groups.
+    code:
+      language: python
+      code: |-
+        from __future__ import annotations
+
+        import heapq
+        from dataclasses import dataclass
+        from typing import Protocol
+
+
+        class LedgerError(Exception):
+            pass
+
+
+        # ------------------------------------------------------------------ splits.py
+        class SplitStrategy(Protocol):
+            def shares(self, total: int, participants: list[str]) -> dict[str, int]: ...
+
+
+        class EqualSplit:
+            def shares(self, total: int, participants: list[str]) -> dict[str, int]:
+                base, extra = divmod(total, len(participants))
+                return {u: base + (1 if i < extra else 0) for i, u in enumerate(participants)}
+
+
+        class ExactSplit:
+            def __init__(self, amounts: dict[str, int]) -> None:
+                self._amounts = dict(amounts)
+
+            def shares(self, total: int, participants: list[str]) -> dict[str, int]:
+                if set(self._amounts) != set(participants):
+                    raise LedgerError("exact split must name every participant")
+                if any(a < 0 for a in self._amounts.values()) or sum(self._amounts.values()) != total:
+                    raise LedgerError("exact amounts must be non-negative and sum to the total")
+                return dict(self._amounts)
+
+
+        class PercentSplit:
+            def __init__(self, basis_points: dict[str, int]) -> None:
+                if sum(basis_points.values()) != 10_000 or any(b < 0 for b in basis_points.values()):
+                    raise LedgerError("percentages must be non-negative and sum to 10000 basis points")
+                self._bp = dict(basis_points)
+
+            def shares(self, total: int, participants: list[str]) -> dict[str, int]:
+                if set(self._bp) != set(participants):
+                    raise LedgerError("percent split must name every participant")
+                raw = {u: total * self._bp[u] // 10_000 for u in participants}
+                for u in participants[: total - sum(raw.values())]:
+                    raw[u] += 1
+                return raw
+
+
+        # ------------------------------------------------------------------ ledger.py
+        @dataclass(frozen=True)
+        class Transfer:
+            debtor: str
+            creditor: str
+            amount: int
+
+
+        class Ledger:
+            def __init__(self) -> None:
+                self._users: set[str] = set()
+                self._net: dict[str, int] = {}
+                self._owes: dict[tuple[str, str], int] = {}     # (debtor, creditor) -> amount, netted
+
+            def add_user(self, user: str) -> None:
+                if user in self._users:
+                    raise LedgerError(f"user {user} exists")
+                self._users.add(user)
+                self._net[user] = 0
+
+            def add_expense(self, payer: str, total: int, participants: list[str], split: SplitStrategy) -> dict[str, int]:
+                self._require(payer, *participants)
+                if total <= 0:
+                    raise LedgerError("total must be positive")
+                if not participants or len(set(participants)) != len(participants):
+                    raise LedgerError("participants must be non-empty and distinct")
+                shares = split.shares(total, participants)
+                if sum(shares.values()) != total:                # defend against a buggy strategy
+                    raise LedgerError("split does not add up to the total")
+                self._net[payer] += total
+                for user, share in shares.items():
+                    self._net[user] -= share
+                    if user != payer and share:
+                        self._add_debt(user, payer, share)
+                return shares
+
+            def settle(self, debtor: str, creditor: str, amount: int) -> None:
+                self._require(debtor, creditor)
+                if amount <= 0:
+                    raise LedgerError("amount must be positive")
+                if amount > self._owes.get((debtor, creditor), 0):
+                    raise LedgerError(f"{debtor} does not owe {creditor} that much")
+                self._net[debtor] += amount
+                self._net[creditor] -= amount
+                self._add_debt(creditor, debtor, amount)          # cancels the existing debt
+
+            def balances(self) -> dict[str, int]:
+                return dict(sorted(self._net.items()))
+
+            def owes(self) -> list[Transfer]:
+                return [Transfer(d, c, a) for (d, c), a in sorted(self._owes.items())]
+
+            def suggest_transfers(self) -> list[Transfer]:
+                creditors = [(-amt, u) for u, amt in self._net.items() if amt > 0]
+                debtors = [(amt, u) for u, amt in self._net.items() if amt < 0]
+                heapq.heapify(creditors)
+                heapq.heapify(debtors)
+                out: list[Transfer] = []
+                while creditors and debtors:
+                    neg_credit, creditor = heapq.heappop(creditors)
+                    neg_debt, debtor = heapq.heappop(debtors)
+                    pay = min(-neg_credit, -neg_debt)
+                    out.append(Transfer(debtor, creditor, pay))
+                    if -neg_credit > pay:
+                        heapq.heappush(creditors, (neg_credit + pay, creditor))
+                    if -neg_debt > pay:
+                        heapq.heappush(debtors, (neg_debt + pay, debtor))
+                return out
+
+            def _add_debt(self, debtor: str, creditor: str, amount: int) -> None:
+                reverse = self._owes.pop((creditor, debtor), 0)
+                if reverse > amount:
+                    self._owes[(creditor, debtor)] = reverse - amount
+                elif amount > reverse:
+                    self._owes[(debtor, creditor)] = self._owes.get((debtor, creditor), 0) + amount - reverse
+
+            def _require(self, *users: str) -> None:
+                unknown = sorted(set(users) - self._users)
+                if unknown:
+                    raise LedgerError(f"unknown users {unknown}")
+
+
+        # ------------------------------------------------------------------ test_ledger.py (pytest)
+        import pytest
+
+
+        def make(*users: str) -> Ledger:
+            ledger = Ledger()
+            for u in users:
+                ledger.add_user(u)
+            return ledger
+
+
+        def test_equal_split_remainder_goes_to_first_participants() -> None:
+            ledger = make("a", "b", "c")
+            assert ledger.add_expense("a", 1000, ["a", "b", "c"], EqualSplit()) == {"a": 334, "b": 333, "c": 333}
+            assert ledger.balances() == {"a": 666, "b": -333, "c": -333}
+
+
+        def test_pairwise_debts_are_netted_and_balances_sum_to_zero() -> None:
+            ledger = make("a", "b", "c")
+            ledger.add_expense("a", 1000, ["a", "b", "c"], EqualSplit())
+            ledger.add_expense("b", 500, ["a", "b"], EqualSplit())
+            assert ledger.owes() == [Transfer("b", "a", 83), Transfer("c", "a", 333)]
+            assert ledger.balances() == {"a": 416, "b": -83, "c": -333}
+            assert sum(ledger.balances().values()) == 0
+
+
+        def test_suggested_transfers_settle_everyone() -> None:
+            ledger = make("a", "b", "c")
+            ledger.add_expense("a", 1000, ["a", "b", "c"], EqualSplit())
+            ledger.add_expense("b", 500, ["a", "b"], EqualSplit())
+            transfers = ledger.suggest_transfers()
+            assert transfers == [Transfer("c", "a", 333), Transfer("b", "a", 83)]
+            assert len(transfers) <= 2
+
+
+        def test_percent_split_distributes_leftover_paise() -> None:
+            ledger = make("a", "b", "c")
+            shares = ledger.add_expense("a", 100, ["a", "b", "c"], PercentSplit({"a": 3334, "b": 3333, "c": 3333}))
+            assert shares == {"a": 34, "b": 33, "c": 33}
+
+
+        def test_invalid_inputs_are_rejected() -> None:
+            ledger = make("a", "b")
+            with pytest.raises(LedgerError):
+                ledger.add_expense("a", 100, ["a", "z"], EqualSplit())
+            with pytest.raises(LedgerError):
+                ledger.add_expense("a", 100, ["a", "b"], ExactSplit({"a": 60, "b": 30}))
+            with pytest.raises(LedgerError):
+                PercentSplit({"a": 5000, "b": 4000})
+            ledger.add_expense("a", 100, ["a", "b"], EqualSplit())
+            with pytest.raises(LedgerError):
+                ledger.settle("b", "a", 51)
+
+
+        def test_settlement_clears_the_debt() -> None:
+            ledger = make("a", "b")
+            ledger.add_expense("a", 100, ["a", "b"], EqualSplit())
+            ledger.settle("b", "a", 50)
+            assert ledger.owes() == []
+            assert ledger.balances() == {"a": 0, "b": 0}
+      explanation: "The worked numbers: after a pays 1000 for three and b pays 500 for two, a is owed 416, b owes 83 and c owes 333; the netted pairwise view shows b owes a 83 (333 minus 250). The heap pops the largest creditor and the largest debtor, so the suggestion is c to a 333, then b to a 83. Tests live with the code here for brevity; split them into files in the round."
+    rubric:
+      - {key: clarification, label: "Confirms rounding and payer participation and overpayment rule and output format before coding", points: 1}
+      - {key: responsibilities, label: "Splits and ledger and driver are separate and the ledger alone updates net and pairwise views", points: 2}
+      - {key: abstractions, label: "SplitStrategy protocol with three strategies and integer paise throughout", points: 2}
+      - {key: extensibility, label: "Adds or sketches a new split type such as weights with no ledger change", points: 1}
+      - {key: tradeoffs, label: "Explains the greedy settlement limitation and the cost of keeping two views", points: 1}
+      - {key: edge_cases, label: "Handles remainder paise and unknown users and invalid splits and overpayment and pairwise netting", points: 1}
+      - {key: testability, label: "Test file runs and covers the split rules and netting and the zero-sum property", points: 2}
+    follow_ups:
+      - prompt: "Change request: support several groups, where a user belongs to many groups."
+        look_for: "Ledger per group (or keyed by group id) behind a service; users registered globally; balances per group plus an optional cross-group total."
+      - prompt: "Change request: delete an expense."
+        look_for: "Store expenses with their computed shares; deletion applies the inverse updates (or appends a reversal), keeping history; tests assert balances return to the earlier state."
+      - prompt: "Change request: show each user a simplified list that never routes money through a stranger."
+        look_for: "Restrict suggested transfers to pairs that already have a pairwise debt, or settle the netted pairwise view directly; trade fewer transfers for social constraints."
+      - prompt: Why is the minimum number of transfers hard to compute, and what would you do for a group of six?
+        look_for: "It requires finding the most disjoint zero-sum subsets (NP-hard in general); for six people an exhaustive search over subsets (2 to the 6) is cheap and exact."

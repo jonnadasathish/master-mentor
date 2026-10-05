@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
+from app.domain.learning.model import LearningCatalog
+
 
 @dataclass(frozen=True)
 class SkillGroup:
@@ -76,6 +78,9 @@ class Problem:
     expected_minutes: int | None
     is_canonical: bool
     skills: tuple[ProblemSkill, ...]
+    guide: Mapping[str, object] | None = (
+        None  # pattern, complexity, hints, mistakes, prerequisites, relevance
+    )
 
 
 @dataclass(frozen=True)
@@ -135,3 +140,4 @@ class Catalog:
     milestone_exit_rule: str = ""
     topological_order: tuple[str, ...] = field(default=())
     max_depth: int = 0
+    learning: LearningCatalog = field(default_factory=LearningCatalog)

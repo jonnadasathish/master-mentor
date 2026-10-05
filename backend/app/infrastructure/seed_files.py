@@ -37,6 +37,10 @@ def read_seed(seed_dir: str | Path) -> tuple[dict[str, Any], dict[str, Any] | No
     if profile_dir.is_dir():
         for path in sorted(profile_dir.glob("*.yaml")):
             raw[f"role_profile:{path.stem}"] = _load_yaml(path)
+    learning_dir = root / v.LEARNING_DIR
+    if learning_dir.is_dir():
+        for path in sorted(learning_dir.glob("*.yaml")):
+            raw[f"learning:{path.stem}"] = _load_yaml(path)
     lock_path = root / v.LOCK_FILE
     lock = _load_yaml(lock_path) if lock_path.is_file() else None
     if lock is not None and not isinstance(lock, dict):

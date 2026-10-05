@@ -12,6 +12,7 @@ from app.api.v1 import (
     export,
     gaps,
     health,
+    learning,
     mocks,
     profile,
     readiness,
@@ -40,3 +41,4 @@ api_router.include_router(mocks.router)
 api_router.include_router(content.router)
 api_router.include_router(reviews.router)
 api_router.include_router(data.router)
+api_router.include_router(learning.router)

@@ -112,6 +112,11 @@ def readiness_view(result: RunResult) -> ReadinessView:
     )
 
 
+# Mission kinds a learning session can fill (baseline items, mocks and the final simulation have
+# their own flows).
+LEARNING_CANDIDATES = ("GAP", "DIAGNOSTIC", "REVISION", "MAINTENANCE", "FOLLOW_UP")
+
+
 class PlanService:
     def __init__(self, session: Session, clock: Clock) -> None:
         self._s = session
@@ -651,10 +656,10 @@ class PlanService:
             None,
         )
 
-    def close_battery_item(
+    def close_with_observation(
         self, item: PlanItemRow, observation_type: str, observation_id: int
     ) -> PlanItemRow:
-        """A battery observation recorded outside the plan (e.g. the sweep) completes its plan item."""
+        """An observation recorded outside the plan item (the sweep, a learning session) completes it."""
         item = self._pending(item.id)
         item.observation_type, item.observation_id = observation_type, observation_id
         self._mark_done(item, no_evidence=False)
@@ -745,7 +750,35 @@ class PlanService:
             message=MessageOut(
                 rule=row.message_rule, text=row.message_text, payload=dict(row.message_payload_json)
             ),
+            learning=self._learning_previews(items),
         )
+
+    def _learning_previews(self, items: Sequence[PlanItemOut]) -> dict[str, dict[str, Any]]:
+        """Read-only: the lesson, check or practice a pending mission opens. The planner is unchanged."""
+        from app.services.learning_service import LearningService
+
+        wanted = [
+            i
+            for i in items
+            if i.status == "PENDING" and i.skill and i.stage and i.candidate_type in LEARNING_CANDIDATES
+        ]
+        if not wanted:
+            return {}
+        learning = LearningService(self._s, self._clock)
+        out: dict[str, dict[str, Any]] = {}
+        for item in wanted:
+            assert item.skill is not None and item.stage is not None
+            steps = learning.preview(item.skill, item.stage, item.minutes)
+            if not steps:
+                continue
+            session = learning.session_for_plan_item(item.id)
+            out[str(item.id)] = {
+                "stage": item.stage,
+                "minutes": sum(s.minutes for s in steps),
+                "steps": [s.model_dump(mode="json") for s in steps],
+                "session_id": session.id if session is not None and session.status == "ACTIVE" else None,
+            }
+        return out
 
     def plan_for(self, day: date) -> PlanOut:
         row = self._plans.plan_on(day)

@@ -1,0 +1,629 @@
+# Learning content: B-tree indexes in InnoDB (clustered, secondary, composite, covering) and query optimisation (EXPLAIN, sargability, N+1). MySQL 8 / InnoDB.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- indexing
+- key: db.indexing.lesson
+  type: lesson
+  title: "Indexes in InnoDB: B+trees, clustered vs secondary, composite and covering"
+  skills: [db.indexing]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: An index is a sorted B+tree that turns a full scan into a few page reads; its column order decides which queries it can serve.
+    what: |-
+      An index is a separate, sorted data structure that lets the database find rows by a key without reading the whole table. InnoDB (the default MySQL 8 engine) uses **B+trees** for both kinds of index:
+
+      - The **clustered index** is the table itself: leaf pages hold the full rows, sorted by primary key. If you define no primary key, InnoDB uses the first `UNIQUE NOT NULL` index, or else a hidden 6-byte row id.
+      - A **secondary index** stores the indexed columns plus the **primary key value** in its leaves. Finding a full row through it means two tree descents: secondary index, then clustered index.
+      - A **composite index** `(a, b, c)` is sorted by `a`, then `b` within equal `a`, then `c`.
+      - A **covering index** contains every column a query needs, so the clustered index is never visited (`EXPLAIN` Extra: `Using index`).
+    why: |-
+      Without an index, `WHERE email = ?` on 20 million rows reads every page: gigabytes of I/O. With a B+tree it reads 3 or 4 pages, most of them already cached. Indexes also deliver rows **already sorted**, which removes sorts for `ORDER BY ... LIMIT` and makes keyset pagination possible. Unique indexes enforce uniqueness, which no application check can do safely under concurrency.
+    when: |-
+      Add an index for a query that runs often or must be fast and filters, joins or sorts on a column set with good **selectivity** (few rows per value). Index foreign keys used in joins (InnoDB creates one automatically for a foreign key if none exists). Avoid indexing low-cardinality columns alone (a `status` with three values), columns you never filter on, and tables where writes dominate and reads are rare.
+    how: |-
+      **Leftmost-prefix rule.** An index on `(customer_id, status, created_at)` can seek on:
+
+      - `customer_id = ?`
+      - `customer_id = ? AND status = ?`
+      - `customer_id = ? AND status = ? AND created_at >= ?`
+      - `customer_id = ? AND status = ? ORDER BY created_at DESC` (no sort needed)
+
+      It cannot seek on `status = ?` alone or `created_at >= ?` alone, because those values are scattered across the tree. (MySQL 8.0.13+ has a limited **skip scan** for some such cases; do not design around it.) The written order of conditions in `WHERE` does not matter; the index column order does.
+
+      **Range stops the seek.** In `customer_id = ? AND created_at >= ? AND status = ?` on index `(customer_id, created_at, status)`, the seek uses `customer_id` and the `created_at` range; `status` can only be checked on each entry in that range (index condition pushdown, `Using index condition`). Rule of thumb: **equality columns first, then the range or sort column, then extra columns for covering.**
+
+      ```sql
+      -- Serves: a customer's paid orders in a date range, newest first, without touching the table.
+      CREATE INDEX idx_orders_cust_status_created
+        ON orders (customer_id, status, created_at, total_cents);
+
+      SELECT id, created_at, total_cents        -- id is in every secondary index (it is the PK)
+      FROM orders
+      WHERE customer_id = 42 AND status = 'PAID' AND created_at >= '2026-09-01'
+      ORDER BY created_at DESC
+      LIMIT 20;
+      ```
+    mental_model: |-
+      A composite index is a phone book sorted by last name, then first name. You can find "Sharma" quickly and "Sharma, Priya" even faster, but finding every "Priya" means reading the whole book. A covering index is a phone book that already prints the number you wanted, so you never walk to the house.
+    tradeoffs: |-
+      Every secondary index costs disk and buffer-pool memory, and every `INSERT`, every `DELETE` and any `UPDATE` of an indexed column must modify it, so a table with ten indexes writes roughly ten B+trees per insert. Wide composite indexes cover more queries but are larger and slower to maintain. In InnoDB the primary key is copied into every secondary index, so a wide or random primary key (a UUID string) inflates all of them, and random keys insert into random pages, causing page splits and poor cache locality; an `AUTO_INCREMENT` or time-ordered key appends at the right edge. Too many overlapping indexes also give the optimizer more ways to choose badly.
+    mistakes:
+      - "Creating separate single-column indexes on `customer_id` and `created_at` and expecting them to serve `WHERE customer_id = ? ORDER BY created_at`; only a composite index gives both seek and order."
+      - "Putting the range column first (`(created_at, customer_id)`) for a query with equality on customer_id; the seek then scans the whole date range."
+      - Wrapping the indexed column in a function (`DATE(created_at) = ...`, `LOWER(email) = ...`), which prevents a seek unless a functional index exists (MySQL 8.0.13+).
+      - Indexing a boolean or status column alone and wondering why the optimizer ignores it.
+      - Adding an index that duplicates the prefix of an existing one (`(a)` when `(a, b)` exists).
+      - "`SELECT *` when a covering index would have answered the query from the index alone."
+    interview: |-
+      Common prompts: "why is this query slow and what index fixes it", "explain clustered vs non-clustered", "what is a covering index", "why not index every column", "why are UUID primary keys a problem in MySQL". Answer with the B+tree picture, the leftmost-prefix rule and a concrete index for the given query, then name the write cost. Saying "the secondary index leaf stores the primary key, so this needs a second lookup" is the detail that separates a memorised answer from an understood one.
+    explain_it:
+      - Draw the B+tree and say what the leaves hold (row for clustered, key plus PK for secondary).
+      - Apply the leftmost-prefix rule to the query's WHERE and ORDER BY.
+      - Say whether the index covers the query and how many lookups remain.
+      - Name the write and storage cost and why the gain is worth it.
+    example:
+      language: sql
+      code: |-
+        -- Before: separate indexes, EXPLAIN shows key idx_customer, Extra: Using filesort
+        -- After: one composite index; the rows come out of the index already ordered.
+        ALTER TABLE orders
+          ADD INDEX idx_orders_customer_created (customer_id, created_at),
+          DROP INDEX idx_customer;
+
+        EXPLAIN SELECT id, created_at FROM orders
+        WHERE customer_id = 42 ORDER BY created_at DESC LIMIT 20;
+        -- type: ref, key: idx_orders_customer_created, Extra: Backward index scan; Using index
+      explanation: The composite index serves the equality seek and the ORDER BY in one structure; id and created_at are both in the index (id as the implicit PK suffix), so it also covers the query.
+    complexity: A point lookup costs O(log_f n) page reads, where the fan-out f is on the order of a thousand for a BIGINT key in a 16 KB page, so 3 or 4 levels hold tens of millions to billions of rows. A range scan costs the descent plus one read per leaf page in the range. Each insert costs one O(log n) descent per index.
+    internals: |-
+      InnoDB stores data in 16 KB pages by default (`innodb_page_size`). An internal node entry is roughly the key plus a 4-byte child page number plus a few bytes of record header, so a BIGINT-keyed internal page holds on the order of a thousand entries. If a leaf holds about 80 rows of 200 bytes, a tree of height 3 holds about 1000 x 1000 x 80 = 80 million rows. The root and internal pages are hot and stay in the buffer pool, so a point lookup usually needs at most one physical read for the leaf. Leaves are linked in both directions, which makes range scans and backward scans sequential. When an insert lands in a full page, InnoDB splits it; sequential keys fill pages almost completely, random keys leave them about half full. A secondary-index lookup that needs non-indexed columns does a second descent of the clustered index per row, which is why the optimizer prefers a full scan when a large fraction of rows match.
+    edge_cases:
+      - NULLs are stored in B-tree indexes in InnoDB, so `WHERE col IS NULL` can use an index.
+      - "A prefix index on a long VARCHAR (`email(20)`) is smaller but can never cover the column."
+      - "Descending indexes (`created_at DESC`) are honoured from MySQL 8.0; they matter for mixed orders like `ORDER BY a ASC, b DESC`."
+      - "Invisible indexes (MySQL 8.0) let you test dropping an index without rebuilding it if you were wrong."
+    misconceptions:
+      - "More indexes always make reads faster — the optimizer can pick a bad one, and every write pays for all of them."
+      - "An index is used whenever the column appears in WHERE — functions, implicit type conversion, leading wildcards and low selectivity all prevent it."
+- key: db.indexing.visual
+  type: visual_explanation
+  title: "Visual: a secondary-index lookup in InnoDB"
+  skills: [db.indexing]
+  minutes: 6
+  difficulty: MEDIUM
+  body:
+    summary: Finding a user by email walks the secondary B+tree to get the primary key, then walks the clustered B+tree to get the row.
+    frames:
+      - caption: "The secondary index on email: internal pages route by key range; leaves hold (email, id) sorted by email."
+        diagram: |-
+          idx_email (secondary)               root page
+                                       [  g...  |  p...  ]
+                                      /         |         \
+                       [a..f entries]     [g..o entries]     [p..z entries]   leaves, linked <->
+                                          ...
+                                          (kim@x.io, 87)
+                                          (lee@x.io, 12)  <- WHERE email = 'lee@x.io' finds id 12
+      - caption: The leaf gave only the primary key. A second descent of the clustered index fetches the row.
+        diagram: |-
+          PRIMARY (clustered: the table itself)
+                                       [  1..5000  |  5001.. ]
+                                      /
+                       [1..120 rows]  [121..240 rows] ...
+                        id=12 | lee@x.io | Lee | 2024-03-01 | ... full row
+
+          cost: about 3 + 3 page reads; inner pages are usually cached in the buffer pool
+      - caption: If the query only needs columns in the secondary index, the second descent disappears.
+        diagram: |-
+          SELECT id FROM users WHERE email = 'lee@x.io'
+            -> answered from the idx_email leaf (email, id)       EXPLAIN Extra: Using index
+
+          SELECT id, name FROM users WHERE email = 'lee@x.io'
+            -> needs name -> clustered lookup per matching row   no "Using index"
+      - caption: For a range that matches many rows, each match pays a random clustered lookup. Past a point, a full scan is cheaper.
+        diagram: |-
+          WHERE status = 'ACTIVE'   (matches 70 of every 100 rows)
+            index path: 14,000,000 secondary entries -> 14,000,000 random PK lookups
+            full scan : read every clustered leaf page once, sequentially
+          the optimizer compares estimated costs and often picks the full scan (type: ALL)
+- key: db.indexing.check
+  type: concept_check
+  title: "Concept check: composite, covering and clustered indexes"
+  skills: [db.indexing]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: "Table `orders(id PK, customer_id, status, created_at, total_cents)`, InnoDB, about 20 million rows."
+    questions:
+      - id: q1
+        kind: multi
+        prompt: "Index `(customer_id, status, created_at)` exists. Which WHERE clauses can use it to seek (not just scan it)?"
+        options:
+          - "customer_id = 7"
+          - "status = 'PAID'"
+          - "customer_id = 7 AND created_at >= '2026-09-01'"
+          - "status = 'PAID' AND customer_id = 7"
+          - "created_at >= '2026-09-01'"
+        answer: [0, 2, 3]
+        explanation: "Seeks need a leftmost prefix. Options A and D (order in WHERE is irrelevant) seek on customer_id, and D also on status. Option C seeks on customer_id only; created_at cannot be part of the seek because status is skipped, but it can be filtered inside the index (index condition pushdown). B and E skip the first column, so the values are scattered across the tree."
+      - id: q2
+        kind: single
+        prompt: "Which query is covered by index `(customer_id, created_at)`?"
+        options:
+          - "SELECT * FROM orders WHERE customer_id = 7"
+          - "SELECT id, created_at FROM orders WHERE customer_id = 7"
+          - "SELECT total_cents FROM orders WHERE customer_id = 7"
+          - "SELECT status FROM orders WHERE created_at > NOW() - INTERVAL 1 DAY"
+        answer: [1]
+        explanation: "InnoDB secondary-index leaves store the primary key, so id is available alongside customer_id and created_at; the query never visits the table. The tempting answer A needs every column. C needs total_cents, which is not in the index. D cannot seek and needs status."
+      - id: q3
+        kind: single
+        prompt: "A colleague switches the primary key from BIGINT AUTO_INCREMENT to a random UUID stored as CHAR(36). Which effect is the most significant for an insert-heavy InnoDB table with four secondary indexes?"
+        options:
+          - "Primary-key lookups become O(n)"
+          - "Inserts land on random clustered pages (more page splits, less cache locality) and every secondary index grows because each entry stores the 36-byte key"
+          - "Secondary indexes stop working"
+          - "Nothing changes; the key type does not matter in a B+tree"
+        answer: [1]
+        explanation: "Lookups stay O(log n). The cost is physical: random insert positions split pages and spread the working set across the buffer pool, and the PK is copied into every secondary index entry (36 bytes vs 8). If UUIDs are required, use a time-ordered UUID stored as BINARY(16)."
+      - id: q4
+        kind: single
+        prompt: "`WHERE customer_id = 7 ORDER BY created_at DESC LIMIT 10` runs with separate single-column indexes on customer_id and created_at. What does EXPLAIN most likely show?"
+        options:
+          - "key idx_customer, Extra: Using filesort"
+          - "key idx_customer, Extra: Using index"
+          - "type const"
+          - "key PRIMARY, Extra: Backward index scan"
+        answer: [0]
+        explanation: "The optimizer seeks on idx_customer, but those entries are ordered by (customer_id, id), not created_at, so it must sort them: Using filesort. A composite (customer_id, created_at) index removes the sort. It is not covered (Using index) because the query selects other columns."
+      - id: q5
+        kind: single
+        prompt: "Roughly how many page reads does a point lookup by primary key need in a 50 million row InnoDB table with BIGINT keys?"
+        options: ["About 1 per million rows", "3 or 4 levels, usually 1 physical read because upper levels are cached", "About 26, like a binary tree", "Always exactly 1"]
+        answer: [1]
+        explanation: "Fan-out on the order of a thousand per 16 KB page means 3 or 4 levels. The binary-tree answer (log₂ of 50 million is about 26) is the tempting wrong one: B+trees are wide precisely to keep height and disk reads small."
+      - id: q6
+        kind: short
+        prompt: "Why might MySQL ignore an index on `status` (3 distinct values) for `SELECT * FROM orders WHERE status = 'PAID'`, and what would you do instead?"
+        model_answer: "If PAID is most of the table, using the secondary index means one random clustered-index lookup per matching row, which costs more than one sequential full scan, so the optimizer chooses type ALL. Low-selectivity columns are useful only as part of a composite index after or before a selective column (for example (status, created_at) for 'recent paid orders') or when the value queried is rare (PENDING may be 1 percent of rows). Check the plan with EXPLAIN and the row estimate."
+        explanation: Selectivity is about the value queried, not just the number of distinct values; the optimizer reasons with cost estimates.
+- key: db.indexing.interview
+  type: interview_question
+  title: "Interview question: design indexes for an orders workload"
+  skills: [db.indexing, db.query_optimization]
+  minutes: 15
+  difficulty: HARD
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    prompt: |-
+      `orders(id BIGINT PK, customer_id BIGINT, status ENUM('PENDING','PAID','CANCELLED'), created_at DATETIME, total_cents INT)` holds 50 million rows in InnoDB and takes about 2000 inserts per second. Propose the minimum set of secondary indexes for these three queries and justify the column order:
+
+      ```sql
+      -- Q1 (customer page, very frequent)
+      SELECT id, status, total_cents, created_at FROM orders
+      WHERE customer_id = ? ORDER BY created_at DESC LIMIT 20;
+
+      -- Q2 (customer spend, frequent)
+      SELECT SUM(total_cents) FROM orders
+      WHERE customer_id = ? AND status = 'PAID' AND created_at >= ?;
+
+      -- Q3 (ops dashboard, once a minute)
+      SELECT id, customer_id FROM orders
+      WHERE status = 'PENDING' AND created_at < NOW() - INTERVAL 30 MINUTE;
+      ```
+    key_points:
+      - "Q1 needs (customer_id, created_at): equality then the sort column, so the 20 newest rows come straight from the index without a filesort; the 20 clustered lookups for status and total_cents are cheap."
+      - "Q2 is served by (customer_id, status, created_at, total_cents) as a covering index, or acceptably by the Q1 index if a customer has few orders; states the trade-off of one more index on a write-heavy table."
+      - "Notes that an index (customer_id, status, created_at) cannot serve Q1's ORDER BY across all statuses without sorting."
+      - "Q3 uses (status, created_at): equality on a rare value (PENDING) then the range; covered because customer_id would need adding, or accepted lookups for a small result."
+      - "Mentions the write cost (each index adds a B+tree update per insert at 2000/s) and verifies with EXPLAIN (type ref/range, Extra without Using filesort, Using index where covering)."
+    model_answer: |-
+      Equality columns first, then the range or sort column, then extra columns only for covering. Q1 gets (customer_id, created_at); it seeks to the customer, walks the index backwards and stops after 20 entries, then does 20 primary-key lookups. Q2 can reuse that index (the customer's rows in the date range, then filter status per row); if customers have thousands of orders I would add (customer_id, status, created_at, total_cents), which covers Q2 entirely, and then drop nothing because Q1 still needs ordering across statuses. Q3 gets (status, created_at): PENDING is a small fraction of rows, so the seek plus range is cheap; adding customer_id makes it covering. That is two or three indexes; each one costs an extra B+tree insert per row, which at 2000 inserts per second is acceptable but is why I would not add the covering Q2 index without measuring.
+    pitfalls:
+      - "Proposing one index per column, which serves none of the queries' ordering or multi-column filters."
+      - "Putting created_at first, which turns every customer query into a scan of a time range."
+      - Ignoring the insert rate.
+    follow_ups:
+      - prompt: Q1 gets a page 2 with OFFSET 20, and users click to page 500. What happens and what do you change?
+        look_for: "OFFSET 10000 reads and discards 10000 index entries plus their lookups; switch to keyset pagination with WHERE (created_at, id) before the last seen pair, served by the same index because id is the implicit suffix."
+      - prompt: How do you confirm the new index is used and safe to keep, and how do you remove an old one safely?
+        look_for: "EXPLAIN and EXPLAIN ANALYZE before and after, the slow query log or performance_schema digests; in MySQL 8 make the old index INVISIBLE first, watch, then drop."
+      - prompt: Would a hash index be better for Q1?
+        look_for: "No. A hash index supports equality only, not ORDER BY or ranges; InnoDB user-defined indexes are B+trees anyway (the adaptive hash index is internal)."
+- key: db.indexing.exercise_keyset
+  type: sql_exercise
+  title: "SQL exercise: keyset pagination backed by the right index"
+  skills: [db.indexing, db.query_optimization]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    prompt: |-
+      The activity feed shows a customer's orders newest first, 20 per page, with "load more". The current query uses `LIMIT 20 OFFSET :n` and page 300 takes seconds. Rewrite it as keyset (seek) pagination: given the last row of the previous page (`last_created_at`, `last_id`), return the next 20. Several orders can share the same `created_at`. Then state the index, explain why it makes each page O(log n + 20) and why the result is stable when new orders arrive.
+    schema:
+      language: sql
+      code: |-
+        CREATE TABLE orders (
+          id          BIGINT PRIMARY KEY AUTO_INCREMENT,
+          customer_id BIGINT NOT NULL,
+          status      ENUM('PENDING','PAID','CANCELLED') NOT NULL,
+          total_cents INT NOT NULL,
+          created_at  DATETIME NOT NULL,
+          KEY idx_customer (customer_id)
+        );
+        -- Current query:
+        -- SELECT id, status, total_cents, created_at FROM orders
+        -- WHERE customer_id = :c ORDER BY created_at DESC LIMIT 20 OFFSET :n;
+        -- Sample: customer 42 has orders (id, created_at): (90, 10:00), (88, 10:00), (85, 09:59), (80, 09:58)
+        -- With a page size of 2, page 1 is 90, 88; page 2 must be 85, 80.
+    hints:
+      - Ordering by created_at alone is ambiguous when timestamps tie; add id as a unique tie-breaker in the ORDER BY.
+      - "\"After the last row\" in descending order means created_at smaller, or equal created_at with a smaller id."
+      - "Write the condition as `created_at < :t OR (created_at = :t AND id < :id)`; it is equivalent to the row comparison and easy for the optimizer to turn into a range."
+      - InnoDB appends the primary key to every secondary index, so (customer_id, created_at) is effectively (customer_id, created_at, id).
+    solution:
+      language: sql
+      code: |-
+        ALTER TABLE orders
+          ADD INDEX idx_orders_customer_created (customer_id, created_at),
+          DROP INDEX idx_customer;            -- redundant: it is a prefix of the new index
+
+        -- First page
+        SELECT id, status, total_cents, created_at
+        FROM orders
+        WHERE customer_id = :c
+        ORDER BY created_at DESC, id DESC
+        LIMIT 20;
+
+        -- Next page, given the last row (:t, :last_id) of the previous page
+        SELECT id, status, total_cents, created_at
+        FROM orders
+        WHERE customer_id = :c
+          AND (created_at < :t OR (created_at = :t AND id < :last_id))
+        ORDER BY created_at DESC, id DESC
+        LIMIT 20;
+      explanation: |-
+        The index is ordered by (customer_id, created_at, id) thanks to the implicit PK suffix, which is exactly the ORDER BY, so MySQL seeks to the customer and the cursor position, reads 20 entries backwards and stops: O(log n + 20) regardless of page number, with 20 clustered lookups for status and total_cents. Expect EXPLAIN type range on idx_orders_customer_created and no Using filesort. OFFSET n instead walks and discards n entries, each with a clustered lookup, so it degrades linearly. Keyset is stable: a new order inserted at the top does not shift later pages, whereas with OFFSET it pushes a row from page 1 onto page 2 and the user sees a duplicate.
+    rubric:
+      - {key: tie_breaker, label: Adds id to ORDER BY and to the cursor so tied timestamps are neither skipped nor repeated, points: 3}
+      - {key: correct_predicate, label: "Writes the seek condition correctly for descending order and passes the sample", points: 2}
+      - {key: index, label: "Proposes (customer_id, created_at), explains the implicit id suffix and drops the redundant prefix index", points: 2}
+      - {key: cost, label: "Explains O(log n + page) per page vs O(offset) for OFFSET", points: 2}
+      - {key: stability, label: Explains why keyset pages do not shift when new rows arrive, points: 1}
+    follow_ups:
+      - prompt: Product asks for "jump to page 300". What can you offer?
+        look_for: "Keyset cannot jump arbitrarily; offer date-based jumps (seek to a created_at), or accept OFFSET with a cap, or precomputed page boundaries; explain the cost of each."
+      - prompt: How would you make the page query covering, and is it worth it?
+        look_for: "Index (customer_id, created_at, status, total_cents) covers it; it saves only 20 lookups per page while enlarging the index on every insert, so usually not worth it."
+
+- key: db.indexing.cards
+  type: revision_card
+  title: "Recall: index structure and rules"
+  skills: [db.indexing]
+  minutes: 5
+  body:
+    cards:
+      - front: What do InnoDB clustered-index leaves hold?
+        back: The full rows, sorted by primary key; the clustered index is the table.
+      - front: What do InnoDB secondary-index leaves hold?
+        back: The indexed columns plus the primary key value, used for a second lookup.
+      - front: Column order rule for a composite index?
+        back: Equality columns first, then the range or sort column, then covering columns.
+      - front: When is a query covered?
+        back: When every column it reads is in the index (PK included); EXPLAIN shows Using index.
+      - front: Why are B+trees only 3 or 4 levels deep?
+        back: A 16 KB page holds on the order of a thousand keys, so fan-out is huge.
+      - front: Why are random UUID primary keys costly in InnoDB?
+        back: Random inserts split pages and every secondary index stores the wide key.
+
+# ---------------------------------------------------------------------------------------------- query optimisation
+- key: db.query_optimization.lesson
+  type: lesson
+  title: "Reading EXPLAIN and fixing slow queries in MySQL 8"
+  skills: [db.query_optimization]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Find the slow query from evidence, read its plan, make the predicate sargable and the index match it, then confirm with EXPLAIN ANALYZE.
+    what: |-
+      Query optimisation is making the database do less work for the same result: read fewer rows, avoid sorts and temporary tables, and make fewer round trips. The tool is the **execution plan**, shown by `EXPLAIN` (estimated) and `EXPLAIN ANALYZE` (MySQL 8.0.18+, executes the query and reports actual rows, loops and time per step).
+
+      The `EXPLAIN` columns that matter most:
+
+      - **type**, the access method, from best to worst: `const`/`eq_ref` (one row by unique key), `ref` (index equality, many rows), `range` (index range), `index` (full scan of an index), `ALL` (full table scan).
+      - **key** and **key_len**: the index chosen and how many bytes of it are used, which tells you how many composite columns participate (BIGINT 8, INT 4, DATETIME 5, plus 1 per nullable column).
+      - **rows**: the optimizer's estimate of rows examined (not returned). `filtered` estimates the percentage that survives the remaining conditions.
+      - **Extra**: `Using index` (covering), `Using where` (filter applied after reading), `Using index condition` (filter pushed into the index), `Using filesort` (a sort step), `Using temporary` (temporary table for GROUP BY/DISTINCT), `Using join buffer (hash join)` (no usable index for a join).
+    why: |-
+      A query reading 20 rows through an index takes under a millisecond; the same query scanning 20 million rows takes seconds, holds buffer-pool pages others need and, inside a locking statement, holds locks longer. Most production latency incidents in CRUD services trace back to a handful of queries, so finding and fixing them is high leverage.
+    when: |-
+      When p95 latency rises, the database CPU climbs, the slow query log grows, or a new feature adds a query on a large table. Do it before release for any query on a table that will grow beyond memory.
+    how: |-
+      1. **Find** the expensive queries: the slow query log (`long_query_time`), `performance_schema.events_statements_summary_by_digest` (total time per normalised query) or APM traces. Fix by total time (frequency x latency), not by the single worst run.
+      2. **Read the plan.** `EXPLAIN FORMAT=TREE` or `EXPLAIN ANALYZE`. Look for `ALL` or `index` on a big table, a huge `rows` estimate, `Using filesort` or `Using temporary` on many rows, and estimates far from actual rows.
+      3. **Make the predicate sargable** (usable by an index seek):
+
+      ```sql
+      -- Not sargable: the function hides the column from the index
+      WHERE DATE(created_at) = '2026-10-05'
+      -- Sargable: a half-open range on the raw column
+      WHERE created_at >= '2026-10-05' AND created_at < '2026-10-06'
+
+      -- Not sargable: phone is VARCHAR, the literal is a number, so every row is converted
+      WHERE phone = 9876543210
+      -- Sargable: compare with the column's own type
+      WHERE phone = '9876543210'
+
+      -- Leading wildcard cannot seek; use a full-text or search index for contains-matching
+      WHERE name LIKE '%kumar'
+      ```
+
+      4. **Match the index** to the query: equality columns, then range/sort column, then covering columns (see the indexing lesson).
+      5. **Reduce work in the application**: fetch only needed columns, paginate with keyset not `OFFSET`, batch lookups (`WHERE id IN (...)`) instead of one query per row, and cache stable results.
+      6. **Verify** with `EXPLAIN ANALYZE` and the latency metric, not with one fast run (the second run is fast because pages are cached).
+    mental_model: |-
+      The cost of a query is the number of rows it touches, not the number it returns. Read the plan as "how many rows does each step touch and why?" and every fix becomes "make that number close to the result size".
+    tradeoffs: |-
+      Adding an index speeds the read but costs every write and memory. Rewriting a query (splitting an `OR` into a `UNION`, replacing a correlated subquery) can be faster but less readable. Denormalised summary tables and caches make reads trivially cheap but introduce staleness and sync code. Optimizer hints (`FORCE INDEX`, `/*+ INDEX(...) */`) fix a plan today and become wrong when data distribution changes; prefer fixing statistics (`ANALYZE TABLE`, histograms in MySQL 8) and the query shape.
+    mistakes:
+      - Fixing a query because it looks slow instead of the queries with the largest total time.
+      - Trusting the second run's latency after the buffer pool is warm.
+      - "Reading `rows` as the number returned; it is an estimate of rows examined per loop."
+      - Implicit type conversion (string column compared with a number, or joins between INT and VARCHAR columns, or mismatched collations) silently disabling an index.
+      - "Deep `OFFSET` pagination, which reads and discards every skipped row."
+      - The N+1 pattern from an ORM's lazy loading, which turns one page into hundreds of queries.
+      - Running `COUNT(*)` on a huge InnoDB table per request; InnoDB keeps no exact row count and must scan an index.
+    interview: |-
+      Expect "this endpoint got slow, how do you investigate?" and "here is a query and its EXPLAIN, what is wrong?". Show a method: measure and find the query, read the plan, name the cause (missing or unusable index, non-sargable predicate, sort, N+1), propose the smallest fix, and verify. Quote plan fields precisely (`type: ALL`, `rows: 19 million`, `Using filesort`); vague talk of "optimising the query" scores poorly.
+    explain_it:
+      - Where the evidence came from (slow log, digest table, trace).
+      - Which plan fields showed the problem and what they mean.
+      - Why the fix reduces rows touched, with before and after estimates.
+      - How you verified it and what it costs (index writes, staleness).
+    example:
+      language: sql
+      code: |-
+        EXPLAIN ANALYZE
+        SELECT id, total_cents FROM orders
+        WHERE customer_id = 42 AND created_at >= '2026-09-01'
+        ORDER BY created_at DESC LIMIT 20;
+        -- -> Limit: 20 row(s)  (actual time=0.05..0.21 rows=20 loops=1)
+        --     -> Index range scan on orders using idx_orders_customer_created over (...) (reverse)
+        --        (actual ... rows=20 loops=1)
+      explanation: EXPLAIN ANALYZE shows the actual rows touched at each step; here the range scan stops after 20 rows because the index supplies the order, so LIMIT terminates the scan early. Output abridged.
+    complexity: An indexed equality or range costs O(log n + k) for k matching entries; a full scan costs O(n) page reads; a filesort adds O(k log k); N+1 adds one network round trip per parent row.
+    internals: |-
+      MySQL's optimizer is cost-based: it estimates rows from index statistics (sampled pages, refreshed by `ANALYZE TABLE` and automatically after enough changes) and optional histograms, then compares the cost of each access path and join order. Bad estimates produce bad plans, which is why the `rows` estimate versus the `EXPLAIN ANALYZE` actual is the first thing to compare when a plan looks irrational. For `ORDER BY ... LIMIT`, the optimizer may prefer an index that gives the order over one that filters better, which helps when matches are common and hurts badly when they are rare.
+    edge_cases:
+      - "OR across different columns (`a = 1 OR b = 2`) may use index_merge or fall back to a full scan; a UNION of two indexed queries is the manual fix."
+      - "`IN` with thousands of values is fine with an index but grows the parse and plan cost; batch in chunks of a few hundred."
+      - "A query that is fast for most customers and slow for one huge customer (data skew) needs a plan that is good for both, or a special path."
+    misconceptions:
+      - "Using filesort means sorting on disk — it means a sort step; it spills to disk only when it exceeds the sort buffer."
+      - "A full table scan is always wrong — for small tables or queries returning most rows it is the cheapest plan."
+- key: db.query_optimization.check
+  type: concept_check
+  title: "Concept check: plans and sargability"
+  skills: [db.query_optimization]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: MySQL 8, InnoDB. Read the plan fields carefully; small words in Extra matter.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "EXPLAIN shows `type: ALL, key: NULL, rows: 18500000, Extra: Using where`. What does it mean?"
+        options:
+          - The query returns about 18,500,000 rows
+          - The query examines about 18,500,000 rows with a full table scan and filters them
+          - The query uses every index
+          - The query is covered
+        answer: [1]
+        explanation: "type ALL is a full scan of the clustered index, and rows is the estimate of rows examined, not returned. Using where says the filter is applied after reading. The result may be only a few rows, which is exactly why this plan is bad."
+      - id: q2
+        kind: multi
+        prompt: "Which predicates prevent an index seek on an indexed column in MySQL 8 (no functional indexes defined)?"
+        options:
+          - "WHERE YEAR(created_at) = 2026"
+          - "WHERE created_at >= '2026-01-01' AND created_at < '2027-01-01'"
+          - "WHERE phone = 9876543210 (phone is VARCHAR)"
+          - "WHERE email LIKE 'asha%'"
+          - "WHERE email LIKE '%asha'"
+        answer: [0, 2, 4]
+        explanation: "A function on the column, comparing a string column with a number (MySQL converts every row's value) and a leading wildcard all block the seek. The half-open range and a prefix LIKE ('asha%') are both range scans. The tempting wrong choice is the prefix LIKE, which is sargable because the prefix fixes a contiguous range in the sorted index."
+      - id: q3
+        kind: single
+        prompt: "Index `(customer_id, created_at)`, BIGINT NOT NULL and DATETIME NOT NULL. EXPLAIN shows `key_len: 8`. What does that tell you?"
+        options:
+          - Only customer_id is used for the index access
+          - Both columns are used
+          - The index is covering
+          - The key is 8 rows long
+        answer: [0]
+        explanation: "key_len counts bytes of the index used: BIGINT is 8, DATETIME adds 5, so both columns would be 13. Only the first column participates, so a range on created_at is not part of the access (perhaps because the predicate is not sargable)."
+      - id: q4
+        kind: single
+        prompt: "An ORM page lists 50 orders and shows each one's customer name. The query log shows 51 queries. What is the problem and the usual fix?"
+        options:
+          - Missing index on orders; add one
+          - "N+1: one query for orders plus one per order for the customer; eager-load customers with a join or one IN query"
+          - The connection pool is too small
+          - "Too many columns selected; use SELECT id"
+        answer: [1]
+        explanation: "Each lazy relationship access issues its own SELECT. Each may be fast, but 50 round trips add up and grow with page size. Eager loading (a JOIN, or a second query WHERE id IN (...)) makes it 1 or 2 queries regardless of page size. An index does not reduce the number of round trips."
+      - id: q5
+        kind: single
+        prompt: "Why can `SELECT ... ORDER BY created_at DESC LIMIT 20 OFFSET 100000` be slow even with a perfect index?"
+        options:
+          - LIMIT disables indexes
+          - The server reads and discards the first 100000 entries (and their row lookups) before returning 20
+          - OFFSET forces a full table scan
+          - DESC order cannot use an index
+        answer: [1]
+        explanation: "The index gives the order, but there is no way to jump to position 100000 in a B+tree without walking it, and each skipped entry may need a clustered lookup. Keyset pagination seeks directly to the last seen key. MySQL 8 reads indexes backwards fine for DESC."
+      - id: q6
+        kind: short
+        prompt: The same query takes 4 seconds the first time and 40 ms the second time. A colleague says the fix worked. What do you say?
+        model_answer: "The second run is fast because the pages are now in the buffer pool (and results may sit in application caches), not because the plan changed. Compare EXPLAIN before and after, use EXPLAIN ANALYZE rows touched, and judge by production p95 and rows examined from the slow log or performance_schema over time, ideally under realistic cache conditions."
+        explanation: Cache warmth hides plan problems; rows touched is the stable measure.
+- key: db.query_optimization.debug_scan
+  type: debugging_exercise
+  title: "Debugging: the dashboard query that scans nine million rows"
+  skills: [db.query_optimization, db.indexing]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 1200}
+  body:
+    scenario: |-
+      An internal dashboard shows today's 50 newest PENDING orders. It was fast at launch. Since a background expiry job was disabled two months ago, PENDING orders have piled up and the endpoint now takes 6 to 9 seconds; database CPU spikes whenever someone opens the dashboard. The `orders` table has 18 million rows; about half are PENDING. MySQL 8.0, InnoDB.
+    symptoms:
+      - The dashboard endpoint p95 is about 8000 ms; other endpoints are normal.
+      - The slow query log shows the statement below with Rows_examined around 9 million and Rows_sent 50.
+      - "SHOW INDEX shows idx_status (status) and idx_created (created_at) as separate single-column indexes."
+    artifacts:
+      language: sql
+      code: |-
+        SELECT * FROM orders
+        WHERE status = 'PENDING'
+          AND DATE(created_at) = CURDATE()
+        ORDER BY created_at DESC
+        LIMIT 50;
+
+        -- EXPLAIN (abridged; filtered column omitted)
+        -- id  select_type  table   type  possible_keys  key         key_len  ref    rows     Extra
+        -- 1   SIMPLE       orders  ref   idx_status     idx_status  1        const  9104332  Using where; Using filesort
+    tasks:
+      - Explain each field of the plan and why the query examines millions of rows to return 50.
+      - Identify every cause (there is more than one).
+      - Propose the fix (query change and index change) and the plan you expect afterwards.
+      - Say how you would verify the fix and roll it out safely on an 18 million row table.
+    hints:
+      - Why is idx_created not even in possible_keys?
+      - "What does key_len 1 say about how much of the filtering the index does? (status is an ENUM: 1 byte.)"
+      - Which single index could both filter on status and deliver rows in created_at order?
+    reference: |-
+      **Reading the plan.** `type: ref` on `idx_status` with `ref: const` means an equality lookup on status, but PENDING matches about 9,100,000 rows (`rows: 9104332`), so the index barely narrows anything. `key_len: 1` confirms only the 1-byte ENUM is used. Each of those entries needs a clustered-index lookup for `SELECT *` and for the date check (`Using where`), and then all survivors are sorted (`Using filesort`) to apply `ORDER BY ... LIMIT`.
+
+      **Causes.**
+
+      - `DATE(created_at) = CURDATE()` is not sargable, so idx_created cannot be used for a range and does not appear in possible_keys.
+      - No index combines the equality on status with the order on created_at, so the database must filter and then sort.
+      - The data changed: the disabled expiry job made PENDING a low-selectivity value. The plan that was fine at launch (few PENDING rows) became a scan.
+
+      **Fix.** Rewrite the predicate as a half-open range and add a composite index with the equality column first and the range/sort column second:
+
+      ```sql
+      ALTER TABLE orders ADD INDEX idx_status_created (status, created_at), ALGORITHM=INPLACE, LOCK=NONE;
+
+      SELECT * FROM orders
+      WHERE status = 'PENDING'
+        AND created_at >= CURDATE() AND created_at < CURDATE() + INTERVAL 1 DAY
+      ORDER BY created_at DESC
+      LIMIT 50;
+      ```
+
+      Expected plan: `type: range`, `key: idx_status_created`, `key_len: 6` (1 + 5), `rows` in the order of today's PENDING orders, no `Using filesort` (the index is read backwards; MySQL 8 may show `Backward index scan`). The scan stops after 50 entries, each followed by one clustered lookup for `SELECT *`. idx_status then becomes a redundant prefix of the new index and can be made invisible and later dropped.
+
+      **Verify and roll out.** Build the index online (InnoDB online DDL with `LOCK=NONE`; on very large or replicated setups, watch replica lag or use an online schema change tool), then compare EXPLAIN and EXPLAIN ANALYZE, and watch Rows_examined and p95 for the endpoint. Re-enable or fix the expiry job: the data problem is a correctness bug, and leaving 9 million stale PENDING orders will hurt other queries.
+    rubric:
+      - {key: plan_reading, label: "Explains type ref, key_len 1, the 9 million row estimate and Using filesort correctly", points: 3}
+      - {key: causes, label: "Names the non-sargable DATE() predicate, the missing composite index and the selectivity change from the data", points: 3}
+      - {key: fix, label: "Proposes the half-open range plus (status, created_at) and predicts range access without filesort", points: 2}
+      - {key: rollout, label: "Verifies with EXPLAIN ANALYZE and metrics, builds the index online, handles the redundant index and the expiry job", points: 2}
+    follow_ups:
+      - prompt: Ops also wants "PENDING orders older than 30 minutes, any day". Does the new index help?
+        look_for: "Yes: status = 'PENDING' AND created_at < NOW() - INTERVAL 30 MINUTE is an equality plus range on the same index; but with millions of old PENDING rows the result itself is huge, so fix the data and paginate."
+      - prompt: Why not just add FORCE INDEX (idx_created)?
+        look_for: "It would still need to scan the whole of today and filter status, would not fix the function on the column, and hard-codes a plan that breaks when data changes; fix the query shape and index instead."
+- key: db.query_optimization.debug_n_plus_one
+  type: debugging_exercise
+  title: "Debugging: an ORM endpoint that issues 400 queries"
+  skills: [db.query_optimization, engineering.performance_profiling]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 1200}
+  body:
+    scenario: |-
+      A FastAPI endpoint returns the 200 most recent orders with the customer's name and the number of line items. Every individual query is fast (under 1 ms) and EXPLAIN plans look fine, yet the endpoint takes 900 ms at p95 and the database shows thousands of queries per second from this one service. The code uses SQLAlchemy 2.0 with default lazy loading.
+    symptoms:
+      - Request tracing shows about 380 SQL statements per request.
+      - Most statements are `SELECT ... FROM customers WHERE customers.id = ?` and `SELECT ... FROM order_items WHERE ? = order_items.order_id`.
+      - Latency grows linearly when the page size is raised from 50 to 200.
+    artifacts:
+      language: python
+      code: |-
+        @router.get("/orders/recent")
+        def recent_orders(session: Session = Depends(get_session)) -> list[dict]:
+            orders = session.scalars(
+                select(Order).order_by(Order.created_at.desc()).limit(200)
+            ).all()
+            return [
+                {
+                    "id": o.id,
+                    "customer": o.customer.name,   # lazy many-to-one load
+                    "item_count": len(o.items),    # lazy collection load
+                }
+                for o in orders
+            ]
+    tasks:
+      - Explain where the 380 statements come from and why each query being fast does not help.
+      - Fix the customer access and the item count with the fewest queries, without loading data you do not need.
+      - Propose a guard that stops this pattern from coming back.
+    hints:
+      - Count 1 query for the orders, then one per lazily loaded relationship access. Why is it not exactly 401?
+      - The page only needs a count of items, not the item rows.
+      - "SQLAlchemy has loader options for eager loading and a way to make lazy loads raise."
+    reference: |-
+      **Cause: N+1.** One query fetches 200 orders. Accessing `o.customer` triggers a lazy SELECT per order (fewer than 200 because SQLAlchemy reuses customers already in the session's identity map), and `len(o.items)` triggers one SELECT per order and loads every item row just to count them: about 1 + 180 + 200 statements. Each is sub-millisecond on the server, but each costs a network round trip, driver and ORM overhead, so the cost is linear in page size.
+
+      **Fix.** Join the customer and compute the count in SQL:
+
+      ```python
+      item_count = (
+          select(func.count())
+          .where(OrderItem.order_id == Order.id)
+          .correlate(Order)
+          .scalar_subquery()
+      )
+      rows = session.execute(
+          select(Order.id, Customer.name, item_count.label("item_count"))
+          .join(Customer, Customer.id == Order.customer_id)
+          .order_by(Order.created_at.desc())
+          .limit(200)
+      ).all()
+      return [{"id": r.id, "customer": r.name, "item_count": r.item_count} for r in rows]
+      ```
+
+      One statement; the correlated count is an index range lookup per order on the order_items primary key (order_id, product_id). If full objects are needed, `options(joinedload(Order.customer), selectinload(Order.items))` gives 2 or 3 statements: a JOIN for the many-to-one and one `WHERE order_id IN (...)` for the collection. Avoid `joinedload` on large collections because it multiplies parent rows.
+
+      **Guard.** Set `lazy="raise"` on relationships (or add `raiseload("*")` to the query) so accidental lazy loads fail in tests, and add a test that counts statements with a `before_cursor_execute` event listener and asserts a fixed upper bound for the endpoint.
+    rubric:
+      - {key: diagnosis, label: "Identifies N+1 for both relationships and explains the round-trip cost and the identity-map effect", points: 3}
+      - {key: fix_customer, label: Eager-loads or joins the customer so its cost is constant in page size, points: 2}
+      - {key: fix_count, label: Computes the item count in SQL instead of loading item rows, points: 2}
+      - {key: guard, label: Adds raise-on-lazy-load or a query-count test, points: 2}
+      - {key: tradeoff, label: "Explains joinedload vs selectinload and why joinedload on collections multiplies rows", points: 1}
+    follow_ups:
+      - prompt: The same endpoint must now show each order's line items too. What loading strategy do you use?
+        look_for: "selectinload(Order.items): one extra IN query for all 200 orders, no row multiplication; batch the IN list if very large."
+      - prompt: How would you have found this from production telemetry alone?
+        look_for: "Per-request query counts in traces (spans per SQL statement), performance_schema digests showing one tiny query with a huge call count, and latency scaling with page size."
+- key: db.query_optimization.cards
+  type: revision_card
+  title: "Recall: EXPLAIN and slow-query fixes"
+  skills: [db.query_optimization]
+  minutes: 5
+  body:
+    cards:
+      - front: EXPLAIN type values from best to worst (common ones)?
+        back: const, eq_ref, ref, range, index, ALL.
+      - front: What does EXPLAIN rows estimate?
+        back: Rows examined per loop, not rows returned.
+      - front: What does Extra Using filesort mean?
+        back: A separate sort step; an index matching the ORDER BY removes it.
+      - front: Sargable rewrite of DATE(created_at) = d?
+        back: created_at >= d AND created_at < d + INTERVAL 1 DAY.
+      - front: How do you tell how many composite columns an index access uses?
+        back: Read key_len and add the byte sizes of the leading columns.
+      - front: Fix for N+1 queries from an ORM?
+        back: Eager-load with a JOIN or one IN query, or compute aggregates in SQL.

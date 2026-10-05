@@ -1,0 +1,385 @@
+# Learning content: flagship full-stack project, Inventory Management System (Vue, FastAPI, MySQL, Redis, Docker, AWS).
+seed_version: seed-v2
+content:
+- key: proj.inventory.project
+  type: project
+  title: "Flagship project: Inventory Management System"
+  skills:
+    - project.architecture_walkthrough
+    - project.tradeoffs_decisions
+    - project.incident_debugging_story
+    - project.metrics_impact
+    - db.modeling_normalization
+    - db.indexing
+    - sd.data_modeling
+    - engineering.api_engineering
+    - network.rest_semantics
+    - sd.api_design
+    - network.sessions_auth
+    - security.web_basics
+    - network.http
+    - db.transactions_acid
+    - db.locking_deadlocks
+    - sd.idempotency_retries
+    - engineering.caching_practice
+    - sd.caching
+    - sd.rate_limiting
+    - sd.queues_async
+    - os.concurrency_practical
+    - testing.unit_integration
+    - testing.test_design
+    - engineering.tooling
+    - sd.observability
+    - sd.security_design
+  minutes: 180
+  difficulty: HARD
+  body:
+    summary: |-
+      A multi-warehouse inventory system that tracks products, stock levels and orders, built end to end: a Vue 3 single-page app, a FastAPI service on MySQL, Redis for caching, rate limiting and the job broker, Celery workers for imports, alerts and exports to S3, Docker images built and tested in CI, and a deployment to AWS (ECS or EC2, RDS, ElastiCache, S3, IAM). It is the project you should be able to walk through, defend and debug in an interview, because every common backend concern appears in it: transactions and concurrency, authorisation, caching, background work, testing, deployment and observability.
+
+      Each milestone is a session of up to three hours that ends with a deliverable you can show. Record a milestone when its deliverables exist and you can rate its rubric honestly; record the defense when you can answer the defense questions out loud without notes.
+    stack:
+      - "Frontend: Vue 3 (Composition API), Vue Router, Pinia, Vite, Vitest"
+      - "Backend: Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2 with Alembic migrations (Django with Django REST Framework is an acceptable alternative)"
+      - "Data: MySQL 8 (InnoDB) as the source of truth; Redis for cache, rate limits and the Celery broker"
+      - "Background work: Celery workers; S3 for import files and generated reports"
+      - "Delivery: Docker (multi-stage images), docker compose for local work, GitHub Actions for CI/CD"
+      - "AWS: ECS on Fargate or EC2 behind an Application Load Balancer, RDS for MySQL, ElastiCache for Redis, S3, IAM roles, Secrets Manager or SSM Parameter Store, CloudWatch"
+    requirements:
+      functional:
+        - Users sign in with email and password; roles are admin, manager and clerk.
+        - Managers and clerks see and change only the warehouses they are assigned to.
+        - Managers create and edit products (unique SKU, name, price in minor units, reorder threshold).
+        - Clerks receive stock, adjust stock with a reason, and see the movement history of a product.
+        - Orders reserve stock for all lines atomically or fail as a whole; orders can be shipped or cancelled, and cancelling releases the reservation.
+        - A retried order request with the same Idempotency-Key returns the original order instead of creating a second one.
+        - Managers import products and opening stock from a CSV file, processed in the background with a per-row error report.
+        - A low-stock alert is raised when available stock falls below a product's threshold.
+        - Managers request a stock report; it is generated in the background and downloaded from S3 through a short-lived link.
+        - Every stock-changing action is recorded in an append-only movements ledger with the acting user.
+      non_functional:
+        - Stock never goes negative and is never double-reserved under concurrent orders (verified by a concurrency test).
+        - p95 under 200 ms for catalogue reads and under 400 ms for order placement at 50 requests per second on the deployed environment (measured with a load test).
+        - Stateless API containers, so the API tier scales horizontally behind the load balancer.
+        - Login is rate-limited per account and per IP; passwords are stored with a slow salted hash (argon2id or bcrypt).
+        - No secrets in the image, the repository or the frontend bundle.
+        - Structured JSON logs with a request id on every line; health and readiness endpoints for the load balancer.
+        - Schema changes are Alembic migrations that run before the new code receives traffic, and are backward compatible with the previous release.
+    architecture: |-
+      **Request path.** The Vue SPA is built by Vite and served as static files from S3 behind CloudFront (or from an nginx container). It calls the API under `/api/v1` with a short-lived access token in the `Authorization` header. An Application Load Balancer spreads requests across FastAPI containers on ECS. The containers are stateless: everything durable is in MySQL, everything shared and short-lived is in Redis.
+
+      **Source of truth.** MySQL 8 on RDS (Multi-AZ for production) holds users, warehouses, products, stock levels, orders and the stock movements ledger. Every stock change runs in one transaction that updates `stock_levels` with a conditional statement, appends to `stock_movements` and, where other parts of the system must react, inserts an `outbox_events` row.
+
+      **Redis.** Three jobs, kept in separate key prefixes: cache-aside for the product catalogue and stock summaries (TTL with jitter, deleted after commit on writes), fixed-window or token-bucket counters for login rate limiting, and the Celery broker. Redis is never the source of truth, so losing it costs latency, not data.
+
+      **Background work.** Celery workers (a separate ECS service from the same image) run CSV imports, low-stock alerts and report generation. An outbox relay polls unpublished `outbox_events` rows and enqueues tasks, so an event is never lost when the broker is briefly unavailable. Tasks are idempotent because delivery is at least once.
+
+      **Files.** Uploads and reports live in a private S3 bucket. The API returns presigned URLs; the API and workers access S3 through IAM task roles, never access keys.
+
+      **Alternatives to be ready to defend.** A Django monolith with the Django admin would give back-office screens for free; FastAPI was chosen for an explicit API contract and typed request models. SQS would be a more durable broker than Redis; Redis was chosen because it was already running and the outbox covers the durability gap.
+    schema:
+      language: sql
+      code: |-
+        -- MySQL 8.0 (InnoDB). CHECK constraints are enforced from 8.0.16.
+        CREATE TABLE users (
+          id            BIGINT PRIMARY KEY AUTO_INCREMENT,
+          email         VARCHAR(255) NOT NULL UNIQUE,
+          password_hash VARCHAR(255) NOT NULL,
+          role          ENUM('ADMIN','MANAGER','CLERK') NOT NULL,
+          is_active     BOOLEAN NOT NULL DEFAULT TRUE,
+          created_at    DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+        );
+        CREATE TABLE warehouses (
+          id   BIGINT PRIMARY KEY AUTO_INCREMENT,
+          code VARCHAR(16) NOT NULL UNIQUE,
+          name VARCHAR(255) NOT NULL
+        );
+        CREATE TABLE user_warehouses (
+          user_id      BIGINT NOT NULL REFERENCES users(id),
+          warehouse_id BIGINT NOT NULL REFERENCES warehouses(id),
+          PRIMARY KEY (user_id, warehouse_id)
+        );
+        CREATE TABLE products (
+          id                BIGINT PRIMARY KEY AUTO_INCREMENT,
+          sku               VARCHAR(64) NOT NULL UNIQUE,
+          name              VARCHAR(255) NOT NULL,
+          unit_price_minor  INT NOT NULL CHECK (unit_price_minor >= 0),
+          reorder_threshold INT NOT NULL DEFAULT 0,
+          is_active         BOOLEAN NOT NULL DEFAULT TRUE,
+          updated_at        DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+          FULLTEXT KEY ft_products_name (name)
+        );
+        CREATE TABLE stock_levels (
+          product_id   BIGINT NOT NULL REFERENCES products(id),
+          warehouse_id BIGINT NOT NULL REFERENCES warehouses(id),
+          on_hand      INT NOT NULL DEFAULT 0,
+          reserved     INT NOT NULL DEFAULT 0,
+          PRIMARY KEY (product_id, warehouse_id),
+          KEY ix_stock_warehouse (warehouse_id, product_id),
+          CHECK (on_hand >= 0 AND reserved >= 0 AND reserved <= on_hand)
+        );
+        CREATE TABLE stock_movements (
+          id              BIGINT PRIMARY KEY AUTO_INCREMENT,
+          product_id      BIGINT NOT NULL,
+          warehouse_id    BIGINT NOT NULL,
+          kind            ENUM('RECEIVE','ADJUST','RESERVE','RELEASE','SHIP') NOT NULL,
+          delta_on_hand   INT NOT NULL,
+          delta_reserved  INT NOT NULL,
+          reason          VARCHAR(255),
+          order_id        BIGINT NULL,
+          idempotency_key VARCHAR(64) NULL UNIQUE,
+          actor_id        BIGINT NOT NULL REFERENCES users(id),
+          created_at      DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+          KEY ix_movements_history (product_id, warehouse_id, created_at, id)
+        );
+        CREATE TABLE orders (
+          id              BIGINT PRIMARY KEY AUTO_INCREMENT,
+          warehouse_id    BIGINT NOT NULL REFERENCES warehouses(id),
+          status          ENUM('RESERVED','SHIPPED','CANCELLED') NOT NULL,
+          idempotency_key VARCHAR(64) NOT NULL,
+          request_hash    CHAR(64) NOT NULL,
+          created_by      BIGINT NOT NULL REFERENCES users(id),
+          created_at      DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+          UNIQUE KEY uq_orders_idem (created_by, idempotency_key),
+          KEY ix_orders_wh_status (warehouse_id, status, created_at)
+        );
+        CREATE TABLE order_lines (
+          order_id   BIGINT NOT NULL REFERENCES orders(id),
+          product_id BIGINT NOT NULL REFERENCES products(id),
+          qty        INT NOT NULL CHECK (qty > 0),
+          PRIMARY KEY (order_id, product_id)
+        );
+        CREATE TABLE outbox_events (
+          id           BIGINT PRIMARY KEY AUTO_INCREMENT,
+          event_type   VARCHAR(64) NOT NULL,
+          payload      JSON NOT NULL,
+          created_at   DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+          published_at DATETIME(6) NULL,
+          KEY ix_outbox_pending (published_at, id)
+        );
+        CREATE TABLE jobs (
+          id          CHAR(36) PRIMARY KEY,
+          kind        ENUM('CSV_IMPORT','STOCK_REPORT') NOT NULL,
+          status      ENUM('QUEUED','RUNNING','SUCCEEDED','FAILED') NOT NULL,
+          s3_key      VARCHAR(512) NULL,
+          error       TEXT NULL,
+          created_by  BIGINT NOT NULL REFERENCES users(id),
+          created_at  DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+        );
+      explanation: Available stock is on_hand minus reserved. The ledger lets you rebuild and reconcile stock levels; the outbox makes events part of the same transaction as the change that caused them.
+    apis:
+      - "POST /api/v1/auth/login — email and password; returns a 15-minute access token and sets an HttpOnly, Secure, SameSite refresh-token cookie; 401 on bad credentials, 429 when rate-limited"
+      - "POST /api/v1/auth/refresh — rotates the refresh token and returns a new access token; POST /api/v1/auth/logout revokes it"
+      - "GET /api/v1/products?q=&cursor=&limit= — search and keyset pagination; returns items and next_cursor; served through the cache"
+      - "POST /api/v1/products — manager or admin; 201 with a Location header; 409 on a duplicate SKU; 422 on validation errors"
+      - "PATCH /api/v1/products/{id} — partial update; deletes the product's cache entries after commit"
+      - "GET /api/v1/warehouses/{id}/stock?below_threshold=true&cursor= — stock levels with available quantity; 403 if the user is not assigned to the warehouse"
+      - "POST /api/v1/warehouses/{id}/movements — RECEIVE or ADJUST with a reason; requires an Idempotency-Key header"
+      - "GET /api/v1/products/{id}/movements?warehouse_id=&cursor= — ledger history, newest first"
+      - "POST /api/v1/orders — reserves all lines in one transaction; requires Idempotency-Key; 201 on success, 409 with the short lines when stock is insufficient, 422 when the same key is reused with a different body"
+      - "POST /api/v1/orders/{id}/ship and POST /api/v1/orders/{id}/cancel — state transitions; 409 on an invalid transition"
+      - "POST /api/v1/imports — accepts a CSV upload reference (S3 key from a presigned upload); 202 with a job id"
+      - "POST /api/v1/reports/stock — 202 with a job id; GET /api/v1/jobs/{id} returns status and, when done, a presigned download URL"
+      - "GET /healthz (process alive) and GET /readyz (MySQL and Redis reachable) for the load balancer and the orchestrator"
+      - "Errors use one envelope with an error code, a message and a request id; list responses use one envelope with items and next_cursor"
+    milestones:
+      - key: domain_and_schema
+        title: Requirements, domain model and MySQL schema
+        goal: Turn the requirements into entities, invariants and a migrated MySQL schema whose constraints protect the invariants.
+        deliverables:
+          - A one-page requirements note with the invariants written as sentences (stock never negative, reserved never above on hand, one order per idempotency key per user).
+          - An entity diagram (text is fine) for users, warehouses, products, stock levels, movements, orders, order lines and outbox events.
+          - Alembic migrations that create the schema on an empty MySQL 8 database in docker compose.
+          - "A short note justifying each index against a named query (for example, ix_movements_history serves the history endpoint)."
+        skills: [sd.data_modeling, db.modeling_normalization, db.indexing]
+        minutes: 150
+        rubric:
+          - {key: invariants_in_schema, label: "Each written invariant is enforced by a constraint or explained as enforced in code", points: 4}
+          - {key: indexes_justified, label: "Every secondary index names the query it serves and the column order is argued", points: 3}
+          - {key: migrations_clean, label: "Migrations run from empty to head without manual steps", points: 2}
+          - {key: money_integers, label: "Money is stored as integer minor units, not floating point", points: 1}
+      - key: core_api
+        title: Product and stock API with validation and error envelopes
+        goal: Build the FastAPI service for products, warehouses and stock reads with typed validation, consistent errors and keyset pagination.
+        deliverables:
+          - FastAPI app with routers for products, warehouses and stock; Pydantic models for every request and response.
+          - One error envelope with codes for validation (422), not found (404), conflict (409) and unexpected errors (500, no stack trace in the body).
+          - Keyset pagination on product search and stock lists, with an opaque cursor.
+          - An OpenAPI page that matches the endpoints, and API tests for the success and main failure paths of each endpoint.
+        skills: [engineering.api_engineering, network.rest_semantics, sd.api_design]
+        minutes: 180
+        rubric:
+          - {key: status_codes, label: "Status codes match the semantics (201 with Location, 404, 409 on duplicate SKU, 422 on invalid input)", points: 3}
+          - {key: one_envelope, label: "All errors use the same envelope with a code and a request id", points: 2}
+          - {key: keyset, label: "Pagination is keyset-based with a stable sort and a tie-breaker column", points: 3}
+          - {key: api_tests, label: "Each endpoint has tests for success and at least one failure", points: 2}
+      - key: auth_rbac
+        title: Authentication, roles and per-warehouse authorisation
+        goal: Add login with hashed passwords, short-lived access tokens with refresh rotation, and authorisation checks by role and warehouse assignment.
+        deliverables:
+          - Password hashing with argon2id or bcrypt; no plain or fast-hashed passwords anywhere.
+          - Login, refresh (with rotation and reuse detection) and logout endpoints.
+          - A single dependency that resolves the current user and a policy function used by every endpoint that touches a warehouse.
+          - Tests proving a clerk cannot read or change a warehouse they are not assigned to (403), and that an expired token is rejected (401).
+        skills: [network.sessions_auth, security.web_basics, engineering.api_engineering]
+        minutes: 180
+        rubric:
+          - {key: hashing, label: "Passwords use a slow salted hash with a stated work factor", points: 2}
+          - {key: token_lifecycle, label: "Access tokens are short-lived; refresh tokens rotate and can be revoked", points: 3}
+          - {key: authz_central, label: "Authorisation is enforced server-side in one place, not in the UI", points: 3}
+          - {key: authz_tests, label: "Tests cover 401 versus 403 and cross-warehouse access", points: 2}
+      - key: stock_and_orders
+        title: Concurrency-safe stock movements and idempotent orders
+        goal: Implement receive, adjust, reserve, release and ship so that stock stays correct under concurrency and retries never create duplicate orders.
+        deliverables:
+          - Each stock change is one transaction that updates stock_levels with a conditional UPDATE, checks the affected row count and appends a movement row.
+          - Order placement reserves all lines in one transaction, locking rows in a consistent order (by product id) to avoid deadlocks, and rolls back entirely if any line is short.
+          - Idempotency on POST /orders and movements, using the unique key plus a stored request hash (same key with a different body returns 422).
+          - A concurrency test against MySQL that fires at least 50 parallel orders at one SKU with 10 units and asserts exactly 10 units are reserved.
+        skills: [db.transactions_acid, db.locking_deadlocks, sd.idempotency_retries]
+        minutes: 180
+        rubric:
+          - {key: atomic_update, label: "Stock changes use a conditional UPDATE or SELECT FOR UPDATE, never an unlocked read then write", points: 3}
+          - {key: all_or_nothing, label: "A multi-line order is reserved entirely or not at all", points: 2}
+          - {key: lock_order, label: "Rows are locked in a consistent order and the deadlock-retry policy is stated", points: 2}
+          - {key: idempotency, label: "Retries with the same key return the original result; a changed body is rejected", points: 2}
+          - {key: concurrency_test, label: "The parallel test passes repeatedly and fails against the naive implementation", points: 1}
+      - key: vue_frontend
+        title: Vue frontend for the main flows
+        goal: Build the Vue 3 SPA for login, product search, stock views, receiving stock and placing orders, rendering only what the API returns.
+        deliverables:
+          - Login page; the access token is kept in memory and refreshed through the HttpOnly cookie, never stored in localStorage.
+          - Product search with debounced input and cursor-based "load more"; stock view per warehouse with low-stock highlighting from the API's flag.
+          - Receive-stock and place-order forms that send an Idempotency-Key generated once per form submission and show 409 and 422 errors clearly.
+          - Role-aware navigation (hiding is cosmetic; the API still enforces access), and Vitest tests for the order form and the API client's error handling.
+        skills: [network.http, security.web_basics, engineering.api_engineering]
+        minutes: 180
+        rubric:
+          - {key: token_storage, label: "Tokens are not in localStorage; refresh uses an HttpOnly cookie and CORS is configured narrowly", points: 3}
+          - {key: no_v_html, label: "User-supplied text is rendered with interpolation, never v-html", points: 2}
+          - {key: retry_safe, label: "Double-clicking submit or retrying after a timeout cannot create two orders", points: 3}
+          - {key: errors_shown, label: "Validation, conflict and network errors are shown with a useful message", points: 2}
+      - key: redis_caching
+        title: Redis caching and login rate limiting
+        goal: Put the catalogue and stock summaries behind a cache-aside layer with correct invalidation, and rate-limit login attempts in Redis.
+        deliverables:
+          - Cache-aside reads with versioned keys, a TTL with random jitter, and deletion after the database commit on every write that affects the cached value.
+          - A stampede guard on hot keys (a short Redis lock or request coalescing) and a fallback to MySQL when Redis is unavailable.
+          - Login rate limiting per account and per IP with Redis counters and expiry; 429 with a Retry-After header.
+          - A before-and-after load test of product search reporting p50, p95, cache hit ratio and MySQL queries per second.
+        skills: [engineering.caching_practice, sd.caching, sd.rate_limiting]
+        minutes: 150
+        rubric:
+          - {key: invalidation, label: "Writes delete the affected keys after commit; the maximum staleness is stated", points: 3}
+          - {key: degraded_mode, label: "The API keeps working (slower) when Redis is down, and the rate limiter's fail-open or fail-closed choice is justified", points: 2}
+          - {key: stampede, label: "Expiry of a hot key does not send a burst of identical queries to MySQL", points: 2}
+          - {key: measured, label: "The load test shows the effect with percentiles and hit ratio", points: 3}
+      - key: background_jobs
+        title: Background jobs with Celery, the outbox and S3
+        goal: Move slow and failure-prone work off the request path with idempotent Celery tasks fed by a transactional outbox.
+        deliverables:
+          - An outbox relay that publishes unpublished outbox_events rows to Celery and marks them published, safe to run as more than one instance.
+          - "CSV import task: reads the file from S3, upserts products by SKU in batches, records per-row errors and can be re-run without duplicating data."
+          - "Low-stock alert task triggered by stock events, deduplicated so one dip below threshold sends one alert."
+          - Stock report task that writes a CSV to S3 and stores the key on the job; the API returns a presigned URL valid for minutes, not days.
+          - Retry with exponential backoff for transient errors, a maximum attempt count, and failed jobs visible with their error.
+        skills: [sd.queues_async, sd.idempotency_retries, os.concurrency_practical]
+        minutes: 180
+        rubric:
+          - {key: outbox, label: "Events are written in the same transaction as the change and survive a broker outage", points: 3}
+          - {key: idempotent_tasks, label: "Running any task twice gives the same result as running it once", points: 3}
+          - {key: retries_bounded, label: "Retries use backoff with a cap and failures end in a visible failed state", points: 2}
+          - {key: s3_private, label: "The bucket is private and downloads use short-lived presigned URLs", points: 2}
+      - key: test_suite
+        title: Test strategy and the integration suite
+        goal: Build a test pyramid that catches the bugs this system is most likely to have, running against real MySQL and Redis.
+        deliverables:
+          - A test plan listing the riskiest behaviours (concurrent reservation, idempotent retries, authorisation, cache invalidation, import re-runs) and the test that covers each.
+          - Unit tests for pure logic (state transitions, CSV row validation, cursor encoding) with no database.
+          - Integration tests with pytest against MySQL and Redis in containers, each test isolated by a transaction rollback or a fresh schema.
+          - Tests for failure paths, using fakes for S3 and the clock rather than mocking SQLAlchemy internals.
+        skills: [testing.unit_integration, testing.test_design]
+        minutes: 180
+        rubric:
+          - {key: risk_based, label: "The test plan maps each named risk to a specific test", points: 3}
+          - {key: real_dependencies, label: "Integration tests use real MySQL and Redis, not SQLite or mocks of the ORM", points: 3}
+          - {key: isolation, label: "Tests are independent and can run in any order", points: 2}
+          - {key: failure_paths, label: "Failure and edge cases are tested, not only the happy path", points: 2}
+      - key: docker_ci
+        title: Docker images and the CI/CD pipeline
+        goal: Package the API, workers and frontend as reproducible images and build a pipeline that blocks broken changes.
+        deliverables:
+          - A multi-stage Dockerfile for the backend (dependencies cached, non-root user, no secrets, small final image) reused by the API and the workers.
+          - A docker compose file that starts MySQL, Redis, the API, a worker and the frontend for local development and tests.
+          - A GitHub Actions workflow that runs lint, type checks, unit and integration tests and the frontend tests on every pull request.
+          - On merge to main, the workflow builds images tagged with the commit SHA and pushes them to a registry (ECR).
+        skills: [engineering.tooling, testing.unit_integration]
+        minutes: 150
+        rubric:
+          - {key: image_quality, label: "Images are multi-stage, run as non-root and contain no secrets or dev dependencies", points: 3}
+          - {key: ci_gates, label: "Lint, types and tests must pass before merge", points: 3}
+          - {key: immutable_tags, label: "Images are tagged by commit SHA, not only latest", points: 2}
+          - {key: local_parity, label: "One command starts the full stack locally", points: 2}
+      - key: aws_deploy_observe
+        title: AWS deployment, secrets and observability
+        goal: Deploy the stack to AWS with least-privilege access, safe migrations and enough telemetry to debug a production problem.
+        deliverables:
+          - API and worker services on ECS (Fargate or EC2) behind an Application Load Balancer with health checks on /readyz; RDS MySQL and ElastiCache Redis in private subnets.
+          - IAM task roles scoped to the one S3 bucket and the needed secrets; database credentials from Secrets Manager or SSM, never in environment files in the repository.
+          - A deploy step that runs backward-compatible migrations before the rolling update, and a documented rollback.
+          - Structured JSON logs with request id, user id and route; CloudWatch metrics and alarms for 5xx rate, p95 latency, queue length and RDS CPU and connections.
+        skills: [sd.observability, engineering.tooling, sd.security_design]
+        minutes: 180
+        rubric:
+          - {key: least_privilege, label: "IAM roles grant only the actions and resources the service uses", points: 3}
+          - {key: safe_migrations, label: "Migrations are expand-then-contract and run before new code serves traffic", points: 2}
+          - {key: telemetry, label: "Logs, metrics and alarms let you answer what failed, where and since when", points: 3}
+          - {key: private_data, label: "Database and cache are not reachable from the internet", points: 2}
+    testing:
+      - "Concurrency: 50+ parallel reservations against one SKU in MySQL; assert reserved never exceeds on hand and the ledger sums to the stored level."
+      - "Idempotency: replay POST /orders with the same key (same response, one order) and with a different body (422)."
+      - "Authorisation matrix: each role against each endpoint, including another warehouse's resources (403) and expired tokens (401)."
+      - "Cache: a write followed by a read never returns the old value after the write's response; Redis stopped mid-test degrades to MySQL."
+      - "Background jobs: run each task twice with the same input and compare state; an import with bad rows reports them and imports the rest."
+      - "Migrations: alembic upgrade head on an empty database in CI, and the previous release's tests pass against the new schema."
+      - "Load: a k6 or Locust script for search and order placement reporting p50, p95 and p99 and the error rate at 50 requests per second."
+      - "Frontend: Vitest for the order form, token refresh and error display."
+    deployment:
+      - "Images built once per commit in CI, tagged with the SHA, pushed to ECR and promoted unchanged from staging to production."
+      - "ECS services for the API and the workers from the same image with different commands; rolling updates with the minimum healthy percentage set so capacity never drops to zero."
+      - "Migrations run as a one-off ECS task before the service update; each migration is backward compatible with the running release."
+      - "RDS MySQL with Multi-AZ and automated backups in production; ElastiCache Redis; both in private subnets reachable only from the service security groups."
+      - "Frontend built by Vite and uploaded to S3 behind CloudFront; the API base URL is configuration, not a secret."
+      - "Secrets in Secrets Manager or SSM Parameter Store, injected at task start; IAM task roles for S3 access."
+      - "Rollback by redeploying the previous image tag; a migration that cannot be rolled back is split into expand and contract steps."
+    observability:
+      - "Structured JSON logs with request_id (propagated to Celery tasks), user_id, route, status and duration_ms."
+      - "RED metrics per endpoint: request rate, error rate, p50, p95 and p99 latency."
+      - "Business invariants as metrics: count of negative or over-reserved stock rows from a nightly reconciliation (expected 0), duplicate idempotency conflicts, low-stock alerts sent."
+      - "Queue health: outbox rows older than one minute, Celery queue length, task failures and retries per task."
+      - "Database: RDS CPU, connections versus max_connections, slow-query log, lock wait timeouts and deadlocks."
+      - "Cache: hit ratio, Redis memory and evictions."
+      - "Alarms with thresholds and an owner: 5xx rate, p95 above target for 5 minutes, outbox lag, reconciliation finding any bad row."
+    failure_scenarios:
+      - "Two clerks reserve the last unit at the same moment: show that the conditional UPDATE lets exactly one succeed and the other gets 409."
+      - "The client times out on POST /orders and retries: the idempotency key returns the original order; explain what happens if both requests arrive concurrently (the unique key makes one insert fail, and that request returns the stored result)."
+      - "Redis goes down: reads fall back to MySQL with higher latency, login rate limiting fails open or closed by decision, and the outbox holds events until the broker is back."
+      - "A product update commits but the cache delete fails: readers see the old value until the TTL expires; explain the bound and why the delete happens after commit."
+      - "RDS Multi-AZ failover: connections drop for typically one to two minutes; the pool must discard dead connections (pre-ping) and idempotent writes can be retried safely."
+      - "A Celery worker dies halfway through a CSV import: the task is redelivered and the batched upsert by SKU makes the re-run safe."
+      - "A deploy adds a NOT NULL column with no default to a large table: the migration blocks or the old code fails on insert; show the expand-and-contract alternative."
+      - "The stock_movements history endpoint slows down as the table grows: use EXPLAIN to show whether the composite index is used and fix the query or the index."
+      - "A refresh token is stolen: rotation with reuse detection revokes the token family when the old token is replayed."
+    defense_questions:
+      - Walk me through the architecture in five minutes, then trace one order from the click to the database commit.
+      - How do you guarantee stock never goes negative under concurrent orders? Prove it, and say why REPEATABLE READ alone does not.
+      - Why MySQL and not a document database? What would make you change that?
+      - What happens if a client retries POST /orders after a timeout, and what if two retries arrive at the same moment?
+      - Why cache-aside? How stale can a stock number on the dashboard be, and why is that acceptable?
+      - Why use an outbox instead of enqueueing the Celery task directly in the request? What happens if a task runs twice?
+      - Where exactly is per-warehouse authorisation enforced, and how do you know no endpoint skips it?
+      - Why short-lived access tokens with refresh rotation instead of server-side sessions? What does it cost?
+      - What breaks first at 10x traffic, and what would you do, in order of cost?
+      - How do you deploy without downtime when a release includes a schema change?
+      - Which number shows the system works? How did you measure it?
+      - Tell me about the hardest bug you hit while building it and how you found the root cause.

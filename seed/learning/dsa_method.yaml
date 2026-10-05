@@ -1,0 +1,482 @@
+# Learning content: problem-solving method, complexity analysis and binary search. Exemplar file for authors.
+# Schema and quality bar: docs/domain/CONTENT_AUTHORING_GUIDE.md. Text uses the safe subset: paragraphs, "- " lists,
+# `inline code`, **bold** and fenced code blocks. Never paste a platform's problem statement: paraphrase.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- complexity analysis
+- key: dsa.complexity.lesson
+  type: lesson
+  title: Time and space complexity, from loops to recursion
+  skills: [dsa.complexity_analysis]
+  minutes: 20
+  difficulty: EASY
+  body:
+    summary: Big-O describes how cost grows with input size, so you can compare approaches before writing them.
+    what: |-
+      Complexity analysis estimates how the running time (time complexity) and the extra memory (space complexity) of an algorithm grow as the input size `n` grows. It ignores constant factors and lower-order terms and keeps the dominant growth rate.
+
+      - **Big-O** `O(f(n))` is an upper bound: the cost grows no faster than `f(n)` (up to a constant).
+      - **Big-Omega** `Ω(f(n))` is a lower bound: no algorithm of this kind can do better.
+      - **Big-Theta** `Θ(f(n))` is a tight bound: both at once. In interviews "O" is usually used to mean the tight bound of your algorithm.
+    why: |-
+      Inputs in real systems and in interview constraints are large. An `O(n²)` algorithm on `n = 10⁵` does about 10¹⁰ steps, which is far too slow, while `O(n log n)` does about 1.7 × 10⁶. Complexity lets you reject an approach in ten seconds instead of after twenty minutes of coding.
+    when: |-
+      Every time you propose an approach. State the brute force and its complexity, then say what bottleneck the better approach removes. Also use the constraints as a hint: `n ≤ 20` suggests exponential search is acceptable, `n ≤ 10⁵` needs `O(n log n)` or better, `n ≤ 10⁹` needs `O(log n)` or a formula.
+    how: |-
+      Count how many times the most expensive operation runs as a function of `n`:
+
+      - A single loop over `n` items: `O(n)`.
+      - A loop inside a loop, both over `n`: `O(n²)`. If the inner loop runs `i` times for the `i`-th outer step, the total is `1 + 2 + … + n = n(n+1)/2`, still `O(n²)`.
+      - Halving the problem each step (binary search, balanced tree height): `O(log n)`.
+      - Sequential blocks add (`O(n) + O(n log n) = O(n log n)`); nested blocks multiply.
+      - Recursion: multiply the number of calls by the work per call. Draw the recursion tree: `T(n) = 2T(n/2) + O(n)` has `log n` levels doing `O(n)` each, so `O(n log n)`.
+      - Space counts **auxiliary** memory: extra arrays, hash maps, and the recursion stack (depth × frame size). The input itself is usually not counted.
+    mental_model: |-
+      Imagine doubling the input. If the cost doubles, it is linear; if it quadruples, quadratic; if it adds one step, logarithmic; if it squares, exponential. Asking "what happens when n doubles?" is the fastest sanity check you have.
+    tradeoffs: |-
+      Faster usually costs memory: a hash map turns an `O(n²)` pair search into `O(n)` time but `O(n)` space. Sorting first costs `O(n log n)` but can enable a linear two-pointer pass with `O(1)` extra space. Big-O also hides constants: for small `n` a simple `O(n²)` loop can beat a complex `O(n log n)` one, and cache-friendly arrays beat pointer-heavy structures.
+    mistakes:
+      - Calling `x in some_list` constant time. It is `O(n)`; only sets and dict keys give average `O(1)` membership.
+      - Forgetting the hidden loop in string slicing, `list.pop(0)`, `str` concatenation in a loop or `sorted()`.
+      - Counting two nested loops as `O(n²)` when the inner pointer never moves backwards (sliding window is `O(n)` total).
+      - Ignoring recursion depth in space complexity.
+      - "Using different variables loosely: a grid is `O(rows × cols)`, a graph is `O(V + E)`; say which."
+    interview: |-
+      You are expected to state time and space for every approach you propose, without being asked, and to justify the dominant term. A common follow-up is "can you do better?" — answer by naming the bottleneck (the repeated search, the sort, the extra pass) and the structure that removes it.
+    explain_it:
+      - State what n (and any other variable) means.
+      - Name the dominant operation and how many times it runs.
+      - Give time and auxiliary space separately, including the recursion stack.
+      - Say what limits further improvement (for example, every element must be read once, so Ω(n)).
+    example:
+      language: python
+      code: |-
+        def has_pair_with_sum(nums: list[int], target: int) -> bool:
+            seen: set[int] = set()          # O(n) extra space in the worst case
+            for x in nums:                  # one pass: n iterations
+                if target - x in seen:      # set membership: O(1) on average
+                    return True
+                seen.add(x)                 # O(1) on average
+            return False                    # time O(n), space O(n)
+      explanation: The brute force checks every pair in O(n²) time and O(1) space; the set trades O(n) memory for a single pass.
+    complexity: Common classes from fastest to slowest — O(1), O(log n), O(n), O(n log n), O(n²), O(2ⁿ), O(n!).
+    internals: |-
+      Amortised analysis averages the cost over a sequence of operations. A Python list `append` occasionally copies the whole array when it grows, but because capacity grows geometrically the total cost of `n` appends is `O(n)`, so each append is amortised `O(1)`.
+    edge_cases:
+      - Two independent inputs (strings of length m and n) give O(m + n) or O(m × n), never just O(n).
+      - Hash operations are O(1) on average but O(n) in the worst case.
+- key: dsa.complexity.worked_loops
+  type: worked_example
+  title: "Worked example: analysing four loops step by step"
+  skills: [dsa.complexity_analysis]
+  minutes: 10
+  difficulty: EASY
+  body:
+    problem: Determine the time complexity of four short functions, the way you would say it aloud in an interview.
+    steps:
+      - title: A loop that doubles
+        text: "`i` takes the values 1, 2, 4, 8, … until it reaches `n`. The number of iterations is the number of doublings, `log₂ n`, so the loop is O(log n)."
+        code:
+          language: python
+          code: |-
+            i = 1
+            while i < n:
+                i *= 2
+      - title: A triangle of nested loops
+        text: "The inner loop runs 0, 1, 2, …, n-1 times. The sum is n(n-1)/2, which grows like n², so O(n²). Halving the work does not change the class."
+        code:
+          language: python
+          code: |-
+            for i in range(n):
+                for j in range(i):
+                    work(i, j)
+      - title: Two pointers that never move back
+        text: "It looks nested, but `right` moves at most n times in total and `left` at most n times in total. Count pointer moves, not loop shapes: O(n)."
+        code:
+          language: python
+          code: |-
+            left = 0
+            for right in range(n):
+                while window_invalid(left, right):
+                    left += 1
+      - title: Recursion that splits in two
+        text: "`T(n) = 2T(n/2) + O(n)`. The recursion tree has log n levels and each level does O(n) work in total, so O(n log n) time; the stack is log n deep and the merge buffer is O(n), so O(n) space."
+        code:
+          language: python
+          code: |-
+            def merge_sort(a):
+                if len(a) <= 1:
+                    return a
+                mid = len(a) // 2
+                return merge(merge_sort(a[:mid]), merge_sort(a[mid:]))
+    takeaways:
+      - Count how many times the core operation runs, not how many loops you see.
+      - Halving or doubling means a logarithm.
+      - For recursion, multiply nodes in the recursion tree by work per node, level by level.
+    complexity: O(log n), O(n²), O(n) and O(n log n) respectively.
+- key: dsa.complexity.check
+  type: concept_check
+  title: "Concept check: complexity analysis"
+  skills: [dsa.complexity_analysis]
+  minutes: 8
+  difficulty: EASY
+  body:
+    intro: Answer closed-book. Predict before you look at the explanation.
+    questions:
+      - id: q1
+        kind: single
+        prompt: What is the time complexity of this function?
+        code:
+          language: python
+          code: |-
+            def f(n):
+                total = 0
+                i = n
+                while i > 0:
+                    total += i
+                    i //= 3
+                return total
+        options: ["O(n)", "O(log n)", "O(n log n)", "O(√n)"]
+        answer: [1]
+        explanation: "`i` is divided by 3 each step, so the loop runs about log₃ n times. The base of the logarithm is a constant factor, so it is O(log n)."
+      - id: q2
+        kind: single
+        prompt: "`for x in a:` followed by `if x in b:` where `a` and `b` are Python lists of length n. Time complexity?"
+        options: ["O(n)", "O(n log n)", "O(n²)", "O(1) per check, so O(n)"]
+        answer: [2]
+        explanation: "Membership in a list scans it: O(n) per check, n checks, O(n²). Converting `b` to a set first makes it O(n) on average."
+      - id: q3
+        kind: multi
+        prompt: Which of these are amortised O(1) on a Python list?
+        options: ["append(x)", "pop()", "pop(0)", "insert(0, x)"]
+        answer: [0, 1]
+        explanation: "append and pop from the end are amortised O(1). pop(0) and insert(0, x) shift every element: O(n). Use collections.deque for O(1) at both ends."
+      - id: q4
+        kind: single
+        prompt: A recursive function makes two calls on n-1 and does O(1) other work. Its time complexity is…
+        options: ["O(n)", "O(n²)", "O(2ⁿ)", "O(n log n)"]
+        answer: [2]
+        explanation: "The recursion tree doubles at each of n levels: 1 + 2 + 4 + … + 2ⁿ⁻¹ ≈ 2ⁿ calls. This is naive Fibonacci; memoisation brings it down to O(n)."
+      - id: q5
+        kind: single
+        prompt: "What is the space complexity of a recursive DFS on a balanced binary tree with n nodes, ignoring the input?"
+        options: ["O(1)", "O(log n)", "O(n)", "O(n log n)"]
+        answer: [1]
+        explanation: "The call stack holds one frame per level, and a balanced tree has about log n levels. On a degenerate (linked-list shaped) tree it becomes O(n)."
+      - id: q6
+        kind: short
+        prompt: The constraints say n ≤ 10⁵. Your idea is O(n²). What do you say to the interviewer, and what do you look for next?
+        model_answer: "10⁵ squared is 10¹⁰ operations, far beyond the roughly 10⁸ simple operations per second budget, so O(n²) will time out. I need O(n log n) or O(n): find the repeated work in the inner loop and remove it with sorting plus two pointers or binary search, a hash map, a prefix sum or a monotonic structure."
+        explanation: Turning constraints into a target complexity is the expected first move before choosing a pattern.
+- key: dsa.complexity.compare
+  type: interview_question
+  title: "Interview question: compare two implementations"
+  skills: [dsa.complexity_analysis, python.builtin_complexity]
+  minutes: 10
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 600}
+  body:
+    prompt: |-
+      Two functions remove duplicates from a list while keeping the first occurrence. Compare their time and space complexity, say which you would ship, and explain why.
+
+      ```python
+      def dedupe_a(items):
+          out = []
+          for x in items:
+              if x not in out:
+                  out.append(x)
+          return out
+
+      def dedupe_b(items):
+          seen, out = set(), []
+          for x in items:
+              if x not in seen:
+                  seen.add(x)
+                  out.append(x)
+          return out
+      ```
+    key_points:
+      - "dedupe_a is O(n²) time in the worst case because `x not in out` scans a list; O(n) extra space for the output."
+      - "dedupe_b is O(n) average time because set membership and add are average O(1); O(n) extra space for the set and the output."
+      - Both keep first-occurrence order; dedupe_b needs hashable items, dedupe_a works with unhashable ones.
+      - "Ships dedupe_b for large inputs and mentions `list(dict.fromkeys(items))` as an idiomatic O(n) alternative."
+    model_answer: dedupe_a re-scans the output for every element, giving O(n²) when most items are distinct. dedupe_b uses a set for O(1) average membership, so the whole pass is O(n) time and O(n) space. Both preserve order. dedupe_b requires hashable elements; for unhashable ones (lists) you would need another key. In production I would ship dedupe_b or dict.fromkeys.
+    pitfalls:
+      - Saying "both are O(n)" because there is only one visible loop.
+      - Forgetting the hashability requirement.
+    follow_ups:
+      - prompt: What if the items are lists, which are not hashable?
+        look_for: Convert each item to a hashable key (tuple) when possible, otherwise accept O(n²) or sort with a key and dedupe neighbours in O(n log n).
+      - prompt: What is the worst case for the set version, and when can it happen?
+        look_for: Hash collisions can make operations O(n), giving O(n²) overall; rare with good hashing, relevant with adversarial inputs.
+- key: dsa.complexity.exercise
+  type: coding_exercise
+  title: "Exercise: make a quadratic function linear"
+  skills: [dsa.complexity_analysis, hashing.lookup_frequency]
+  minutes: 15
+  difficulty: EASY
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 900}
+  body:
+    prompt: |-
+      `count_pairs(nums, k)` returns how many index pairs `i < j` have `nums[i] + nums[j] == k`. The version below is correct but O(n²). Rewrite it in O(n) average time, then state the time and space of both versions.
+
+      ```python
+      def count_pairs(nums, k):
+          count = 0
+          for i in range(len(nums)):
+              for j in range(i + 1, len(nums)):
+                  if nums[i] + nums[j] == k:
+                      count += 1
+          return count
+      ```
+    examples:
+      - "count_pairs([1, 5, 7, -1, 5], 6) == 3  (1+5, 7+-1, 1+5)"
+      - "count_pairs([1, 1, 1], 2) == 3"
+    constraints:
+      - Up to 10⁵ numbers; values may repeat and may be negative.
+    hints:
+      - For each number, how many earlier numbers would complete the pair?
+      - Keep a count of how many times each value has been seen so far.
+      - Look up `k - x` before adding `x`, so a number never pairs with itself.
+    solution:
+      language: python
+      code: |-
+        from collections import Counter
+
+        def count_pairs(nums, k):
+            seen = Counter()
+            count = 0
+            for x in nums:
+                count += seen[k - x]   # pairs with every earlier complement
+                seen[x] += 1
+            return count
+      explanation: One pass, O(n) average time and O(n) space for the counter, versus O(n²) time and O(1) space for the original.
+    rubric:
+      - {key: correct, label: Returns the right count including duplicates and negatives, points: 4}
+      - {key: linear, label: Single pass with a hash map (no nested loop), points: 3}
+      - {key: no_self_pair, label: Looks up before inserting so an element never pairs with itself, points: 1}
+      - {key: complexity_stated, label: States time and space of both versions correctly, points: 2}
+    follow_ups:
+      - prompt: Return the pairs themselves instead of the count. Does the complexity change?
+        look_for: Output size can be O(n²) in the worst case (all equal values), so time is O(n + output).
+- key: dsa.complexity.cards
+  type: revision_card
+  title: "Recall: complexity classes and hidden costs"
+  skills: [dsa.complexity_analysis]
+  minutes: 5
+  body:
+    cards:
+      - front: Cost of `x in list` vs `x in set`?
+        back: list O(n) scan; set and dict keys O(1) average, O(n) worst case.
+      - front: Recursion T(n) = 2T(n/2) + O(n)?
+        back: O(n log n) — log n levels, O(n) work per level (merge sort).
+      - front: Space of recursive DFS on a tree of height h?
+        back: O(h) for the call stack — log n if balanced, n if degenerate.
+      - front: n ≤ 10⁵ — which complexities are acceptable?
+        back: O(n log n) or better; O(n²) ≈ 10¹⁰ operations will time out.
+      - front: Why is list.append amortised O(1)?
+        back: Capacity grows geometrically, so the occasional O(n) copy is spread over many cheap appends.
+
+# ---------------------------------------------------------------------------------------------- binary search
+- key: dsa.binary_search.lesson
+  type: lesson
+  title: Binary search with an invariant you can defend
+  skills: [binary_search.basic, binary_search.boundaries]
+  minutes: 20
+  difficulty: EASY
+  body:
+    summary: Keep a range that must contain the answer and halve it each step; the invariant decides every boundary.
+    what: |-
+      Binary search finds a target (or a boundary) in a sorted or **monotonic** search space by repeatedly comparing with the middle element and discarding the half that cannot contain the answer. Each step halves the range, so it takes O(log n) steps.
+    why: |-
+      A linear scan reads every element. When the data is ordered, one comparison tells you which half to ignore, so a billion sorted elements need only about 30 comparisons. The same idea works on any yes/no question that flips exactly once ("is this capacity enough?"), which is why binary search shows up far beyond sorted arrays.
+    when: |-
+      - The input is sorted, or rotated-sorted, or sorted after a transformation.
+      - You need the first or last position where a condition becomes true (lower/upper bound).
+      - The answer is a number in a range and "is x feasible?" is monotonic: binary search on the answer.
+      - The constraints hint at O(log n) or O(n log n).
+    how: |-
+      Pick one interval convention and keep it. With a **closed** interval `[lo, hi]`:
+
+      ```python
+      def search(nums, target):
+          lo, hi = 0, len(nums) - 1          # invariant: target, if present, is in nums[lo..hi]
+          while lo <= hi:                    # range is non-empty
+              mid = lo + (hi - lo) // 2
+              if nums[mid] == target:
+                  return mid
+              if nums[mid] < target:
+                  lo = mid + 1               # mid and everything left of it are too small
+              else:
+                  hi = mid - 1               # mid and everything right of it are too big
+          return -1
+      ```
+
+      For a boundary (first index where `nums[i] >= target`), use a half-open interval `[lo, hi)` and never return early:
+
+      ```python
+      def lower_bound(nums, target):
+          lo, hi = 0, len(nums)              # answer is in [lo, hi]; hi = len means "not found"
+          while lo < hi:
+              mid = (lo + hi) // 2
+              if nums[mid] < target:
+                  lo = mid + 1
+              else:
+                  hi = mid                   # mid may be the answer: keep it
+          return lo
+      ```
+    mental_model: |-
+      Think of the array as a row of answers to a yes/no question: `no, no, no, yes, yes`. Binary search finds the first "yes". Every update must keep that first "yes" inside the range, and the loop must shrink the range every time.
+    tradeoffs: |-
+      Binary search needs random access and order. Sorting first costs O(n log n), which only pays off if you search many times. On linked lists it is useless (no O(1) middle). For a handful of elements a linear scan is simpler and just as fast.
+    mistakes:
+      - Mixing interval conventions, e.g. `hi = len(nums)` with `while lo <= hi`, which reads past the end.
+      - "`hi = mid` inside `while lo <= hi`: the range may stop shrinking and loop forever."
+      - Returning as soon as `nums[mid] == target` when the question asks for the first or last occurrence.
+      - Not handling the empty array or the "not found" result.
+      - Overflow-prone `(lo + hi) / 2` in fixed-width languages; Python ints do not overflow, but say `lo + (hi - lo) // 2`.
+    interview: |-
+      Interviewers watch for a stated invariant. Say: "I keep the answer inside [lo, hi]; if nums[mid] is too small the answer is right of mid." Then test the boundaries aloud on a two-element array. Typical follow-ups: first/last occurrence, rotated array, search on the answer (minimum capacity, Koko's eating speed), and the complexity proof.
+    explain_it:
+      - The invariant and the interval convention.
+      - Why each branch keeps the answer in the range.
+      - Why the loop terminates (the range shrinks every iteration).
+      - Time O(log n), space O(1) iterative.
+    complexity: O(log n) time, O(1) extra space (iterative); O(log n) stack if written recursively.
+    edge_cases:
+      - Empty input.
+      - Target smaller than every element or larger than every element.
+      - Many duplicates of the target.
+      - Two-element ranges, where off-by-one errors appear.
+- key: dsa.binary_search.visual
+  type: visual_explanation
+  title: "Visual: watching the range shrink"
+  skills: [binary_search.basic]
+  minutes: 5
+  body:
+    summary: Searching for 23 in a sorted array of 9 numbers takes three comparisons.
+    frames:
+      - caption: Start with the whole array. mid = (0 + 8) // 2 = 4.
+        diagram: |-
+          index:  0  1  2  3  4  5  6  7  8
+          value:  2  5  8 12 16 23 38 56 72
+                  lo          mid         hi
+          16 < 23  →  answer is right of mid  →  lo = 5
+      - caption: The left half is gone. mid = (5 + 8) // 2 = 6.
+        diagram: |-
+          index:                 5  6  7  8
+          value:                23 38 56 72
+                                lo mid    hi
+          38 > 23  →  answer is left of mid  →  hi = 5
+      - caption: One element left. mid = 5 and it matches.
+        diagram: |-
+          index:                 5
+          value:                23
+                              lo=mid=hi
+          23 == 23  →  return 5   (3 comparisons for 9 elements; ⌈log₂ 10⌉ = 4 at most)
+- key: dsa.binary_search.check
+  type: concept_check
+  title: "Concept check: binary search invariants"
+  skills: [binary_search.basic, binary_search.boundaries]
+  minutes: 8
+  difficulty: MEDIUM
+  body:
+    intro: Each question is about a boundary. Trace it on a tiny array if unsure.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "With `lo, hi = 0, len(a) - 1` and `while lo <= hi`, which update is wrong when `a[mid] > target`?"
+        options: ["hi = mid - 1", "hi = mid", "Both are fine", "Neither is fine"]
+        answer: [1]
+        explanation: "With a closed interval and lo <= hi, hi = mid can leave lo == hi == mid forever. Since a[mid] is already too big, exclude it: hi = mid - 1."
+      - id: q2
+        kind: single
+        prompt: "lower_bound([1, 3, 3, 3, 7], 3) with the half-open template returns…"
+        options: ["0", "1", "3", "4"]
+        answer: [1]
+        explanation: "It returns the first index whose value is >= 3, which is index 1."
+      - id: q3
+        kind: single
+        prompt: How many iterations can a binary search over 1,000,000 sorted elements take at most?
+        options: ["About 10", "About 20", "About 1,000", "About 500,000"]
+        answer: [1]
+        explanation: "2²⁰ ≈ 1,048,576, so about 20 halvings reduce a million elements to one."
+      - id: q4
+        kind: multi
+        prompt: Which problems can be solved by binary search on the answer?
+        options:
+          - Minimum ship capacity to deliver packages within D days
+          - Longest substring without repeating characters
+          - Smallest eating speed to finish all piles within H hours
+          - Number of connected components in a graph
+        answer: [0, 2]
+        explanation: "Capacity and speed have a monotonic feasibility check (if speed s works, every faster speed works). The other two have no such monotonic yes/no question."
+      - id: q5
+        kind: short
+        prompt: "In a rotated sorted array (no duplicates), how do you decide which half to search after computing mid?"
+        model_answer: "One half is always sorted. If a[lo] <= a[mid], the left half is sorted: search left if a[lo] <= target < a[mid], else right. Otherwise the right half is sorted: search right if a[mid] < target <= a[hi], else left."
+        explanation: Identifying the sorted half restores a normal binary-search decision.
+- key: dsa.binary_search.guided
+  type: guided_problem
+  title: "Guided practice: classic binary search"
+  skills: [binary_search.basic]
+  minutes: 15
+  difficulty: EASY
+  problems: [15]
+  body:
+    guidance:
+      - Write the invariant as a comment before the loop.
+      - Choose the closed interval [lo, hi] and the condition lo <= hi.
+      - Trace your loop on an array of length 1 and 2 before submitting.
+    hints:
+      - Compare nums[mid] with the target; exclude mid in both branches.
+      - Return -1 after the loop ends.
+- key: dsa.binary_search.timed
+  type: timed_problem
+  title: "Timed practice: first and last position"
+  skills: [binary_search.boundaries]
+  minutes: 25
+  difficulty: MEDIUM
+  problems: [17, 16]
+  body:
+    guidance:
+      - Run two lower-bound searches (for target and target + 1) instead of one search plus a linear scan.
+      - State the complexity before coding, then code without hints under the timer.
+- key: dsa.binary_search.interview
+  type: interview_question
+  title: "Interview question: binary search on the answer"
+  skills: [binary_search.answer_space, binary_search.basic]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: "You must split an array of positive job durations into at most k consecutive groups and minimise the largest group sum. Explain an approach without writing full code: why does binary search apply, what are the bounds, and what is the complexity?"
+    key_points:
+      - "Feasibility is monotonic: if a maximum sum S works, every larger S also works."
+      - "Search range: low = max(job), high = sum(jobs)."
+      - "Check(S) is a greedy pass that starts a new group when adding the next job would exceed S; feasible if groups <= k."
+      - "Complexity O(n log(sum)) time and O(1) extra space; finds the first feasible S (lower bound)."
+    model_answer: Binary search over the answer S between max(jobs) and sum(jobs). For a candidate S, greedily pack consecutive jobs and count groups; if the count is at most k, S is feasible and so is anything larger, so move left, otherwise move right. Each check is O(n) and there are log(sum) checks.
+    pitfalls:
+      - Starting the low bound at 0 or 1 instead of max(jobs), which makes the check wrong for single large jobs.
+      - Returning the first feasible mid seen instead of continuing to search for the smallest.
+    follow_ups:
+      - prompt: Why is the greedy check correct?
+        look_for: Packing as many jobs as possible into each group never increases the number of groups needed; exchange argument.
+      - prompt: What changes if job durations can be zero or negative?
+        look_for: With negatives the feasibility is no longer monotonic and the greedy check breaks; zeros are fine.
+- key: dsa.binary_search.cards
+  type: revision_card
+  title: "Recall: binary search templates"
+  skills: [binary_search.basic, binary_search.boundaries, binary_search.answer_space]
+  minutes: 5
+  body:
+    cards:
+      - front: Closed-interval loop condition and updates?
+        back: "while lo <= hi; lo = mid + 1 or hi = mid - 1 (mid already checked)."
+      - front: Half-open lower-bound loop condition and updates?
+        back: "while lo < hi; lo = mid + 1 when a[mid] < target, else hi = mid (mid may be the answer)."
+      - front: Signal that binary search on the answer applies?
+        back: A numeric answer with a monotonic feasibility check ("if x works, x + 1 works").
+      - front: First and last occurrence in O(log n)?
+        back: lower_bound(target) and lower_bound(target + 1) - 1 (check that the range is non-empty).

@@ -1,0 +1,629 @@
+# Learning content: operating systems — race conditions, mutexes, semaphores, condition variables, RW locks, atomics/CAS, deadlocks, livelock and starvation.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- synchronization
+- key: os.synchronization.lesson
+  type: lesson
+  title: Race conditions and the primitives that prevent them
+  skills: [os.synchronization]
+  minutes: 30
+  difficulty: MEDIUM
+  body:
+    summary: A race happens when the result depends on how threads interleave; mutexes, semaphores, condition variables, read-write locks and atomics each fix a different shape of that problem.
+    what: |-
+      A **race condition** is a bug where the outcome depends on the timing of concurrent operations on shared state. A **data race** is the narrow case of two threads accessing the same memory without synchronisation, at least one writing. A **critical section** is code that touches shared state and must not be executed by more than one thread at a time (or must appear atomic to the others).
+
+      The main primitives:
+
+      - **Mutex (lock)**: at most one holder; the thread that locked it must unlock it. Protects a critical section.
+      - **Semaphore**: a counter with `acquire` (decrement, block at zero) and `release` (increment, wake a waiter). No owner: any thread may release. A counting semaphore limits concurrency to N; a binary semaphore is often used for signalling.
+      - **Condition variable**: lets a thread sleep until a condition on shared state becomes true. Always used with a mutex: `wait()` atomically releases the mutex and sleeps, and reacquires it before returning.
+      - **Read-write lock**: many concurrent readers or one writer.
+      - **Atomic operations**: single instructions that read-modify-write without interruption, such as fetch-and-add and **compare-and-swap** (CAS: "set to new only if it still equals expected, and tell me whether it worked").
+    why: |-
+      Even `count += 1` is three steps: load, add, store. Two threads can both load 41, both add 1 and both store 42, losing one increment. Business logic has the same shape at a larger scale: "check the balance, then withdraw" or "check the seat is free, then book it". Without synchronisation these bugs appear rarely, only under load, and are almost impossible to reproduce, so you need to design them out.
+    when: |-
+      - **Mutex**: any invariant across several fields or several steps (update a map and its counter together).
+      - **Semaphore**: limit how many threads use a resource at once (at most 10 concurrent calls to a downstream service, a connection pool).
+      - **Condition variable**: wait for a state change (queue not empty, buffer not full, all workers finished).
+      - **Read-write lock**: read-mostly data where reads are long enough to benefit from running in parallel.
+      - **Atomics/CAS**: a single counter, flag or pointer updated at very high rates, where a lock would dominate cost.
+    how: |-
+      **Mutex.** On Linux, glibc mutexes are built on the **futex** system call: an uncontended lock or unlock is one atomic instruction in user space with no system call; only when a thread must wait does it call `futex()` to sleep in the kernel. Holding a lock is cheap; contention is what costs (sleeping, waking, context switches).
+
+      **Condition variable pattern.** Always re-check the predicate in a loop, because a waiter can wake up spuriously or find that another thread consumed the state first:
+
+      ```python
+      with cond:                      # cond = threading.Condition(lock)
+          while not queue:            # while, not if
+              cond.wait()
+          item = queue.popleft()
+      ```
+
+      The thread that changes the state must do it under the same lock and then `notify()` (wake one) or `notify_all()` (wake all, needed when waiters wait for different predicates on one condition).
+
+      **Semaphore vs mutex.** A mutex expresses ownership of a critical section; a semaphore expresses a count of permits. A binary semaphore can imitate a mutex, but it has no owner, so a bug where the wrong thread releases goes undetected, and it cannot support priority inheritance or error-checking modes.
+
+      **CAS loop.** Lock-free updates retry until no other thread interfered:
+
+      ```text
+      loop:
+          old = value                   # atomic load
+          new = old + 1
+          if CAS(&value, old, new):     # succeeds only if value is still old
+              break                     # otherwise someone else won; retry
+      ```
+
+      Beware the **ABA problem**: the value changed from A to B and back to A between the load and the CAS, so the CAS succeeds although the state changed (classic in lock-free stacks with reused nodes). Fixes are version counters (tagged pointers) or safe memory reclamation.
+
+      **Visibility.** Locks and atomics also provide **memory ordering**: writes made before releasing a lock are visible to the thread that acquires it next. Without them, compilers and CPUs may reorder or cache writes, so a plain boolean "ready" flag can be seen before the data it guards (in C, C++, Java, Go). Python's GIL hides some of this for pure-Python code, but it does not make compound operations atomic.
+    mental_model: |-
+      A mutex is the key to a single-occupancy bathroom: whoever holds the key goes in and must bring it back. A semaphore is a car park with N spaces and a counter at the gate: anyone leaving frees a space. A condition variable is the waiting room with a buzzer: you sit down (releasing the key), and when someone buzzes you, you get the key back and check again whether the thing you were waiting for is really there.
+    tradeoffs: |-
+      - Coarse locks are easy to reason about but serialise everything; fine-grained locks scale but multiply the chances of deadlock and of forgetting one.
+      - Read-write locks help only when reads dominate and are not tiny; their bookkeeping can make them slower than a plain mutex, and writer-preferring vs reader-preferring policies trade writer starvation against reader latency.
+      - Spinning (busy-waiting) avoids a sleep and wake-up for very short waits on multicore, but wastes CPU and is terrible when the holder is descheduled. Most mutexes spin briefly, then sleep.
+      - Lock-free CAS designs avoid blocking and priority inversion but are hard to get right (ABA, memory reclamation) and can livelock under heavy contention.
+      - Message passing (queues, actors) avoids shared state but moves the problem into queue capacity and ordering.
+    mistakes:
+      - Using `if` instead of `while` around `cond.wait()`.
+      - Calling `notify()` without holding the lock, or changing the shared state outside the lock before notifying.
+      - Holding a lock while doing slow I/O (a network call inside a critical section), which turns a fast service into a single-file queue.
+      - Protecting writes but not reads. A reader without the lock can see a half-updated invariant.
+      - "Check-then-act across two separately locked calls: `if key not in cache:` then `cache[key] = compute()` is a race even if each call is thread-safe."
+      - Assuming the GIL makes Python code thread-safe. It makes single bytecodes atomic; `x += 1` spans several.
+    interview: |-
+      Expect "mutex vs semaphore", "what is a condition variable and why the while loop?", "how would you make this counter thread-safe?", "implement a bounded blocking queue" and "what is CAS?". The interviewer looks for precise definitions (ownership, permits, predicate), the spurious-wakeup loop, and judgement about lock granularity. Mentioning the futex fast path or memory visibility shows depth.
+    explain_it:
+      - Show the lost update with a concrete interleaving of load, add, store.
+      - Define each primitive by what it guarantees (exclusion, a count, waiting on a predicate, many readers, single-instruction atomicity).
+      - Pick the primitive for a concrete need and say why the alternatives are worse.
+      - Mention one pitfall per primitive (forgotten unlock, no owner, if instead of while, writer starvation, ABA).
+    example:
+      language: python
+      code: |-
+        import threading
+
+        class Account:
+            def __init__(self, balance: int) -> None:
+                self.balance = balance
+                self._lock = threading.Lock()
+
+            def withdraw_unsafe(self, amount: int) -> bool:
+                if self.balance >= amount:        # check ...
+                    self.balance -= amount        # ... then act: another thread can withdraw in between
+                    return True
+                return False
+
+            def withdraw(self, amount: int) -> bool:
+                with self._lock:                  # check and act are one critical section
+                    if self.balance >= amount:
+                        self.balance -= amount
+                        return True
+                    return False
+      explanation: "Two concurrent withdraw_unsafe(80) calls on a balance of 100 can both pass the check and leave -60. Putting the check and the update under one lock makes the pair atomic relative to other withdrawals."
+    internals: |-
+      A futex is a 32-bit integer in user memory plus a kernel wait queue keyed by its address. Lock: CAS 0 to 1; if it was already held, mark it contended and call `futex(FUTEX_WAIT)`. Unlock: set to 0; if it was contended, call `futex(FUTEX_WAKE)`. Uncontended paths never enter the kernel, which is why locks are cheap until they are contended.
+    edge_cases:
+      - Recursive (re-entrant) locks let the same thread lock twice; a normal mutex deadlocks with itself. Python offers `threading.RLock` for this.
+      - Priority inversion; a low-priority thread holds a lock that a high-priority thread needs while a medium-priority thread keeps the CPU. Priority inheritance (PTHREAD_PRIO_INHERIT) is the fix.
+      - Signal handlers and fork can run while a lock is held; taking the same lock in a handler deadlocks.
+    misconceptions:
+      - A semaphore with a count of one is the same as a mutex. It behaves similarly but has no owner, so misuse is not detected and priority inheritance is impossible.
+      - Atomic operations are free. A contended atomic bounces the cache line between cores and can cost as much as an uncontended lock.
+- key: os.synchronization.worked_lost_update
+  type: worked_example
+  title: "Worked example: losing an increment, then fixing it two ways"
+  skills: [os.synchronization]
+  minutes: 15
+  difficulty: MEDIUM
+  body:
+    problem: Two threads each increment a shared counter once, starting at 41. Show an interleaving that produces 42 instead of 43, then fix it with a mutex and with compare-and-swap, and compare the fixes.
+    steps:
+      - title: Split the increment into machine steps
+        text: "`count += 1` is a load into a register, an add, and a store back. In CPython it is several bytecodes (load, add, store), and the interpreter may switch threads between them."
+        code:
+          language: text
+          code: |-
+            load  r <- count
+            add   r <- r + 1
+            store count <- r
+      - title: Find the bad interleaving
+        text: "Both threads load before either stores. Each computes 42 and stores 42; one increment is lost. Nothing crashes, and it happens only when the timing lines up, so it shows up under load or on more cores."
+        code:
+          language: text
+          code: |-
+            time  thread A           thread B          count
+            1     load r=41                            41
+            2                        load r=41         41
+            3     add  r=42                            41
+            4                        add  r=42         41
+            5     store 42                             42
+            6                        store 42          42   <- expected 43
+      - title: "Fix 1: a mutex around the three steps"
+        text: "With a lock, B's load cannot happen until A has stored, so the interleaving above is impossible. Uncontended, the cost is an atomic instruction to lock and another to unlock (futex fast path on Linux)."
+        code:
+          language: python
+          code: |-
+            lock = threading.Lock()
+
+            def increment() -> None:
+                global count
+                with lock:
+                    count += 1
+      - title: "Fix 2: compare-and-swap retry loop"
+        text: "In a language with atomics (C, C++, Java, Go, Rust), retry until the CAS sees the value it loaded. If B stores first, A's CAS fails because count is no longer 41, so A reloads 42 and stores 43. A plain fetch-and-add instruction does the same for a counter in one step."
+        code:
+          language: text
+          code: |-
+            do {
+                old = atomic_load(&count);
+            } while (!compare_and_swap(&count, old, old + 1));
+      - title: Compare the fixes
+        text: "The lock generalises to any number of fields and steps, which CAS does not without a lot of care. CAS never blocks, so a descheduled thread cannot hold others up, but under heavy contention many retries waste CPU. For a single hot counter, per-thread counters summed on read beat both."
+    takeaways:
+      - A read-modify-write on shared memory is not atomic unless a primitive makes it so.
+      - Find the race by writing the interleaving as a table of steps.
+      - A mutex makes a multi-step sequence atomic; CAS makes a single-word update atomic with retries.
+      - Reduce sharing (per-thread counters, partitioning) before reaching for cleverer primitives.
+- key: os.synchronization.check
+  type: concept_check
+  title: "Concept check: races and synchronisation primitives"
+  skills: [os.synchronization]
+  minutes: 12
+  difficulty: MEDIUM
+  body:
+    intro: Several questions show code; find the interleaving before choosing.
+    questions:
+      - id: q1
+        kind: single
+        prompt: Two threads each run this function 1,000,000 times on a shared `hits = 0`, with no lock. What can the final value be?
+        code:
+          language: python
+          code: |-
+            def worker():
+                global hits
+                for _ in range(1_000_000):
+                    hits += 1
+        options:
+          - Always exactly 2,000,000, because of the GIL
+          - Any value from somewhat above 1,000,000 up to 2,000,000, depending on interleaving
+          - Always exactly 1,000,000
+          - The program raises an error
+        answer: [1]
+        explanation: "The increment is a load, add and store; a thread switch between load and store loses updates. The GIL guarantees one bytecode at a time, not that this sequence is atomic. Whether you observe the loss on a given CPython version depends on when the interpreter switches threads, but the code is incorrect either way."
+      - id: q2
+        kind: single
+        prompt: Why must a condition-variable wait be wrapped in a while loop that re-checks the predicate?
+        options:
+          - Because wait() might return without the lock held
+          - Because a waiter can wake spuriously or find that another thread already consumed the state it was notified about
+          - Because notify() wakes every thread
+          - Because the loop makes the wait faster
+        answer: [1]
+        explanation: "Spurious wake-ups are allowed by POSIX and by Python's Condition docs, and between the notify and the waiter reacquiring the lock another thread can take the item. wait() always returns with the lock held, so the first option is false."
+      - id: q3
+        kind: multi
+        prompt: Which statements about mutexes and semaphores are correct?
+        options:
+          - A mutex should be unlocked only by the thread that locked it
+          - A counting semaphore initialised to 5 lets at most 5 threads hold a permit at once
+          - Any thread may release a semaphore, even one that never acquired it
+          - A binary semaphore and a mutex are identical in every respect
+        answer: [0, 1, 2]
+        explanation: "Ownership is the defining property of a mutex; a semaphore is just a counter of permits that any thread may release, which is useful for signalling. They are not identical: no ownership means no error checking and no priority inheritance."
+      - id: q4
+        kind: single
+        prompt: A compare-and-swap on a lock-free stack's head succeeds, but the stack is now corrupted. Another thread had popped node A, popped B, and pushed A back in between. What is this?
+        options: ["A data race", "The ABA problem", "Priority inversion", "A deadlock"]
+        answer: [1]
+        explanation: "The head went A to B to A, so CAS saw the expected value and succeeded although the structure changed underneath. Version-tagged pointers or hazard pointers fix it. It is not a data race in the narrow sense, since every access is atomic."
+      - id: q5
+        kind: single
+        prompt: A cache is read 50,000 times per second and updated once a minute; each read takes about 2 µs under a mutex. Which change is most likely to help, and what is the main risk?
+        options:
+          - Use a read-write lock; risk of writer starvation if readers never drain
+          - Remove the lock because reads do not modify anything
+          - Use a semaphore with count 1
+          - Use a spinlock; risk of deadlock
+        answer: [0]
+        explanation: "A read-mostly workload is the RW lock's use case: readers proceed together, the rare writer gets exclusive access. With a reader-preferring lock a constant stream of readers can starve the writer. Removing the lock is the tempting wrong answer: a reader could observe a half-applied update. (Copy-on-write snapshots swapped by one atomic reference are another good answer.)"
+      - id: q6
+        kind: short
+        prompt: Why does an uncontended mutex lock on Linux not need a system call, and what makes a contended one expensive?
+        model_answer: "glibc mutexes are built on futexes. Locking is an atomic compare-and-swap on an integer in user memory; if it succeeds there is nothing for the kernel to do. Only when the lock is already held does the thread call futex(FUTEX_WAIT) to sleep, and the unlocker calls futex(FUTEX_WAKE). Contention costs system calls, sleeping and waking, context switches and cache-line bouncing between cores, so a hot lock's cost is dominated by contention, not by the lock instruction."
+        explanation: The answer should separate the user-space fast path from the kernel slow path and name what contention costs.
+- key: os.synchronization.bounded_queue
+  type: coding_exercise
+  title: "Exercise: a bounded blocking queue with condition variables"
+  skills: [os.synchronization, os.concurrency_practical, lld.concurrency_safety]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 1200}
+  body:
+    prompt: |-
+      Implement a fixed-capacity blocking queue in Python pseudocode using one lock and condition variables (not `queue.Queue`). `put(item)` blocks while the queue is full; `take()` blocks while it is empty. Then explain, with a concrete interleaving, which race your design prevents and why each `wait()` sits inside a `while` loop.
+    examples:
+      - "Capacity 2: put(a), put(b), then put(c) blocks until another thread calls take(), which returns a."
+      - "take() on an empty queue blocks until a put() happens, then returns that item."
+    constraints:
+      - Any number of producer and consumer threads.
+      - Items come out in FIFO order.
+      - No busy waiting (no sleep-and-poll loops).
+    starter:
+      language: python
+      code: |-
+        import threading
+        from collections import deque
+
+        class BoundedBlockingQueue:
+            def __init__(self, capacity: int) -> None:
+                ...
+
+            def put(self, item) -> None:
+                ...
+
+            def take(self):
+                ...
+    hints:
+      - Use one lock for the deque and two conditions built on that same lock, one for not full and one for not empty.
+      - A producer that adds an item should wake a consumer, and a consumer that removes one should wake a producer.
+      - "Ask yourself: what if two consumers are woken but only one item is there?"
+    solution:
+      language: python
+      code: |-
+        import threading
+        from collections import deque
+
+        class BoundedBlockingQueue:
+            def __init__(self, capacity: int) -> None:
+                if capacity <= 0:
+                    raise ValueError("capacity must be positive")
+                self._items: deque = deque()
+                self._capacity = capacity
+                self._lock = threading.Lock()
+                self._not_full = threading.Condition(self._lock)    # both share one lock
+                self._not_empty = threading.Condition(self._lock)
+
+            def put(self, item) -> None:
+                with self._not_full:                       # acquires the shared lock
+                    while len(self._items) >= self._capacity:
+                        self._not_full.wait()              # releases the lock while asleep
+                    self._items.append(item)
+                    self._not_empty.notify()               # one item added: wake one consumer
+
+            def take(self):
+                with self._not_empty:
+                    while not self._items:
+                        self._not_empty.wait()
+                    item = self._items.popleft()
+                    self._not_full.notify()                # one slot freed: wake one producer
+                    return item
+      explanation: |-
+        The race it prevents: without the lock, two consumers can both see one item, both call popleft, and the second raises (or, in a hand-rolled array, reads a stale slot); two producers can both see one free slot and overfill the buffer. Checking the size and changing the deque happen under one lock, so check-then-act is atomic.
+
+        Why while: after notify, the woken consumer must reacquire the lock, and another consumer that was not waiting can take the item first; spurious wake-ups are also allowed. Re-checking the predicate after every wake-up keeps the invariant. Two separate conditions mean a put only wakes consumers and a take only wakes producers, so notify() is enough; with a single condition you would need notify_all(), because notify() could wake another producer that then sleeps again, leaving the consumer asleep.
+    rubric:
+      - key: atomic_check_act
+        label: The size check and the deque update happen under the same lock in both methods
+        points: 3
+      - key: while_loop
+        label: Every wait() is inside a while loop that re-checks the predicate
+        points: 2
+      - key: correct_wakeups
+        label: put notifies consumers and take notifies producers (or uses notify_all with one condition) with no lost wake-up
+        points: 2
+      - key: race_explained
+        label: Explains a concrete interleaving the design prevents (double take of one item or overfilling)
+        points: 2
+      - key: no_busy_wait
+        label: Blocks with wait(), no polling or sleep loops
+        points: 1
+    follow_ups:
+      - prompt: Add take(timeout) that returns None after the timeout. What subtlety appears with the while loop?
+        look_for: The timeout must be a deadline, recomputing the remaining time after each wake-up (or use Condition.wait_for with a timeout); otherwise repeated spurious wake-ups extend the wait.
+      - prompt: How would you add close() so blocked consumers stop waiting at shutdown?
+        look_for: A closed flag under the lock, notify_all on both conditions, waiters check the flag in their loop, take returns a sentinel or raises once closed and empty, put raises after close.
+      - prompt: Why is a bounded queue usually better than an unbounded one between a fast producer and a slow consumer?
+        look_for: It applies back-pressure by blocking or rejecting producers, so memory and latency stay bounded instead of the queue growing until the process runs out of memory.
+- key: os.synchronization.interview
+  type: interview_question
+  title: "Interview question: mutex, semaphore or condition variable?"
+  skills: [os.synchronization]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: |-
+      Explain the difference between a mutex, a semaphore and a condition variable. Then pick the right one for each case and justify it: (a) at most 20 concurrent calls to a rate-limited partner API, (b) updating an in-memory order book's price levels and its total volume together, (c) a worker that must sleep until a job has been added to a shared list.
+    key_points:
+      - "Mutex: mutual exclusion with ownership; only the holder unlocks; protects an invariant across steps."
+      - "Semaphore: a permit counter, no ownership; limits concurrency or signals between threads."
+      - "Condition variable: waits for a predicate on shared state, always with a mutex; wait releases and reacquires it atomically; re-check in a while loop."
+      - "(a) counting semaphore with 20 permits, released in a finally block."
+      - "(b) one mutex covering both updates so readers never see the levels and the total disagree."
+      - "(c) condition variable with the list's mutex, or a blocking queue that wraps exactly that."
+    model_answer: |-
+      A mutex grants exclusive access to a critical section and is owned by the thread that locked it. A semaphore is a counter of permits that blocks at zero; any thread may release it, so it is good for limiting concurrency and for signalling. A condition variable lets a thread sleep until some condition on shared data holds; it is used with a mutex, wait() atomically releases the mutex and reacquires it on wake-up, and the predicate must be re-checked in a loop.
+
+      (a) A semaphore initialised to 20: acquire before the call, release in finally so an exception cannot leak a permit. (b) A mutex around both updates; two separate locks or atomics would let a reader see a new price level with the old total. (c) A condition variable tied to the list's mutex: the worker waits while the list is empty; the producer appends under the lock and notifies. In practice I would use a blocking queue, which is this pattern packaged.
+    pitfalls:
+      - Defining a semaphore as "a mutex that allows N" without mentioning the missing ownership.
+      - Using if instead of while around wait().
+      - Using sleep-and-poll for case (c).
+    follow_ups:
+      - prompt: In (a), what happens if the code acquires the semaphore and the call raises before release?
+        look_for: The permit leaks; after 20 such failures every caller blocks forever; use try/finally or a context manager.
+      - prompt: Could you implement a semaphore with a mutex and a condition variable?
+        look_for: "Yes: a count guarded by the mutex; acquire waits while count is zero then decrements; release increments and notifies one waiter."
+      - prompt: For (b), readers outnumber writers a thousand to one. What would you change and what could go wrong?
+        look_for: A read-write lock or publishing immutable snapshots via one atomic reference swap; risk of writer starvation with a reader-preferring lock, and snapshot copying cost.
+- key: os.synchronization.cards
+  type: revision_card
+  title: "Recall: synchronisation primitives"
+  skills: [os.synchronization]
+  minutes: 5
+  body:
+    cards:
+      - front: Why is count += 1 a race?
+        back: It is load, add, store; two threads can load the same value and one update is lost.
+      - front: Mutex vs semaphore in one line?
+        back: A mutex is owned exclusion; a semaphore is an ownerless permit counter.
+      - front: What does condition.wait() do with the lock?
+        back: Releases it atomically while sleeping and reacquires it before returning.
+      - front: Why while and not if around wait()?
+        back: Spurious wake-ups and stolen state; re-check the predicate every time.
+      - front: What does compare-and-swap do?
+        back: Writes the new value only if the current value still equals the expected one, atomically.
+      - front: Why is an uncontended Linux mutex cheap?
+        back: The futex fast path is one atomic instruction in user space with no system call.
+
+# ---------------------------------------------------------------------------------------------- deadlocks
+- key: os.deadlocks.lesson
+  type: lesson
+  title: Deadlocks, the four conditions and how to break them
+  skills: [os.deadlocks]
+  minutes: 20
+  difficulty: MEDIUM
+  body:
+    summary: A deadlock needs four conditions at once; removing any one, usually circular wait via a global lock order, makes it impossible.
+    what: |-
+      A **deadlock** is a state where each thread in a group waits for a resource held by another thread in the same group, so none can proceed. The resources can be mutexes, database row locks, connection-pool slots, threads in a pool or file locks.
+
+      The four **Coffman conditions** must all hold:
+
+      - **Mutual exclusion**: a resource can be held by only one thread at a time.
+      - **Hold and wait**: a thread holds one resource while waiting for another.
+      - **No preemption**: a resource cannot be taken away; the holder must release it.
+      - **Circular wait**: there is a cycle of threads, each waiting for the next one's resource.
+
+      Related failures: **livelock**, where threads keep reacting to each other and changing state but make no progress (two threads that both back off and retry in lockstep), and **starvation**, where a thread can run in principle but keeps losing (a writer behind a constant stream of readers, a low-priority thread).
+    why: |-
+      A deadlocked service does not crash and does not log errors: request threads simply stop returning, CPU drops to near zero, and health checks may still pass if they do not touch the stuck locks. It usually appears only under concurrency that tests never produce, so preventing it by design is far cheaper than finding it in production.
+    when: |-
+      Any time code holds more than one lock at once, calls out to other code (callbacks, listeners, logging) while holding a lock, waits on a pool from inside a task running in that pool, or takes database row locks in an order that depends on the input (transfer from A to B vs from B to A).
+    how: |-
+      Three strategies, from most to least common in application code:
+
+      **Prevention (break a condition by design).**
+
+      - Circular wait: impose a **global lock order** (by account id, by memory address, by a fixed hierarchy) and always acquire in that order. This is the standard fix.
+      - Hold and wait: acquire everything up front, or release what you hold before waiting for something else.
+      - No preemption: use `try_lock` or acquire with a **timeout**; on failure release everything held, back off with random jitter, and retry.
+      - Mutual exclusion: avoid the shared resource (immutable data, per-thread copies, a single owner thread fed by a queue).
+
+      **Avoidance (decide at run time whether granting is safe).** The **Banker's algorithm** grants a request only if the system stays in a safe state, i.e. some order exists in which every thread can get its maximum claim and finish. It needs every thread's maximum demand in advance, so it is rare outside textbooks and some embedded systems.
+
+      **Detection and recovery.** Let deadlocks happen, periodically look for a cycle in the **wait-for graph** (thread to thread edges: T1 waits for a lock held by T2), and break it by aborting a victim. Databases do this: InnoDB and PostgreSQL detect lock cycles and roll back one transaction with a deadlock error, so the application must retry.
+
+      **Diagnosing.** Take a thread dump of the hung process (`py-spy dump --pid` for Python, `jstack` for the JVM, `gdb -p <pid>` then `thread apply all bt` for native code) and look for threads blocked acquiring a lock, then map which thread holds what. Two or more stacks each waiting on a lock the other holds is the signature.
+    mental_model: |-
+      Four cars at a four-way stop, each having pulled halfway into the junction and each waiting for the car on its right to move. All four conditions are visible: one car per space, each holding its space while waiting, nobody can be towed back, and the waiting forms a circle. A rule like "the car from the north always goes first" (an ordering) means the circle can never close.
+    tradeoffs: |-
+      - Lock ordering is cheap and fully prevents deadlock, but needs discipline across the codebase and is hard when locks are taken inside libraries or callbacks.
+      - Timeouts and try-lock turn a hang into an error you can retry, but they can cause livelock without random back-off, and a timeout that is too short fails healthy requests under load.
+      - Detection allows maximal concurrency but needs a victim-abort mechanism and idempotent retry in the caller.
+      - One coarse lock makes deadlock impossible (no second lock) at the cost of concurrency.
+    mistakes:
+      - Fixing a deadlock by adding a sleep; it changes timing and hides the bug.
+      - Calling unknown code (callbacks, event listeners, logging handlers that take locks) while holding a lock.
+      - Ordering locks by something that is not globally consistent, such as the order arguments arrive in.
+      - Blocking inside a pool task on another task submitted to the same bounded pool (pool starvation deadlock).
+      - Treating a database deadlock error as a bug to suppress instead of a normal, retryable outcome.
+    interview: |-
+      Classic prompts: "what are the conditions for deadlock?", "how would you prevent deadlock in a bank transfer?", "your service hangs under load, how do you debug it?", and "difference between deadlock, livelock and starvation". Name the four conditions, pick the one you break and why, and describe how you would prove the diagnosis with a thread dump.
+    explain_it:
+      - Give the four conditions with one example each.
+      - Show the two-locks-opposite-order cycle as a wait-for graph.
+      - Name prevention, avoidance and detection and where each is used in practice.
+      - Explain livelock and starvation as different failures with different fixes.
+    example:
+      language: python
+      code: |-
+        import threading
+
+        class Account:
+            def __init__(self, account_id: int, balance: int) -> None:
+                self.id = account_id
+                self.balance = balance
+                self.lock = threading.Lock()
+
+        def transfer(src: Account, dst: Account, amount: int) -> None:
+            if src.id == dst.id:
+                return
+            first, second = (src, dst) if src.id < dst.id else (dst, src)   # global order by id
+            with first.lock:
+                with second.lock:
+                    if src.balance < amount:
+                        raise ValueError("insufficient funds")
+                    src.balance -= amount
+                    dst.balance += amount
+      explanation: "transfer(a, b) and transfer(b, a) both lock the lower id first, so a cycle cannot form. Without the ordering, each call would lock its source first and the two could wait for each other forever."
+    edge_cases:
+      - A thread that locks the same non-reentrant mutex twice deadlocks with itself.
+      - Deadlocks can span processes and machines (two services holding distributed locks, or row locks in one database held by two app servers).
+      - A transfer from an account to itself must not try to lock the same lock twice.
+    misconceptions:
+      - Deadlocks need at least two locks. Any resources work, including pool slots, and a single non-reentrant lock taken twice by one thread is enough.
+      - A livelock shows up like a deadlock with idle CPU. Livelocked threads are busy and burn CPU while making no progress.
+- key: os.deadlocks.check
+  type: concept_check
+  title: "Concept check: deadlock, livelock and starvation"
+  skills: [os.deadlocks]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Identify which condition each scenario creates or breaks.
+    questions:
+      - id: q1
+        kind: single
+        prompt: Thread 1 runs transfer(A, B) and thread 2 runs transfer(B, A); each locks its source account, then its destination. Which fix removes the deadlock with the least change?
+        options:
+          - Add a sleep between the two lock acquisitions
+          - Always lock the account with the smaller id first
+          - Make the locks reentrant
+          - Increase the thread pool size
+        answer: [1]
+        explanation: "A consistent global order breaks the circular-wait condition, so no cycle can form. A sleep only changes the probability. Reentrant locks help when the same thread re-locks, not when two threads hold different locks."
+      - id: q2
+        kind: multi
+        prompt: Which of these are among the four Coffman conditions?
+        options: ["Mutual exclusion", "Hold and wait", "Starvation", "No preemption", "Circular wait", "Priority inversion"]
+        answer: [0, 1, 3, 4]
+        explanation: "The four are mutual exclusion, hold and wait, no preemption and circular wait. Starvation and priority inversion are different liveness problems that can happen without a deadlock."
+      - id: q3
+        kind: single
+        prompt: Two threads use try_lock with immediate retry. Both grab their first lock, fail on the second, release, and retry at once, over and over, at 100% CPU. What is this?
+        options: ["Deadlock", "Livelock", "Starvation", "A data race"]
+        answer: [1]
+        explanation: "Threads keep changing state but make no progress: livelock. A deadlock is blocked and idle. Random back-off (jitter) breaks the lockstep."
+      - id: q4
+        kind: single
+        prompt: Why do databases such as PostgreSQL and InnoDB detect deadlocks instead of preventing them?
+        options:
+          - Prevention is impossible in a database
+          - Transactions lock rows in an order determined by queries at run time, so a global order cannot be enforced; detecting a cycle and rolling back one transaction is cheaper
+          - Detection is free
+          - Databases use the Banker's algorithm
+        answer: [1]
+        explanation: "The set and order of rows a transaction will lock is not known in advance, so the database lets cycles form, finds them in the wait-for graph and aborts a victim. Applications must catch the deadlock error and retry. The Banker's algorithm would need maximum claims up front, which databases do not have."
+      - id: q5
+        kind: single
+        prompt: A thread pool has 4 workers. Each request task submits two subtasks to the same pool and blocks waiting for their results. Under 4 concurrent requests, everything stops. Which condition is the key?
+        options:
+          - Mutual exclusion on a mutex
+          - Hold and wait on pool slots, with a cycle between parent tasks and the queued children they wait for
+          - Starvation by the scheduler
+          - Too many context switches
+        answer: [1]
+        explanation: "Each worker holds a slot while waiting for children that need a slot; all slots are held by waiting parents. No mutex is involved, which is why a thread dump shows workers waiting on futures, not locks. Separate pools or non-blocking composition fixes it."
+      - id: q6
+        kind: short
+        prompt: Explain the difference between deadlock prevention, avoidance and detection, with one real-world example of each.
+        model_answer: "Prevention makes one of the four conditions impossible by design, for example acquiring locks in a global order by id, or acquiring with a timeout and releasing everything on failure. Avoidance checks each request at run time and grants it only if the system stays in a safe state, like the Banker's algorithm, which needs every thread's maximum demand in advance and is rarely used outside special systems. Detection lets deadlocks occur, finds cycles in a wait-for graph and recovers by aborting a victim, as PostgreSQL and InnoDB do with a deadlock error that the application retries."
+        explanation: The three differ in when they act (design time, each request, after the fact); each needs a concrete example.
+- key: os.deadlocks.debug_two_locks
+  type: debugging_exercise
+  title: "Debugging: a service hangs under load with idle CPU"
+  skills: [os.deadlocks, os.synchronization, engineering.debugging]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 1200}
+  body:
+    scenario: |-
+      An inventory service keeps an in-memory catalogue with one lock per warehouse. Moving stock between two warehouses locks both. In testing everything passes. In production, a few times a week during a busy hour, requests that touch stock moves stop returning; the load balancer times them out, other endpoints keep working, and the process only recovers after a restart.
+    symptoms:
+      - CPU usage of the process drops to almost zero during the hang.
+      - The number of busy request threads climbs until the pool is exhausted.
+      - No exceptions are logged; the stuck requests never reach their completion log line.
+      - It started after a feature that lets operators rebalance stock in either direction between any two warehouses.
+    artifacts:
+      language: text
+      code: |-
+        # thread dump taken during the hang (format simplified; py-spy dump --pid 4242)
+        Thread 140221 "worker-7" (idle, waiting for lock)
+            move_stock (inventory.py:58)       with dst.lock:
+            handle_rebalance (api.py:121)
+          holds: warehouse[BLR].lock
+
+        Thread 140229 "worker-12" (idle, waiting for lock)
+            move_stock (inventory.py:58)       with dst.lock:
+            handle_rebalance (api.py:121)
+          holds: warehouse[HYD].lock
+
+        # 14 more workers waiting at inventory.py:57 for BLR or HYD
+
+        # inventory.py
+        55  def move_stock(src, dst, sku, qty):
+        56      ...
+        57      with src.lock:
+        58          with dst.lock:
+        59              src.take(sku, qty)
+        60              dst.add(sku, qty)
+    tasks:
+      - Identify the failure and draw the wait-for graph from the thread dump.
+      - Name which of the four deadlock conditions are present and which one you will break.
+      - Write the fix and explain why it cannot deadlock.
+      - Explain why tests never caught it and how you would catch the next one sooner.
+    hints:
+      - What did worker-7 lock first, and what is it waiting for? Same question for worker-12.
+      - The feature allowed rebalancing in either direction.
+      - Is there a property of a warehouse that gives every pair the same order?
+    reference: |-
+      **Failure.** A classic two-lock deadlock. worker-7 runs move_stock(BLR, HYD): it holds BLR and waits for HYD. worker-12 runs move_stock(HYD, BLR): it holds HYD and waits for BLR. Wait-for graph: worker-7 to worker-12 to worker-7, a cycle. Every later request touching BLR or HYD blocks at line 57 behind them, which is why the pool drains while CPU is idle.
+
+      **Conditions.** All four hold: each lock is exclusive, each thread holds one lock while waiting for the other, locks cannot be taken away, and the opposite acquisition orders create a circular wait. The cheapest condition to break is circular wait.
+
+      **Fix.** Acquire the two locks in a global order, for example by warehouse id, regardless of which is source and destination, and handle src == dst without locking twice. Since every thread acquires the lower id first, the thread holding the higher-id lock never waits for the lower one, so no cycle can form. Alternatives: acquire with a timeout and back off with jitter (turns hangs into retries), or route all moves through one owner thread per warehouse pair via a queue.
+
+      **Why tests missed it.** The cycle needs two opposite moves between the same pair inside a window of microseconds, which only happens under production concurrency; the feature that allowed both directions created the possibility. Catch it sooner with a stress test that runs opposite moves in parallel threads with a timeout, a lock-order checker in debug builds (record acquisition order per thread and flag inversions), alerts on request threads blocked longer than N seconds, and an on-hang thread dump (py-spy, faulthandler.dump_traceback_later) instead of an immediate restart.
+    solution:
+      language: python
+      code: |-
+        def move_stock(src, dst, sku, qty):
+            if src.id == dst.id:
+                return
+            first, second = sorted((src, dst), key=lambda w: w.id)   # same order for every pair
+            with first.lock:
+                with second.lock:
+                    src.take(sku, qty)
+                    dst.add(sku, qty)
+    rubric:
+      - key: cycle
+        label: Reads the dump correctly and states the wait-for cycle between worker-7 and worker-12
+        points: 3
+      - key: conditions
+        label: Names the four conditions and chooses circular wait as the one to break
+        points: 2
+      - key: fix
+        label: Orders acquisition by a stable global key and handles src equal to dst
+        points: 3
+      - key: prevention
+        label: Proposes a concrete way to catch it earlier (stress test with opposite orders, lock-order checking, hang alert with thread dump)
+        points: 2
+    follow_ups:
+      - prompt: The same bug moves into the database. Two transactions update the warehouse rows in opposite orders. What changes?
+        look_for: The database detects the cycle and aborts one transaction with a deadlock error; fix by updating rows in a consistent order (for example ORDER BY id with SELECT ... FOR UPDATE) and retrying on deadlock errors.
+      - prompt: Why is "acquire with a timeout and retry" weaker than lock ordering here?
+        look_for: It recovers instead of preventing, adds latency, needs jitter to avoid livelock, and partial work must be rolled back safely.
+      - prompt: Could you redesign so that no request ever holds two locks?
+        look_for: Single-writer ownership (one thread or actor owns the catalogue and processes moves from a queue), or one coarse lock if throughput allows, trading concurrency for simplicity.
+- key: os.deadlocks.cards
+  type: revision_card
+  title: "Recall: deadlocks"
+  skills: [os.deadlocks]
+  minutes: 5
+  body:
+    cards:
+      - front: The four Coffman conditions?
+        back: Mutual exclusion, hold and wait, no preemption, circular wait.
+      - front: Standard fix for two-lock deadlocks?
+        back: Acquire locks in one global order (for example by id) everywhere.
+      - front: Deadlock vs livelock symptom?
+        back: Deadlock is blocked with idle CPU; livelock is busy CPU with no progress.
+      - front: How do PostgreSQL and InnoDB handle deadlocks?
+        back: They detect the wait-for cycle and roll back one transaction, which the app retries.
+      - front: What does the Banker's algorithm need that real systems rarely have?
+        back: Every thread's maximum resource demand in advance.
+      - front: Signature of a deadlock in a thread dump?
+        back: Two or more threads each blocked acquiring a lock another of them holds.

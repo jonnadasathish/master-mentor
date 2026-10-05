@@ -8,9 +8,10 @@ import PageHeader from '../components/common/PageHeader.vue'
 import ProgressBar from '../components/common/ProgressBar.vue'
 import SectionHeading from '../components/common/SectionHeading.vue'
 import Skeleton from '../components/common/Skeleton.vue'
+import CurriculumSection from '../components/learning/CurriculumSection.vue'
 import GapList from '../components/skills/GapList.vue'
 import SkillRow from '../components/skills/SkillRow.vue'
-import { PREPARE_CATEGORIES, STAGE_LABEL } from '../presentation/language'
+import { PREPARE_CATEGORIES, STAGE_LABEL, TRACK_OF_SLUG } from '../presentation/language'
 import { skillsInCategory, summarizeCategory } from '../presentation/prepare'
 import { useReadinessStore, useSkillsStore } from '../stores/data'
 
@@ -21,6 +22,7 @@ const readiness = useReadinessStore()
 const showAll = ref(false)
 
 const category = computed(() => PREPARE_CATEGORIES.find((c) => c.slug === route.params.slug) ?? PREPARE_CATEGORIES[1])
+const track = computed(() => TRACK_OF_SLUG[category.value.slug] ?? 'cs')
 const loaded = computed(() => skills.data !== null && readiness.data !== null)
 const error = computed(() => skills.error ?? readiness.error)
 const summary = computed(() => summarizeCategory(category.value, skills.list, readiness.data))
@@ -182,6 +184,10 @@ onMounted(() => Promise.all([skills.ensure(), readiness.ensure()]))
           />
         </div>
       </section>
+      <CurriculumSection
+        :key="track"
+        :track="track"
+      />
     </template>
   </div>
 </template>

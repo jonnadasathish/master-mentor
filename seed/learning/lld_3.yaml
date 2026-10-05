@@ -1,0 +1,1449 @@
+# Learning content: applied design patterns and extensibility; case studies Vending Machine, Elevator, Notification System, Payment System.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- design patterns
+- key: lld.design_patterns.lesson
+  type: lesson
+  title: Strategy, factory, observer, state, decorator, adapter and the singleton smell
+  skills: [lld.design_patterns]
+  minutes: 30
+  difficulty: MEDIUM
+  body:
+    summary: A pattern is a named answer to a recurring change; use one when you can point at the change it absorbs, and say it in one sentence.
+    what: |-
+      Design patterns are reusable shapes of collaboration between objects. The ones that appear again and again in LLD rounds:
+
+      - **Strategy**: a family of interchangeable algorithms behind one interface, chosen at runtime (pricing, allocation, split rules). In Python a strategy can be a plain function.
+      - **Factory** (factory method or a simple factory function): one place decides which concrete class to create from input or configuration, so callers depend only on the interface.
+      - **Observer** (publish and subscribe in-process): a subject notifies registered listeners of events without knowing who they are (spot freed, order placed).
+      - **State**: an object's behaviour changes with its state; each state is a class that handles the events allowed in it and decides the next state (vending machine, order lifecycle).
+      - **Decorator**: an object wraps another with the same interface to add behaviour (retry, logging, caching) without subclassing.
+      - **Adapter**: wraps a third-party or legacy API so it fits the interface your code owns (payment vendor SDKs, SMS providers).
+      - **Singleton**: exactly one instance with global access. Often a smell, explained below.
+    why: |-
+      Patterns give you a vocabulary and a proven structure for the follow-ups interviewers ask: "add a new pricing rule" (strategy), "notify the display board" (observer), "add a maintenance mode" (state), "switch payment vendor" (adapter), "add retries" (decorator). Naming the pattern lets you explain a design in one sentence and shows you know its costs.
+    when: |-
+      - Strategy: two or more algorithms for the same step, selected by configuration or input.
+      - Factory: construction depends on input (a `type` field in a request) or needs wiring you do not want callers to know.
+      - Observer: one event, several independent reactions, and the producer should not depend on the consumers.
+      - State: a type switch on a status field appears in several methods, and transitions have rules.
+      - Decorator: cross-cutting behaviour that you want to combine freely.
+      - Adapter: an external API shape you do not control.
+      - Do not use any of them when there is one variant and no realistic second one.
+    how: |-
+      - **Strategy**: define `class PricingPolicy(Protocol): def fee(self, minutes: int) -> int`, inject the chosen implementation. If the strategy has no state, a `Callable[[int], int]` is the Pythonic form.
+      - **Factory**: a dictionary registry from key to constructor is the simplest form: `CHANNELS = {"email": EmailChannel, "sms": SmsChannel}`; unknown keys fail loudly at the boundary.
+      - **Observer**: the subject keeps a list of listeners and calls `listener(event)` after its state change is complete. Decide sync vs queue, and what happens when a listener raises (isolate it and log, do not roll back the subject).
+      - **State**: the context holds `self._state`; each event method delegates to it; state objects return or set the next state. Transitions not handled by a state raise a clear error.
+      - **Decorator**: `class RetryingChannel: def __init__(self, inner: Channel, attempts: int)`, implementing `send` by calling `inner.send`.
+      - **Adapter**: translate names, units and errors: vendor amounts in rupees as strings become your integer paise; vendor exceptions become your `PaymentDeclined`.
+      - **Singleton, and why it is often a smell**: a global instance hides a dependency (it is not in any signature), carries state between tests, and makes it impossible to run two configurations side by side. In Python, a module-level object already gives one instance per process; the better design is usually to create one instance in the composition root and inject it. Legitimate uses are rare and stateless or process-wide by nature (a logger registry, a configuration object read once).
+    mental_model: |-
+      Ask "what changes here, and how often?". Strategy absorbs a change in *how* a step is done, state a change in *what is allowed now*, observer a change in *who cares*, decorator a change in *what wraps the call*, adapter a change in *which vendor*, factory a change in *which class to build*. If you cannot name the change, you do not need the pattern.
+    tradeoffs: |-
+      Every pattern adds classes and indirection. State spreads one lifecycle over several classes, which makes each state simple but the full transition table harder to see; for three states and four events a transition table (dictionary) can be clearer. Observer decouples producers from consumers but hides control flow and ordering; synchronous listeners also add latency and failure modes to the producer. Decorators compose freely but the order matters (retry inside or outside a rate limiter). Singletons trade testability for convenience.
+    mistakes:
+      - Naming patterns without the change they absorb ("I used factory, strategy and observer") in a design that has one variant of each.
+      - Confusing strategy and state. Strategy is chosen from outside and rarely changes; state changes itself as events arrive.
+      - Notifying observers before the subject's state change is complete, so listeners read half-updated state.
+      - A listener exception rolling back or crashing the producer.
+      - Making the repository or the service a singleton, then fighting shared state in tests.
+      - Implementing the decorator pattern by subclassing (RetryingEmailNotifier), which recreates the class explosion.
+    interview: |-
+      Interviewers reward patterns that arrive as answers to their change requests, with one sentence on why: "pricing will vary, so it is a strategy injected into the lot". They probe the cost ("what if a listener is slow?", "how do you test the singleton?") and the difference between similar patterns (strategy vs state, decorator vs inheritance, adapter vs facade). Being able to say "I would not use a pattern here" is a strength.
+    explain_it:
+      - Name the change the pattern absorbs, in one sentence.
+      - Show the interface and two implementations.
+      - Show where the concrete choice is made (injection, factory, state transition).
+      - State the cost and when you would drop the pattern.
+    example:
+      language: python
+      code: |-
+        from typing import Callable, Protocol
+
+
+        class Channel(Protocol):
+            def send(self, to: str, text: str) -> None: ...
+
+
+        class SmsChannel:                                   # would wrap a vendor SDK (adapter)
+            def send(self, to: str, text: str) -> None:
+                print(f"SMS to {to}: {text}")
+
+
+        class RetryingChannel:                              # decorator: same interface, adds behaviour
+            def __init__(self, inner: Channel, attempts: int, retryable: tuple[type[Exception], ...]) -> None:
+                self._inner, self._attempts, self._retryable = inner, attempts, retryable
+
+            def send(self, to: str, text: str) -> None:
+                for attempt in range(1, self._attempts + 1):
+                    try:
+                        self._inner.send(to, text)
+                        return
+                    except self._retryable:
+                        if attempt == self._attempts:
+                            raise
+
+
+        CHANNEL_FACTORIES: dict[str, Callable[[], Channel]] = {   # factory as a registry
+            "sms": lambda: RetryingChannel(SmsChannel(), attempts=3, retryable=(TimeoutError,)),
+        }
+
+
+        class OrderEvents:                                  # observer: the subject knows only callables
+            def __init__(self) -> None:
+                self._listeners: list[Callable[[str], None]] = []
+
+            def subscribe(self, listener: Callable[[str], None]) -> None:
+                self._listeners.append(listener)
+
+            def publish(self, order_id: str) -> None:
+                for listener in list(self._listeners):
+                    try:
+                        listener(order_id)
+                    except Exception:                       # one bad listener must not break the others
+                        pass                                # log it in real code
+      explanation: Adapter, decorator, factory and observer in under forty lines; each class is small and replaceable, and the composition happens in one registry.
+    internals: |-
+      The Gang of Four book (1994) catalogued 23 patterns for languages without first-class functions. In Python several collapse: strategy and command become callables, iterator is the iteration protocol, and a module is already a singleton namespace. The structure still matters when the strategy needs configuration or state, which is when a small class beats a closure for readability.
+    edge_cases:
+      - An observer that unsubscribes during notification; iterate over a copy of the listener list.
+      - A state transition triggered from inside a listener (re-entrancy); queue the event or forbid it.
+      - Decorator order with retries and rate limits; retries inside a limiter consume the quota.
+    misconceptions:
+      - The decorator pattern is the Python @decorator. They are related (both wrap), but the pattern wraps an object behind an interface, while @decorator wraps a function at definition time.
+      - Using more patterns shows more skill. Using the right one for a named change does.
+- key: lld.design_patterns.singleton
+  type: concept
+  title: Why singleton is usually a smell, and what to do instead
+  skills: [lld.design_patterns, oop.composition_solid]
+  minutes: 8
+  difficulty: EASY
+  body:
+    summary: A singleton is a global variable with a constructor; prefer one instance created at the composition root and injected.
+    explanation: |-
+      The singleton pattern guarantees one instance and gives global access to it (`Database.instance()`). The guarantee is rarely the problem; the global access is. Code that calls `Database.instance()` deep inside a method has a dependency that does not appear in its signature, so readers cannot see it, tests cannot replace it without patching, and state leaks from one test to the next. Two configurations (a primary and a replica, two tenants) become impossible.
+
+      Python makes the "one instance" part trivial: a module is imported once per process, so a module-level object is already single. The fix is therefore not a cleverer singleton but **dependency injection**: create the one instance in `main()` or the app factory and pass it to whatever needs it. You still get one instance in production, and tests construct their own.
+    points:
+      - Hidden dependency, shared mutable state across tests and no second configuration are the three costs.
+      - "The one-instance guarantee can come from the composition root: create once, inject everywhere."
+      - "Thread-safe lazy initialisation adds complexity (double-checked locking) for little benefit; create eagerly at startup."
+      - Acceptable cases are process-wide and nearly stateless, such as a logging registry or read-only configuration.
+      - In an interview, if you say singleton, immediately say how you would test the code that uses it.
+    example:
+      language: python
+      code: |-
+        # Smell: the dependency is invisible and global.
+        class RideService:
+            def request(self, rider_id: str) -> str:
+                return DriverRegistry.instance().nearest(rider_id)
+
+        # Better: one instance, created at the edge, visible in the signature.
+        class RideService:
+            def __init__(self, drivers: "DriverRegistry") -> None:
+                self._drivers = drivers
+
+            def request(self, rider_id: str) -> str:
+                return self._drivers.nearest(rider_id)
+
+        # main(): registry = DriverRegistry(); service = RideService(registry)
+        # test:   service = RideService(FakeRegistry(nearest="d1"))
+    misconceptions:
+      - Singleton is needed to save memory. One injected instance uses the same memory.
+      - A module-level instance is always bad. It is fine as a default at the edge if business code still receives it as a parameter.
+- key: lld.design_patterns.check
+  type: concept_check
+  title: "Concept check: choosing the right pattern"
+  skills: [lld.design_patterns]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Each question describes a change. Name the pattern that absorbs it before reading the options.
+    questions:
+      - id: q1
+        kind: single
+        prompt: A vending machine reacts differently to insert_coin, select and cancel depending on whether it is idle, holding money or in maintenance, and each reaction decides the next mode. Which pattern fits?
+        options: ["Strategy", "State", "Observer", "Adapter"]
+        answer: [1]
+        explanation: "Behaviour depends on the current mode and the object moves itself between modes as events arrive: that is state. Strategy is tempting because both swap an implementation, but a strategy is chosen from outside and does not pick its successor."
+      - id: q2
+        kind: single
+        prompt: "Your code owns `PaymentGateway.charge(amount_paise) -> ChargeResult`. A vendor SDK exposes `make_payment(amount_rupees: str, ref)` and raises its own exceptions. What do you write?"
+        options:
+          - A subclass of the vendor SDK class
+          - An adapter that implements PaymentGateway, converts units and maps vendor errors to your errors
+          - A singleton wrapper around the SDK
+          - An observer that listens to SDK events
+        answer: [1]
+        explanation: "An adapter makes a foreign API fit the interface your code owns, including units and errors. Subclassing the SDK couples you to its internals and still leaks its method names to callers."
+      - id: q3
+        kind: multi
+        prompt: Which are real costs of the singleton pattern?
+        options:
+          - The dependency does not appear in the signatures of the code that uses it
+          - State carries over between unit tests
+          - Two differently configured instances cannot coexist
+          - It always uses more memory than an injected instance
+        answer: [0, 1, 2]
+        explanation: "Hidden dependency, leaking state and a single configuration are the real problems. Memory is the same as one injected instance, so the last option is wrong."
+      - id: q4
+        kind: single
+        prompt: What is wrong with this observer implementation?
+        code:
+          language: python
+          code: |-
+            class Spot:
+                def __init__(self, listeners):
+                    self._listeners = listeners
+                    self.plate = None
+
+                def occupy(self, plate):
+                    for listener in self._listeners:
+                        listener("occupied", self)
+                    self.plate = plate
+        options:
+          - Listeners should be a set
+          - Listeners are notified before the state change, so they see plate as None
+          - Observers must be classes, not callables
+          - Nothing
+        answer: [1]
+        explanation: "Notify after the change is complete, so every listener reads consistent state. Using a set changes ordering guarantees but does not fix the stale read; callables are a perfectly good observer form in Python."
+      - id: q5
+        kind: single
+        prompt: Retry, logging and metrics must be combinable on any of three notification channels. Which design avoids a class explosion?
+        options:
+          - "One subclass per combination, such as RetryingLoggingSms"
+          - Decorators that implement the Channel interface and wrap another Channel
+          - A flags argument on every channel's send method
+          - Multiple inheritance mixins on each channel
+        answer: [1]
+        explanation: "Wrapping gives 3 channels plus 3 wrappers instead of channels times combinations. Flags push cross-cutting logic into every channel; mixins couple the behaviours through the MRO."
+      - id: q6
+        kind: short
+        prompt: Explain the difference between strategy and state using one example where both appear.
+        model_answer: "In an elevator, the dispatching algorithm that picks which car serves a hall call (nearest car, or least loaded) is a strategy: chosen by configuration, swapped from outside, and it does not change on its own. The car's mode (idle, moving, doors open, maintenance) is state: each mode handles events differently and the car transitions between modes itself as floors are reached and doors close."
+        explanation: The key distinction is who chooses the implementation and whether it changes itself over time.
+- key: lld.design_patterns.state_exercise
+  type: coding_exercise
+  title: "Exercise: refactor a status switch into the state pattern"
+  skills: [lld.design_patterns, lld.extensibility]
+  minutes: 25
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 1500}
+  body:
+    prompt: |-
+      A document workflow switches on `self.status` in every method. Product now wants an ARCHIVED state reachable from PUBLISHED. Refactor to the state pattern so each state handles only its own events, add ARCHIVED, and explain whether a transition table would have been simpler.
+
+      ```python
+      class Document:
+          def __init__(self):
+              self.status = "DRAFT"
+              self.approvals = 0
+
+          def submit(self):
+              if self.status == "DRAFT":
+                  self.status = "IN_REVIEW"
+              else:
+                  raise ValueError("cannot submit")
+
+          def approve(self):
+              if self.status == "IN_REVIEW":
+                  self.approvals += 1
+                  if self.approvals >= 2:
+                      self.status = "PUBLISHED"
+              else:
+                  raise ValueError("cannot approve")
+
+          def reject(self):
+              if self.status == "IN_REVIEW":
+                  self.status = "DRAFT"
+                  self.approvals = 0
+              else:
+                  raise ValueError("cannot reject")
+      ```
+    constraints:
+      - Two approvals are needed to publish; a rejection resets approvals.
+      - Every event not allowed in a state raises a clear error naming the state.
+    hints:
+      - Give a base state class default handlers that raise.
+      - Each concrete state overrides only the events it accepts and returns the next state.
+      - The document keeps the current state object and the approval counter.
+    solution:
+      language: python
+      code: |-
+        class InvalidTransition(Exception):
+            pass
+
+
+        class State:
+            name = "STATE"
+
+            def submit(self, doc: "Document") -> "State":
+                raise InvalidTransition(f"cannot submit in {self.name}")
+
+            def approve(self, doc: "Document") -> "State":
+                raise InvalidTransition(f"cannot approve in {self.name}")
+
+            def reject(self, doc: "Document") -> "State":
+                raise InvalidTransition(f"cannot reject in {self.name}")
+
+            def archive(self, doc: "Document") -> "State":
+                raise InvalidTransition(f"cannot archive in {self.name}")
+
+
+        class Draft(State):
+            name = "DRAFT"
+
+            def submit(self, doc: "Document") -> State:
+                return IN_REVIEW
+
+
+        class InReview(State):
+            name = "IN_REVIEW"
+            REQUIRED = 2
+
+            def approve(self, doc: "Document") -> State:
+                doc.approvals += 1
+                return PUBLISHED if doc.approvals >= self.REQUIRED else self
+
+            def reject(self, doc: "Document") -> State:
+                doc.approvals = 0
+                return DRAFT
+
+
+        class Published(State):
+            name = "PUBLISHED"
+
+            def archive(self, doc: "Document") -> State:
+                return ARCHIVED
+
+
+        class Archived(State):
+            name = "ARCHIVED"
+
+
+        DRAFT, IN_REVIEW, PUBLISHED, ARCHIVED = Draft(), InReview(), Published(), Archived()
+
+
+        class Document:
+            def __init__(self) -> None:
+                self._state: State = DRAFT
+                self.approvals = 0
+
+            @property
+            def status(self) -> str:
+                return self._state.name
+
+            def submit(self) -> None:
+                self._state = self._state.submit(self)
+
+            def approve(self) -> None:
+                self._state = self._state.approve(self)
+
+            def reject(self) -> None:
+                self._state = self._state.reject(self)
+
+            def archive(self) -> None:
+                self._state = self._state.archive(self)
+      explanation: Adding ARCHIVED touched only Published and the new class, plus one forwarding method. States are stateless singletons-by-convention here (module constants), which is safe because per-document data lives on Document. A transition table such as {(DRAFT, submit) -> IN_REVIEW} would be shorter for pure transitions, but the approval counting and reset are behaviour, which the state classes hold naturally.
+    rubric:
+      - {key: behaviour_kept, label: "Two approvals publish and rejection resets approvals as before", points: 3}
+      - {key: per_state_handlers, label: "Each state overrides only its allowed events and unhandled events raise naming the state", points: 3}
+      - {key: archived_added, label: "ARCHIVED is added without editing Draft or InReview", points: 2}
+      - {key: table_tradeoff, label: "Explains when a transition table would be simpler", points: 2}
+    follow_ups:
+      - prompt: The document must record who did each transition and when. Where does that go?
+        look_for: "In Document's forwarding methods (or an observer on transitions) with actor and an injected clock; states stay free of I/O."
+      - prompt: The states are shared module-level instances. When would that break?
+        look_for: "If a state held per-document data such as the approval count; then create state instances per document or keep data on the context."
+- key: lld.design_patterns.interview
+  type: interview_question
+  title: "Interview question: pick and defend patterns for a food-ordering flow"
+  skills: [lld.design_patterns, lld.extensibility]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    prompt: "An order in a food-ordering app goes through PLACED, ACCEPTED, PREPARING, OUT_FOR_DELIVERY, DELIVERED or CANCELLED. Delivery fees vary by city and time of day, several services must react when an order is delivered (rating prompt, payout, analytics), and two delivery-partner providers with different APIs are used. Which patterns would you apply where, and which would you deliberately not use?"
+    key_points:
+      - "State (or a guarded transition table) for the order lifecycle, with illegal transitions rejected."
+      - "Strategy for delivery fee, selected by city and time through a small factory or registry."
+      - "Observer for the delivered event, published after the state change, with failures in one listener isolated."
+      - Adapter per delivery-partner provider behind an interface the app owns.
+      - "Names a pattern not used (for example no singleton for the order repository, injected instead) and gives the reason."
+    model_answer: "The lifecycle has rules (cannot cancel after OUT_FOR_DELIVERY), so Order holds a state object or a transition table and rejects illegal events. Fee calculation varies by city and time, so a FeePolicy strategy chosen by a registry keyed on city, with a time-of-day wrapper. On DELIVERED, Order publishes an event after committing the state; rating, payout and analytics subscribe, and a failing listener is logged and retried without undoing the delivery. Each delivery provider gets an adapter implementing DeliveryPartner.assign and track. I would not add a singleton repository or a factory for Order itself, since there is one kind of order."
+    pitfalls:
+      - Listing patterns without tying each to a change.
+      - Running payout synchronously inside the delivered transition so a payout failure blocks delivery.
+    follow_ups:
+      - prompt: Payout must happen exactly once even if the delivered event is published twice. How?
+        look_for: "Idempotent listener keyed by order id (store processed ids, or a unique constraint), not reliance on exactly-once delivery."
+      - prompt: Would you use the state pattern or a transition table here, and why?
+        look_for: "Table if states differ only in allowed transitions; state classes if states carry behaviour such as timers or fee recalculation."
+      - prompt: How would you test the observer wiring?
+        look_for: "Subscribe a recording listener, trigger the transition, assert the event and that a raising listener does not stop others."
+- key: lld.design_patterns.cards
+  type: revision_card
+  title: "Recall: design patterns"
+  skills: [lld.design_patterns]
+  minutes: 5
+  body:
+    cards:
+      - front: Strategy vs state?
+        back: Strategy is chosen from outside and stays; state changes itself as events arrive.
+      - front: Decorator pattern in one line?
+        back: Wrap an object with the same interface to add behaviour such as retry or logging.
+      - front: Adapter in one line?
+        back: Make a foreign API fit your interface, including units and errors.
+      - front: When do observers get notified?
+        back: After the subject's state change is complete, isolating listener failures.
+      - front: Why is singleton usually a smell?
+        back: Hidden global dependency, state shared across tests, no second configuration.
+      - front: Simplest Python factory?
+        back: A dictionary registry from key to constructor, failing loudly on unknown keys.
+
+# ---------------------------------------------------------------------------------------------- extensibility
+- key: lld.extensibility.lesson
+  type: lesson
+  title: Designing for the change requests you can predict
+  skills: [lld.extensibility]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Find the variation points in the requirements, put a seam at each, and keep everything else simple; a good design absorbs a predictable change by adding code, not by editing many classes.
+    what: |-
+      Extensibility is how cheaply a design accepts new requirements. In practice it means:
+
+      - **Variation points**: the parts the requirements or the domain say will vary (payment methods, pricing rules, channels, vehicle types, split types).
+      - **Seams**: an interface, a registry or a configuration entry at each variation point, so a new variant is a new class or a new row.
+      - **Stable core**: entities and flows that do not change when a variant is added.
+      - **Change locality**: one change request touches one or two places. The opposite, one change editing many classes, is called **shotgun surgery**.
+    why: |-
+      LLD interviews are built around change requests: after the base design, the interviewer adds "now support a new vehicle type", "now a second vendor", "now refunds". The score depends on how many of your classes change and whether the core flow survives. In production the same property decides how risky each feature is: editing a working payment flow to add a method risks breaking the existing methods.
+    when: |-
+      - When the prompt names several variants or says "for example" (several payment methods, e.g. card and UPI).
+      - When a rule is business-driven and changes often (pricing, eligibility, limits).
+      - At I/O boundaries, where vendors and protocols change.
+      - Not for things that have one realistic form; YAGNI (you are not going to need it) applies. A common heuristic is the rule of three: generalise on the third similar case, or the second if the requirement says more are coming.
+    how: |-
+      1. **List likely changes** from the requirements and the domain. Say them aloud: "pricing, vehicle types and gates are likely to change; the ticket lifecycle is not".
+      2. **Choose the seam** for each: strategy interface for algorithms, registry or factory for creation by key, observer for new reactions, decorator for cross-cutting behaviour, adapter for vendors, data or configuration when variants differ only by numbers.
+      3. **Keep the core ignorant**: the core flow calls the interface and never checks which variant it has. A type switch in the core is a missing seam.
+      4. **Design interfaces for evolution**: pass a request object or keyword arguments with defaults so adding a field does not break every implementation; return result objects rather than tuples.
+      5. **Check change locality** with a dry run: for each predicted change, count the files you would edit. One new class plus one registration line is the target.
+      6. **Do not pre-build variants**. A seam with one implementation is fine; three speculative implementations are not.
+    mental_model: |-
+      Picture the design as a power strip: the core is the strip, variation points are sockets, variants are plugs. Adding a device should never require rewiring the strip. Put sockets only where you expect devices; a strip with forty sockets for one lamp is clutter.
+    tradeoffs: |-
+      Each seam costs an interface, a registration mechanism and some indirection in debugging. Configuration-driven variants are fast to change but move logic into data that is harder to test and review. Very generic designs (rule engines, plug-in frameworks) can absorb anything but are slow to read and easy to misuse. The balance: seams at named variation points, plain code elsewhere, and a refactor when an unpredicted change arrives a second time.
+    mistakes:
+      - "Type switches in the core flow (`if method == 'UPI'`), so every new variant edits it."
+      - Speculative generality, such as an abstract base class for every entity and plug-in loading for two implementations.
+      - Interfaces whose methods take five positional parameters; adding a sixth breaks every implementation.
+      - A seam in the wrong place, for example making Ticket abstract when pricing is what varies.
+      - Ignoring backward compatibility of events and stored data when a variant adds fields.
+      - Answering a change request by editing three classes without noticing the pattern of the edits.
+    interview: |-
+      State the variation points before the interviewer asks; then, for each change request, say which class you add and which (ideally none) you edit. Interviewers often add a change that your design did not predict; respond by naming where the seam should go and what refactor you would make, rather than patching with a flag. Mention a place where you chose not to generalise and why.
+    explain_it:
+      - List the variation points and the seam for each.
+      - For one change request, list the files that change; aim for one new class and one registration.
+      - Show that the core flow contains no type switch.
+      - Name one deliberate non-generalisation.
+    example:
+      language: python
+      code: |-
+        from dataclasses import dataclass, field
+        from typing import Callable, Protocol
+
+
+        @dataclass(frozen=True)
+        class ChargeRequest:                      # request object: new fields get defaults, implementations keep working
+            amount_paise: int
+            currency: str = "INR"
+            metadata: dict[str, str] = field(default_factory=dict)
+
+
+        class PaymentMethod(Protocol):
+            def charge(self, req: ChargeRequest) -> str: ...      # returns a reference id
+
+
+        _METHODS: dict[str, Callable[[], PaymentMethod]] = {}
+
+
+        def register(key: str) -> Callable[[type], type]:
+            def wrap(cls: type) -> type:
+                if key in _METHODS:
+                    raise ValueError(f"duplicate payment method {key}")
+                _METHODS[key] = cls
+                return cls
+            return wrap
+
+
+        @register("card")
+        class CardPayment:
+            def charge(self, req: ChargeRequest) -> str:
+                return "card-ref"
+
+
+        @register("upi")
+        class UpiPayment:
+            def charge(self, req: ChargeRequest) -> str:
+                return "upi-ref"
+
+
+        def checkout(method_key: str, amount_paise: int) -> str:   # core flow: no type switch
+            try:
+                method = _METHODS[method_key]()
+            except KeyError:
+                raise ValueError(f"unsupported payment method {method_key!r}") from None
+            return method.charge(ChargeRequest(amount_paise))
+      explanation: A wallet method is one new class with a register line; checkout and the other methods are untouched, and ChargeRequest can gain fields without breaking implementations.
+    edge_cases:
+      - A change that crosses variation points (a new payment method that also needs a new refund flow) shows whether seams are aligned with real responsibilities.
+      - Registries populated by import side effects need the modules to be imported; register explicitly in the composition root if import order is fragile.
+      - Removing a variant must handle stored records that still reference it.
+    misconceptions:
+      - Extensible means generic. It means the predicted changes are cheap; everything else should stay simple.
+      - Open/Closed forbids editing classes. It asks that adding a variant not require editing the core.
+- key: lld.extensibility.check
+  type: concept_check
+  title: "Concept check: extensibility and change"
+  skills: [lld.extensibility]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: For each change, count which classes would need editing.
+    questions:
+      - id: q1
+        kind: single
+        prompt: Which code smell does this indicate? Adding a new notification channel required edits to NotificationService, PreferenceValidator, TemplateLoader, the admin API and a reporting job.
+        options: ["Speculative generality", "Shotgun surgery", "Feature envy", "Dead code"]
+        answer: [1]
+        explanation: "One change scattered across many classes is shotgun surgery: the channel concept has no single seam. Speculative generality is the opposite problem (seams nobody needs)."
+      - id: q2
+        kind: single
+        prompt: Spot types differ only by size code and hourly rate, and operations wants to add new types without a deploy. What is the best seam?
+        options:
+          - A subclass per spot type
+          - Spot types as data (configuration or a table) read at startup, with code only for behaviour that differs
+          - A plug-in framework that loads spot classes from a directory
+          - An if/elif in the pricing function
+        answer: [1]
+        explanation: "When variants differ only by numbers, data is the cheapest seam. Subclasses or plug-ins add code and deploys for what is a configuration change; the if/elif is the missing seam itself."
+      - id: q3
+        kind: multi
+        prompt: "An interface method is `charge(amount, currency, customer_id, idempotency_key)`. A new provider needs a `metadata` field. Which designs avoid breaking every implementation?"
+        options:
+          - Pass a ChargeRequest object whose new fields have defaults
+          - Add a fifth positional parameter
+          - Add a keyword-only parameter with a default value
+          - Create ChargeV2 with all the parameters and copy the code
+        answer: [0, 2]
+        explanation: "Request objects and keyword parameters with defaults let old implementations keep working. A new positional parameter breaks every caller and implementation; a V2 copy duplicates the flow."
+      - id: q4
+        kind: single
+        prompt: An interviewer asks for a change your design did not anticipate. What is the strongest response?
+        options:
+          - Add a boolean flag to the closest class and move on
+          - Name where the seam should be, describe the small refactor that introduces it, then add the change through it
+          - Say the design cannot support it
+          - Rewrite the design from scratch
+        answer: [1]
+        explanation: "Showing the refactor demonstrates that you see the missing variation point. A flag works once and becomes a type switch by the third change."
+      - id: q5
+        kind: single
+        prompt: Which is speculative generality in a 45-minute parking-lot design?
+        options:
+          - A PricingPolicy interface with hourly and flat implementations because the prompt mentions both
+          - An abstract Building base class for future malls and airports when the prompt is one parking lot
+          - Injecting a Clock for tests
+          - A VehicleType enum with a fit table
+        answer: [1]
+        explanation: "Nothing in the requirements varies the building; the abstraction costs time and adds no seam anyone uses. The pricing interface is backed by two named variants, and the clock is justified by tests."
+      - id: q6
+        kind: short
+        prompt: Describe how you would check change locality of a design before an interviewer asks for changes.
+        model_answer: "List the likely changes from the requirements and the domain (a new variant at each variation point, a new reaction to an event, a vendor switch). For each, walk through the design and count which classes are edited versus added. The target is one new class plus one registration or configuration line, with the core flow unchanged; any change that edits the core flow or several classes marks a missing seam to fix now or mention."
+        explanation: Doing this aloud is what turns extensibility from a claim into evidence.
+- key: lld.extensibility.shotgun_debug
+  type: debugging_exercise
+  title: "Debugging: a new channel that touched five files"
+  skills: [lld.extensibility, lld.design_patterns]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 1200}
+  body:
+    scenario: |-
+      A team added WhatsApp as a notification channel. The pull request edited five files and broke SMS delivery for users whose preference string was "sms,whatsapp". You are asked to explain the design flaw and propose a structure where the next channel is a one-file change.
+    artifacts:
+      language: python
+      code: |-
+        # notification_service.py
+        def notify(user, text):
+            for ch in user.prefs.split(","):
+                if ch == "email":
+                    send_email(user.email, text)
+                elif ch == "sms":
+                    send_sms(user.phone, text[:160])
+                elif ch == "whatsapp ":                 # typo introduced in the PR
+                    send_whatsapp(user.phone, text)
+
+        # preferences.py
+        VALID = {"email", "sms", "whatsapp"}
+
+        # templates.py
+        def max_length(ch):
+            return 160 if ch == "sms" else 1000 if ch == "whatsapp" else None
+
+        # admin_api.py:      CHANNEL_LABELS = {"email": "Email", "sms": "SMS", "whatsapp": "WhatsApp"}
+        # reports.py:        COST_PAISE = {"email": 0, "sms": 20, "whatsapp": 50}
+    symptoms:
+      - Users with sms,whatsapp preferences get SMS but never WhatsApp.
+      - Five files changed for one channel; each has its own list of channel names.
+    tasks:
+      - Explain why the bug was easy to introduce.
+      - Propose a design where a channel is one class registered in one place.
+      - Say what tests would have caught the typo.
+    hints:
+      - Count how many places know the list of channels.
+      - What would a Channel interface need to expose so templates, admin and reports can ask it instead of switching?
+    reference: |-
+      The channel concept has no home: five modules each switch on channel strings, so every new channel is shotgun surgery and a typo in one of them ("whatsapp " with a trailing space) silently drops a channel. The fix is a Channel interface that owns everything channel-specific (key, label, max length, cost, send) and one registry. notify looks up each preference in the registry and fails loudly on an unknown key; templates, admin and reports read attributes from the registered channels. Preferences are validated against the registry keys, so they cannot drift. A parameterised test over every registered channel (send called, length respected) plus a test that every stored preference key resolves would have caught the bug.
+    solution:
+      language: python
+      code: |-
+        from typing import Protocol
+
+
+        class Channel(Protocol):
+            key: str
+            label: str
+            max_length: int | None
+            cost_paise: int
+
+            def send(self, user, text: str) -> None: ...
+
+
+        class SmsChannel:
+            key, label, max_length, cost_paise = "sms", "SMS", 160, 20
+
+            def __init__(self, client) -> None:
+                self._client = client
+
+            def send(self, user, text: str) -> None:
+                self._client.send(user.phone, text[: self.max_length])
+
+
+        class ChannelRegistry:
+            def __init__(self, channels: list[Channel]) -> None:
+                self._by_key = {c.key: c for c in channels}
+
+            def get(self, key: str) -> Channel:
+                try:
+                    return self._by_key[key.strip()]
+                except KeyError:
+                    raise ValueError(f"unknown channel {key!r}") from None
+
+            def all(self) -> list[Channel]:
+                return list(self._by_key.values())
+
+
+        def notify(registry: ChannelRegistry, user, text: str) -> None:
+            for key in user.prefs.split(","):
+                registry.get(key).send(user, text)
+    rubric:
+      - {key: root_cause, label: "Identifies scattered channel knowledge as the root cause and not just the typo", points: 3}
+      - {key: single_seam, label: "Proposes a Channel interface owning label and limits and cost and send with one registry", points: 3}
+      - {key: fail_loud, label: "Unknown channel keys fail loudly instead of being skipped", points: 2}
+      - {key: tests, label: "Names a parameterised test over all registered channels", points: 2}
+    follow_ups:
+      - prompt: Reports need cost history even after a channel's price changes. Does cost still belong on the channel class?
+        look_for: "Current price can, but historical cost must be recorded on each delivery record at send time."
+      - prompt: A channel is retired but old preferences still reference it. What happens?
+        look_for: "Migration of stored preferences, or a registry entry marked retired that is skipped with a warning; never a silent drop."
+- key: lld.extensibility.interview
+  type: interview_question
+  title: "Interview question: walk three change requests through your design"
+  skills: [lld.extensibility, lld.class_design]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    prompt: "You have designed a ride-booking core: Rider, Driver, Trip with a lifecycle, a matching component and fare calculation. The interviewer asks for three changes: shared rides with two riders, surge pricing by zone and time, and a second map provider for ETAs. For each, say which classes you add, which you edit, and why."
+    key_points:
+      - "Surge pricing: a new FarePolicy implementation or a wrapper over the base fare, selected by zone; no edit to Trip."
+      - "Second map provider: an adapter implementing the ETA or routing interface the app owns; selection by configuration."
+      - "Shared rides: recognised as a deeper change (a trip with several riders and stops), requiring edits to Trip or a new SharedTrip with a list of legs; explained honestly as not a one-class change."
+      - States which seams existed and which had to be introduced.
+      - Mentions keeping existing tests green as the check that the core did not change behaviour.
+    model_answer: "Surge is the easy one: FarePolicy is already an interface, so SurgeFare(base, multiplier_source) wraps the base policy and the multiplier source reads zone and time; Trip and matching are untouched. The map provider is an adapter behind RoutingService.eta(from, to); a factory picks the provider from configuration, and I would keep a fallback to the other provider. Shared rides change the domain model: a trip now has several riders, pickups and drop-offs. I would introduce a Stop list on the trip and a fare split per rider, which edits Trip and the fare interface (fare per rider), plus a matching strategy that considers detours. I would say clearly that this is a model change, keep single-rider trips as the one-rider case, and lean on existing tests to show nothing regressed."
+    pitfalls:
+      - Claiming every change is a one-class change, including shared rides.
+      - Adding is_shared flags to Trip and branching everywhere.
+    follow_ups:
+      - prompt: How do you stop a provider outage from blocking ride requests?
+        look_for: "Timeout and fallback adapter (composite that tries the second provider) or a cached estimate; booking proceeds with a degraded ETA."
+      - prompt: Which change would you push back on in the interview's time box, and how?
+        look_for: "Shared rides: sketch the model change and its impact, and agree to defer details; shows prioritisation without refusing."
+- key: lld.extensibility.cards
+  type: revision_card
+  title: "Recall: extensibility"
+  skills: [lld.extensibility]
+  minutes: 5
+  body:
+    cards:
+      - front: Variation point?
+        back: A part the requirements or domain say will vary; it gets a seam.
+      - front: Shotgun surgery?
+        back: One change forces edits in many classes; the concept lacks a single home.
+      - front: Target cost of a predicted change?
+        back: One new class plus one registration or config line, core untouched.
+      - front: Variants differ only by numbers?
+        back: Make them data or configuration, not subclasses.
+      - front: Interface that survives new fields?
+        back: Request object or keyword parameters with defaults.
+      - front: Speculative generality?
+        back: Abstractions for changes nobody asked for; costs time, adds no used seam.
+
+# ---------------------------------------------------------------------------------------------- case: vending machine
+- key: lld.design_patterns.vending_machine
+  type: design_exercise
+  title: "Design: vending machine (45 minutes)"
+  skills: [lld.design_patterns, lld.class_design, lld.extensibility]
+  minutes: 60
+  difficulty: MEDIUM
+  observation: {kind: LLD_DESIGN, time_limit_seconds: 2700}
+  body:
+    prompt: |-
+      Design the software for a coin-operated vending machine: a user inserts coins, selects a product, receives the product and change, or cancels and gets the coins back. An operator restocks and empties the coin box. Focus on how the machine's behaviour depends on its current mode and how change is made.
+    requirements:
+      functional:
+        - Accept coins of fixed denominations; show the inserted balance.
+        - Select a product by slot code; dispense if paid enough and in stock, and return change.
+        - Cancel returns all inserted coins.
+        - Refuse a sale when exact change cannot be made, keeping the balance.
+        - Operator mode to restock products and collect coins; no sales during maintenance.
+      non_functional:
+        - Money in integer paise.
+        - New payment types (card, UPI) are likely later.
+        - Hardware (coin acceptor, dispenser motor) must be replaceable by fakes in tests.
+    approach:
+      - "Clarify: denominations, whether the machine can run out of change, one selection per transaction, what happens on dispense failure."
+      - "Entities: VendingMachine (context), Inventory (slot to product and count), CoinBox (counts per denomination), Product (value)."
+      - "States: Idle, HasMoney, Maintenance (and optionally OutOfOrder); events insert_coin, select, cancel, enter_maintenance, exit_maintenance."
+      - Each state implements only the events it accepts; illegal events raise with a clear message.
+      - "Change making: compute a combination from the coin box before dispensing; if none, refuse and stay in HasMoney."
+      - Hardware behind Dispenser and CoinReturn interfaces, injected.
+      - "Walk through: insert 20 + 10, select a 25 product, receive 5 change; then cancel flow; then sold-out slot."
+    hints:
+      - Greedy change-making is correct for unlimited coins of canonical systems like 1, 2, 5, 10, but with limited coin counts it can fail when change is possible; for a handful of denominations a small search is cheap and exact.
+      - Commit the coin box and inventory only after the dispenser reports success.
+    reference: |-
+      Main classes and responsibilities:
+
+      - `VendingMachine`: holds the current state, balance, inventory, coin box and hardware ports; forwards each event to the state.
+      - `State` base with `IdleState`, `HasMoneyState`, `MaintenanceState`; each returns the next state.
+      - `Inventory`: slot to (product, count); `take(slot)` and `restock(slot, n)`.
+      - `CoinBox`: counts per denomination; `add(coins)`, `make_change(amount) -> dict | None`, `remove(coins)`.
+      - `Dispenser`, `CoinReturn` (interfaces): hardware adapters.
+      - Later: `PaymentMethod` strategy when cards arrive; the HasMoney state becomes 'has credit' regardless of source.
+
+      Trade-offs to state: state pattern vs a transition table (three states and five events is borderline; state classes win because select has real logic). Exact change search vs greedy: exactness matters because refusing a sale that was possible loses money, and with five denominations the search is tiny.
+    code:
+      language: python
+      code: |-
+        from __future__ import annotations
+
+        from dataclasses import dataclass
+        from typing import Protocol
+
+        DENOMINATIONS = (20, 10, 5, 2, 1)    # rupees here for readability; store paise in production
+
+
+        @dataclass(frozen=True)
+        class Product:
+            code: str
+            name: str
+            price: int
+
+
+        class Dispenser(Protocol):
+            def dispense(self, slot: str) -> bool: ...
+
+
+        class CoinReturn(Protocol):
+            def give(self, coins: dict[int, int]) -> None: ...
+
+
+        class CoinBox:
+            def __init__(self, counts: dict[int, int]) -> None:
+                self._counts = {d: counts.get(d, 0) for d in DENOMINATIONS}
+
+            def add(self, coins: dict[int, int]) -> None:
+                for d, n in coins.items():
+                    self._counts[d] += n
+
+            def make_change(self, amount: int) -> dict[int, int] | None:
+                """Exact search over limited coins, largest first; returns None if impossible."""
+                def search(i: int, left: int) -> dict[int, int] | None:
+                    if left == 0:
+                        return {}
+                    if i == len(DENOMINATIONS):
+                        return None
+                    d = DENOMINATIONS[i]
+                    for n in range(min(self._counts[d], left // d), -1, -1):
+                        rest = search(i + 1, left - n * d)
+                        if rest is not None:
+                            return {**rest, d: n} if n else rest
+                    return None
+                return search(0, amount)
+
+            def remove(self, coins: dict[int, int]) -> None:
+                for d, n in coins.items():
+                    self._counts[d] -= n
+
+
+        class Inventory:
+            def __init__(self) -> None:
+                self._slots: dict[str, tuple[Product, int]] = {}
+
+            def product(self, slot: str) -> Product | None: ...
+            def in_stock(self, slot: str) -> bool: ...
+            def take(self, slot: str) -> None: ...
+            def restock(self, slot: str, product: Product, count: int) -> None: ...
+
+
+        class InvalidAction(Exception):
+            pass
+
+
+        class State:
+            name = "STATE"
+
+            def insert_coin(self, m: VendingMachine, coin: int) -> State:
+                raise InvalidAction(f"cannot insert coins in {self.name}")
+
+            def select(self, m: VendingMachine, slot: str) -> State:
+                raise InvalidAction(f"cannot select in {self.name}")
+
+            def cancel(self, m: VendingMachine) -> State:
+                raise InvalidAction(f"nothing to cancel in {self.name}")
+
+            def maintenance(self, m: VendingMachine, on: bool) -> State:
+                raise InvalidAction(f"cannot change maintenance in {self.name}")
+
+
+        class IdleState(State):
+            name = "IDLE"
+
+            def insert_coin(self, m: VendingMachine, coin: int) -> State:
+                m.accept(coin)
+                return HAS_MONEY
+
+            def maintenance(self, m: VendingMachine, on: bool) -> State:
+                return MAINTENANCE if on else self
+
+
+        class HasMoneyState(State):
+            name = "HAS_MONEY"
+
+            def insert_coin(self, m: VendingMachine, coin: int) -> State:
+                m.accept(coin)
+                return self
+
+            def select(self, m: VendingMachine, slot: str) -> State:
+                return m.try_sell(slot)          # returns IDLE on success, HAS_MONEY on refusal
+
+            def cancel(self, m: VendingMachine) -> State:
+                m.refund_inserted()
+                return IDLE
+
+
+        class MaintenanceState(State):
+            name = "MAINTENANCE"
+
+            def maintenance(self, m: VendingMachine, on: bool) -> State:
+                return self if on else IDLE
+
+
+        IDLE, HAS_MONEY, MAINTENANCE = IdleState(), HasMoneyState(), MaintenanceState()
+
+
+        class VendingMachine:
+            def __init__(self, inventory: Inventory, coins: CoinBox,
+                         dispenser: Dispenser, coin_return: CoinReturn) -> None:
+                self._state: State = IDLE
+                self._inventory, self._coins = inventory, coins
+                self._dispenser, self._coin_return = dispenser, coin_return
+                self._inserted: dict[int, int] = {}
+
+            @property
+            def balance(self) -> int:
+                return sum(d * n for d, n in self._inserted.items())
+
+            def insert_coin(self, coin: int) -> None:
+                self._state = self._state.insert_coin(self, coin)
+
+            def select(self, slot: str) -> None:
+                self._state = self._state.select(self, slot)
+
+            def cancel(self) -> None:
+                self._state = self._state.cancel(self)
+
+            # helpers used by states
+            def accept(self, coin: int) -> None: ...
+            def refund_inserted(self) -> None: ...
+            def try_sell(self, slot: str) -> State: ...
+            # try_sell: check product, stock and balance >= price; add inserted coins to the box;
+            # change = make_change(balance - price); if None, remove them again and refuse;
+            # dispense; on success take stock, remove change, give change, clear inserted, return IDLE
+      explanation: The coin search is exponential in the worst case but trivially small for five denominations and realistic amounts; say so if asked. Inserted coins join the box before making change so they can be used as change.
+    rubric:
+      - {key: clarification, label: "Asks about denominations and running out of change and dispense failure and maintenance", points: 2}
+      - {key: responsibilities, label: "Separates machine context from Inventory and CoinBox and hardware ports", points: 2}
+      - {key: abstractions, label: "Uses the state pattern with per-state handlers and hardware behind interfaces", points: 2}
+      - {key: extensibility, label: "Shows how card payment or a new state is added without editing existing states much", points: 1}
+      - {key: tradeoffs, label: "Explains state classes vs transition table and greedy vs exact change", points: 1}
+      - {key: edge_cases, label: "Covers exact change impossible and sold-out slot and dispense failure and cancel", points: 1}
+      - {key: testability, label: "Shows a test with a fake dispenser that fails and asserts coins and stock are unchanged", points: 1}
+    follow_ups:
+      - prompt: "Change request: accept card and UPI payments."
+        look_for: "A PaymentMethod strategy producing a credit; HasMoney becomes HasCredit; change only applies to cash; card authorisation happens before dispense and is voided on failure."
+      - prompt: "Change request: the operator wants a daily sales report."
+        look_for: "Observer on successful sales writing to a sales log; the state classes are not changed."
+      - prompt: "Change request: a product can be on promotion, two for the price of one-and-a-half."
+        look_for: "A PricingPolicy for the slot or basket; selection flow asks the policy for the price; multi-item selection may need a basket state."
+      - prompt: The motor jams after the coins were accepted. What should the machine do?
+        look_for: "Dispenser reports failure; do not take stock; refund the inserted coins; move to OutOfOrder for that slot or the machine and raise an alert."
+
+# ---------------------------------------------------------------------------------------------- case: elevator
+- key: lld.design_patterns.elevator
+  type: design_exercise
+  title: "Design: elevator system (45 minutes)"
+  skills: [lld.design_patterns, lld.class_design, lld.concurrency_safety, lld.extensibility]
+  minutes: 60
+  difficulty: HARD
+  observation: {kind: LLD_DESIGN, time_limit_seconds: 2700}
+  body:
+    prompt: |-
+      Design the control software for a building with several elevator cars. Passengers press up or down on a floor (hall call) or a destination button inside a car (car call). Design how calls are assigned to cars, how each car decides where to go next, and how the system is simulated step by step. Give class outlines and key method signatures.
+    requirements:
+      functional:
+        - N floors and M cars; each car has a current floor, direction, door state and a set of stops.
+        - Hall calls carry a floor and a direction; car calls carry a destination floor for that car.
+        - A dispatcher assigns each hall call to one car.
+        - Each car serves stops in its direction of travel before reversing (LOOK style).
+        - A car can be put into maintenance and receives no new calls.
+        - A tick-based simulation advances the system for testing.
+      non_functional:
+        - Calls arrive concurrently from many buttons while cars move.
+        - The dispatching algorithm is expected to change (nearest car, least busy, zoning).
+        - Deterministic simulation for tests.
+    approach:
+      - "Clarify: capacity and weight limits (out of scope at first), express zones, priority calls such as fire service, door timing."
+      - "Values: HallCall(floor, direction), CarCall(car_id, floor); enums Direction (UP, DOWN, IDLE) and CarMode (IDLE, MOVING, DOORS_OPEN, MAINTENANCE)."
+      - "ElevatorCar owns its stops and decides its next move (LOOK): continue while there are stops ahead, otherwise reverse or idle."
+      - "Dispatcher is a strategy: `choose(cars, call) -> car`; NearestSuitableCar scores by distance and whether the car is moving towards the call."
+      - "ElevatorSystem receives calls through a thread-safe queue and applies them on each tick, so car state is mutated by one thread only."
+      - "Walk through: car at floor 3 going up with stops 5 and 8 receives a hall call at 6 up (assigned, served on the way) and 2 up (served after reversing)."
+    hints:
+      - Keep up-stops and down-stops separately, or one set plus direction logic; say which.
+      - Single-writer simulation (one control loop applying queued calls) removes most locking.
+      - Score cars rather than hard-code rules, so new dispatch policies only change the score.
+    reference: |-
+      Main classes and responsibilities:
+
+      - `ElevatorCar`: id, floor, direction, mode, stops; `add_stop(floor)`, `step()` (one tick: open doors, move one floor, or idle), `cost_to_serve(call)`.
+      - `Dispatcher` (strategy interface): `choose(cars, call) -> ElevatorCar | None`; NearestSuitableCar, later ZonedDispatcher.
+      - `ElevatorSystem` (controller): cars, dispatcher, an inbound `queue.Queue` of calls; `submit(call)` from any thread, `tick()` drains the queue and steps every car.
+      - Car modes behave differently on step (moving vs doors open vs maintenance): a state enum with a match is enough here; state classes if modes gain more behaviour.
+      - Optional observer for floor displays and logs.
+
+      Trade-offs to state: single-writer loop vs locks on each car (the loop is simpler and deterministic; locks allow direct calls but invite deadlocks when the dispatcher reads many cars). LOOK vs nearest-first per car (LOOK avoids starvation of far floors). Assigning a hall call once vs reassigning when a better car appears (reassignment improves wait times but complicates displays).
+    code:
+      language: python
+      code: |-
+        from __future__ import annotations
+
+        import queue
+        from dataclasses import dataclass, field
+        from enum import Enum
+        from typing import Protocol
+
+
+        class Direction(Enum):
+            UP = 1
+            DOWN = -1
+            IDLE = 0
+
+
+        class CarMode(Enum):
+            IDLE = "IDLE"
+            MOVING = "MOVING"
+            DOORS_OPEN = "DOORS_OPEN"
+            MAINTENANCE = "MAINTENANCE"
+
+
+        @dataclass(frozen=True)
+        class HallCall:
+            floor: int
+            direction: Direction
+
+
+        @dataclass(frozen=True)
+        class CarCall:
+            car_id: str
+            floor: int
+
+
+        @dataclass
+        class ElevatorCar:
+            car_id: str
+            floor: int = 0
+            direction: Direction = Direction.IDLE
+            mode: CarMode = CarMode.IDLE
+            stops: set[int] = field(default_factory=set)
+
+            def add_stop(self, floor: int) -> None:
+                if self.mode is CarMode.MAINTENANCE:
+                    raise RuntimeError(f"car {self.car_id} is in maintenance")
+                self.stops.add(floor)
+
+            def step(self) -> None:
+                """One tick of LOOK scheduling."""
+                if self.mode is CarMode.MAINTENANCE:
+                    return
+                if self.mode is CarMode.DOORS_OPEN:
+                    self.mode = CarMode.IDLE if not self.stops else CarMode.MOVING
+                    return
+                if self.floor in self.stops:
+                    self.stops.discard(self.floor)
+                    self.mode = CarMode.DOORS_OPEN
+                    return
+                if not self.stops:
+                    self.direction, self.mode = Direction.IDLE, CarMode.IDLE
+                    return
+                ahead = [s for s in self.stops if (s - self.floor) * self.direction.value > 0]
+                if self.direction is Direction.IDLE or not ahead:
+                    nearest = min(self.stops, key=lambda s: abs(s - self.floor))
+                    self.direction = Direction.UP if nearest > self.floor else Direction.DOWN
+                self.mode = CarMode.MOVING
+                self.floor += self.direction.value
+
+            def cost_to_serve(self, call: HallCall) -> int:
+                distance = abs(self.floor - call.floor)
+                if self.direction is Direction.IDLE:
+                    return distance
+                towards = (call.floor - self.floor) * self.direction.value >= 0
+                same_way = call.direction is self.direction
+                return distance if towards and same_way else distance + 2 * len(self.stops) + 10
+
+
+        class Dispatcher(Protocol):
+            def choose(self, cars: list[ElevatorCar], call: HallCall) -> ElevatorCar | None: ...
+
+
+        class NearestSuitableCar:
+            def choose(self, cars: list[ElevatorCar], call: HallCall) -> ElevatorCar | None:
+                available = [c for c in cars if c.mode is not CarMode.MAINTENANCE]
+                return min(available, key=lambda c: (c.cost_to_serve(call), c.car_id), default=None)
+
+
+        class ElevatorSystem:
+            def __init__(self, cars: list[ElevatorCar], dispatcher: Dispatcher) -> None:
+                self._cars = {c.car_id: c for c in cars}
+                self._dispatcher = dispatcher
+                self._inbox: queue.Queue[HallCall | CarCall] = queue.Queue()
+                self._pending: list[HallCall] = []
+
+            def submit(self, call: HallCall | CarCall) -> None:     # safe from any thread
+                self._inbox.put(call)
+
+            def tick(self) -> None:                                 # only the control loop calls this
+                while True:
+                    try:
+                        call = self._inbox.get_nowait()
+                    except queue.Empty:
+                        break
+                    if isinstance(call, CarCall):
+                        self._cars[call.car_id].add_stop(call.floor)
+                    else:
+                        self._pending.append(call)
+                still_pending = []
+                for call in self._pending:
+                    car = self._dispatcher.choose(list(self._cars.values()), call)
+                    if car is None:
+                        still_pending.append(call)                  # every car in maintenance
+                    else:
+                        car.add_stop(call.floor)
+                self._pending = still_pending
+                for car in self._cars.values():
+                    car.step()
+      explanation: The cost function is deliberately simple and replaceable; the tie-break on car_id keeps the simulation deterministic for tests. Using isinstance on the two call types at the queue boundary is acceptable because the set of call types is closed.
+    rubric:
+      - {key: clarification, label: "Asks about number of cars and floors and capacity and priority modes and timing", points: 2}
+      - {key: responsibilities, label: "Car owns its stops and next move while the dispatcher only assigns hall calls", points: 2}
+      - {key: abstractions, label: "Dispatcher is a strategy and car modes are an explicit state enum or state classes", points: 2}
+      - {key: extensibility, label: "Shows a new dispatch policy or a fire-service mode with contained changes", points: 1}
+      - {key: tradeoffs, label: "Explains single-writer loop vs per-car locks or LOOK vs nearest-first", points: 1}
+      - {key: edge_cases, label: "Covers all cars in maintenance and a call at the car's current floor and direction reversal", points: 1}
+      - {key: testability, label: "Uses deterministic ticks and shows a test asserting the floor sequence of a car", points: 1}
+    follow_ups:
+      - prompt: "Change request: a fire-service mode recalls all cars to the ground floor and ignores hall calls."
+        look_for: "A system-level mode checked in tick (or a state for the system) that clears pending hall calls and sets a single stop; cars and dispatcher keep their logic."
+      - prompt: "Change request: cars have a capacity of eight people and full cars should skip hall calls."
+        look_for: "Load tracked on the car from a sensor port; cost_to_serve returns a large value when full; the dispatcher logic stays the same."
+      - prompt: "Change request: morning peak zoning, where cars A and B serve floors 1 to 10 and C and D floors 11 to 20."
+        look_for: "A ZonedDispatcher strategy filtering cars by zone before scoring, switched by schedule; no change to ElevatorCar."
+      - prompt: Why use a queue and a single control loop instead of locking each car?
+        look_for: "All mutation happens on one thread, so no lock ordering or torn reads across cars; the queue is the only synchronised object; trade-off is latency of one tick."
+
+# ---------------------------------------------------------------------------------------------- case: notification system
+- key: lld.extensibility.notification_system
+  type: design_exercise
+  title: "Design: notification system, in-process LLD (45 minutes)"
+  skills: [lld.extensibility, lld.design_patterns, lld.class_design]
+  minutes: 60
+  difficulty: MEDIUM
+  observation: {kind: LLD_DESIGN, time_limit_seconds: 2700}
+  body:
+    prompt: |-
+      Design the classes of a notification module used inside one backend service. Business code raises events such as OrderShipped or PasswordReset; the module decides which users to notify, through which channels (email, SMS, push) based on their preferences, renders templates and sends with retries. This is the object design, not a distributed system: queues and scaling are follow-ups.
+    requirements:
+      functional:
+        - Business code publishes typed events; rules map event types to templates and priority.
+        - Each user has channel preferences and quiet hours; critical notifications (password reset) ignore quiet hours.
+        - Templates are rendered per channel with event parameters; SMS has a length limit.
+        - Sending retries transient failures with a bounded number of attempts.
+        - Every attempt is recorded with status for auditing.
+        - The same event delivered twice must not notify the user twice.
+      non_functional:
+        - New channels and vendors are added often; adding one must be a contained change.
+        - Business code must not depend on channels or vendors.
+        - Testable without network access.
+    approach:
+      - "Clarify: which events, channels in scope, preference model, quiet hours and time zone, idempotency, synchronous vs queued sending."
+      - "Values: Event (type, id, user_id, params), Message (channel, recipient, body). Entities: DeliveryRecord. Interfaces: Channel, TemplateRenderer, PreferenceStore, DeliveryLog."
+      - "Observer at the boundary: business code calls `notifications.publish(event)`; the module owns the subscription rules."
+      - "NotificationService: dedupe by event id and channel, resolve rules, check preferences and quiet hours, render, send through the channel, record."
+      - "Channels are adapters over vendors; RetryingChannel decorates any channel; a ChannelRegistry is the factory by key."
+      - "Walk through: OrderShipped for a user with email and push enabled during quiet hours (push suppressed, email sent); then a PasswordReset at the same time (sent)."
+    hints:
+      - Idempotency key = event id plus channel; check and record it in the same operation.
+      - Quiet hours need the user's time zone; inject a clock that returns UTC and convert.
+      - Retries belong in a decorator so every channel gets them.
+    reference: |-
+      Main classes and responsibilities:
+
+      - `Event` (frozen): event_id, type, user_id, params, critical flag from the rule.
+      - `NotificationRule`: event type to template id per channel and whether it is critical.
+      - `Channel` (interface): key, max_length, `send(message) -> SendResult`; EmailChannel, SmsChannel, PushChannel as adapters.
+      - `RetryingChannel` (decorator) with attempts and a backoff function; `ChannelRegistry` (factory by key).
+      - `PreferenceStore`, `TemplateRenderer`, `DeliveryLog` (interfaces) with in-memory implementations.
+      - `NotificationService` (controller): `publish(event)`.
+
+      Trade-offs to state: synchronous sending is simple but makes the business request wait on vendors; the follow-up is an outbox or queue between publish and send. Rendering per channel keeps SMS short at the cost of more templates. Dedupe in the delivery log is exact within one store; across services it needs a shared store.
+    code:
+      language: python
+      code: |-
+        from __future__ import annotations
+
+        from dataclasses import dataclass, field
+        from datetime import datetime, time
+        from enum import Enum
+        from typing import Callable, Protocol
+
+
+        @dataclass(frozen=True)
+        class Event:
+            event_id: str
+            type: str
+            user_id: str
+            params: dict[str, str] = field(default_factory=dict)
+
+
+        @dataclass(frozen=True)
+        class NotificationRule:
+            event_type: str
+            templates: dict[str, str]          # channel key -> template id
+            critical: bool = False
+
+
+        @dataclass(frozen=True)
+        class Message:
+            channel: str
+            recipient: str
+            body: str
+
+
+        class SendStatus(Enum):
+            SENT = "SENT"
+            FAILED = "FAILED"
+            SUPPRESSED = "SUPPRESSED"
+
+
+        class TransientSendError(Exception):
+            pass
+
+
+        class Channel(Protocol):
+            key: str
+            max_length: int | None
+
+            def send(self, message: Message) -> None: ...      # raises TransientSendError or ValueError
+
+
+        class RetryingChannel:
+            def __init__(self, inner: Channel, attempts: int, sleep: Callable[[int], None]) -> None:
+                self.key, self.max_length = inner.key, inner.max_length
+                self._inner, self._attempts, self._sleep = inner, attempts, sleep
+
+            def send(self, message: Message) -> None:
+                for attempt in range(1, self._attempts + 1):
+                    try:
+                        self._inner.send(message)
+                        return
+                    except TransientSendError:
+                        if attempt == self._attempts:
+                            raise
+                        self._sleep(2 ** attempt * 100)            # milliseconds, exponential backoff
+
+
+        @dataclass(frozen=True)
+        class Preferences:
+            channels: frozenset[str]
+            addresses: dict[str, str]          # channel key -> email, phone or device token
+            quiet_start: time | None = None
+            quiet_end: time | None = None
+            tz: str = "Asia/Kolkata"
+
+            def in_quiet_hours(self, local: time) -> bool: ...   # handles windows crossing midnight
+
+
+        class PreferenceStore(Protocol):
+            def get(self, user_id: str) -> Preferences: ...
+
+        class TemplateRenderer(Protocol):
+            def render(self, template_id: str, params: dict[str, str], max_length: int | None) -> str: ...
+
+        class DeliveryLog(Protocol):
+            def claim(self, event_id: str, channel: str) -> bool: ...   # False if already claimed
+            def record(self, event_id: str, channel: str, status: SendStatus, detail: str = "") -> None: ...
+
+        class Clock(Protocol):
+            def now(self) -> datetime: ...                              # timezone-aware UTC
+
+
+        class NotificationService:
+            def __init__(self, rules: dict[str, NotificationRule], channels: dict[str, Channel],
+                         prefs: PreferenceStore, renderer: TemplateRenderer,
+                         log: DeliveryLog, clock: Clock) -> None: ...
+
+            def publish(self, event: Event) -> dict[str, SendStatus]:
+                """For each channel in rule and preferences: claim (dedupe), check quiet hours
+                unless critical, render, send, record. One channel failing does not stop others."""
+                ...
+      explanation: The service sees only interfaces; vendors live in channel adapters, retries in a decorator, and the delivery log provides both idempotency and the audit trail.
+    rubric:
+      - {key: clarification, label: "Asks about channels and preferences and quiet hours and time zones and idempotency and sync vs queued", points: 2}
+      - {key: responsibilities, label: "Business code only publishes events and the service alone decides channels and rendering", points: 2}
+      - {key: abstractions, label: "Channel adapters and a retry decorator and a registry or mapping of channels", points: 2}
+      - {key: extensibility, label: "Shows a new channel such as WhatsApp as one adapter plus registration", points: 1}
+      - {key: tradeoffs, label: "Explains synchronous sending vs an outbox or queue and per-channel templates", points: 1}
+      - {key: edge_cases, label: "Covers duplicate events and missing address and quiet hours across midnight and one channel failing", points: 1}
+      - {key: testability, label: "Uses fake channels and a fixed clock to test quiet hours and retries without network", points: 1}
+    follow_ups:
+      - prompt: "Change request: users can choose a daily digest instead of instant emails."
+        look_for: "Digest preference routes messages to a DigestBuffer instead of the channel; a scheduled job renders and sends one message; NotificationService gains one branch through a strategy (InstantDelivery vs DigestDelivery)."
+      - prompt: "Change request: the SMS vendor is unreliable; fail over to a second vendor."
+        look_for: "A FailoverChannel composite wrapping two SMS adapters, tried in order; still one Channel to the service."
+      - prompt: "Change request: limit each user to at most five marketing notifications per day."
+        look_for: "A rate-limit check (decorator or policy) keyed by user and category with a counter store; critical notifications bypass it."
+      - prompt: Publishing must not slow down checkout. What changes?
+        look_for: "publish writes to an outbox or in-process queue and returns; worker threads send; idempotency in the delivery log makes redelivery safe."
+
+# ---------------------------------------------------------------------------------------------- case: payment system
+- key: lld.extensibility.payment_system
+  type: design_exercise
+  title: "Design: payment processing module (45 minutes)"
+  skills: [lld.extensibility, lld.design_patterns, lld.concurrency_safety, lld.requirements_entities]
+  minutes: 60
+  difficulty: HARD
+  observation: {kind: LLD_DESIGN, time_limit_seconds: 2700}
+  body:
+    prompt: |-
+      Design the payment module of an e-commerce backend: it creates payments for orders, authorises and captures them through external gateways, supports partial refunds, and must never charge a customer twice for the same order attempt. Several gateways and payment methods (card, UPI, wallet) are supported. Produce the classes, the payment lifecycle and the key method signatures.
+    requirements:
+      functional:
+        - Create a payment for an order amount and method; authorise, then capture (or void the authorisation).
+        - Partial and full refunds; the refunded total never exceeds the captured amount.
+        - Route each payment method to a gateway; a gateway can be switched by configuration.
+        - Handle asynchronous gateway confirmations (webhooks) that may arrive late, twice or out of order.
+        - Retrying a create request with the same idempotency key returns the original payment.
+      non_functional:
+        - No double charges under client retries or concurrent requests.
+        - Money in integer minor units with currency.
+        - New gateways and methods are added regularly; card data never stored by this module.
+        - Every state change is auditable.
+    approach:
+      - "Clarify: one currency or several, auth-and-capture vs direct sale, who calls refund, webhook vs polling, what the client does on timeout."
+      - "Values: Money(amount_minor, currency). Entities: Payment (id, order, amount, method, status, gateway ref, captured, refunded), Refund. Enum PaymentStatus."
+      - "Lifecycle with a transition table: CREATED to AUTHORIZED or FAILED; AUTHORIZED to CAPTURED, VOIDED or FAILED; CAPTURED to PARTIALLY_REFUNDED or REFUNDED; PARTIALLY_REFUNDED to REFUNDED. Payment enforces it."
+      - "Gateway interface with authorise, capture, void, refund; one adapter per vendor maps units, references and errors; a router picks the gateway per method."
+      - "Idempotency: an IdempotencyStore maps key to payment id; claim the key under a lock (per key) before calling the gateway, and return the stored payment on a repeat."
+      - "Webhooks go through the same transition guard, so a late or duplicate confirmation is a no-op or a recorded conflict, never a second state change."
+      - "Walk through: client times out after create and retries with the same key; capture; two partial refunds; a duplicate webhook."
+    hints:
+      - Keep gateway calls outside the lock when possible, but the idempotency claim must be atomic.
+      - "Never infer success from a timeout; record the attempt as PENDING and reconcile by querying the gateway."
+    reference: |-
+      Main classes and responsibilities:
+
+      - `Money` (frozen value) with add and subtract that refuse mixed currencies.
+      - `Payment` (entity): owns status transitions through a table and the refund invariant.
+      - `PaymentGateway` (interface) and adapters `VendorAGateway`, `VendorBGateway`; `GatewayRouter` (strategy by method and configuration).
+      - `IdempotencyStore`: `claim(key, fingerprint) -> existing payment id or None`; rejects reuse of a key with a different request.
+      - `PaymentService` (controller): create_and_authorise, capture, void, refund, handle_webhook.
+      - `AuditLog`: append-only records of each transition with actor and time.
+
+      Trade-offs to state: auth then capture costs a second call but allows voiding when the order cannot ship; a per-key lock is fine in one process but across instances needs a database unique constraint on the key. Webhooks are the source of truth for async methods; synchronous responses are optimistic.
+    code:
+      language: python
+      code: |-
+        from __future__ import annotations
+
+        import threading
+        from dataclasses import dataclass, field
+        from enum import Enum
+        from typing import Protocol
+
+
+        @dataclass(frozen=True)
+        class Money:
+            amount_minor: int
+            currency: str
+
+            def __add__(self, other: Money) -> Money:
+                self._same(other)
+                return Money(self.amount_minor + other.amount_minor, self.currency)
+
+            def _same(self, other: Money) -> None:
+                if other.currency != self.currency:
+                    raise ValueError("currency mismatch")
+
+
+        class PaymentStatus(Enum):
+            CREATED = "CREATED"
+            AUTHORIZED = "AUTHORIZED"
+            CAPTURED = "CAPTURED"
+            PARTIALLY_REFUNDED = "PARTIALLY_REFUNDED"
+            REFUNDED = "REFUNDED"
+            VOIDED = "VOIDED"
+            FAILED = "FAILED"
+
+
+        ALLOWED: dict[PaymentStatus, frozenset[PaymentStatus]] = {
+            PaymentStatus.CREATED: frozenset({PaymentStatus.AUTHORIZED, PaymentStatus.FAILED}),
+            PaymentStatus.AUTHORIZED: frozenset({PaymentStatus.CAPTURED, PaymentStatus.VOIDED, PaymentStatus.FAILED}),
+            PaymentStatus.CAPTURED: frozenset({PaymentStatus.PARTIALLY_REFUNDED, PaymentStatus.REFUNDED}),
+            PaymentStatus.PARTIALLY_REFUNDED: frozenset({PaymentStatus.PARTIALLY_REFUNDED, PaymentStatus.REFUNDED}),
+        }
+
+
+        class IllegalTransition(Exception):
+            pass
+
+
+        @dataclass
+        class Payment:
+            payment_id: str
+            order_id: str
+            amount: Money
+            method: str
+            status: PaymentStatus = PaymentStatus.CREATED
+            gateway: str | None = None
+            gateway_ref: str | None = None
+            refunded_minor: int = 0
+
+            def transition(self, to: PaymentStatus) -> None:
+                if to not in ALLOWED.get(self.status, frozenset()):
+                    raise IllegalTransition(f"{self.status.value} -> {to.value}")
+                self.status = to
+
+            def record_refund(self, amount: Money) -> None:
+                self.amount._same(amount)
+                if amount.amount_minor <= 0:
+                    raise ValueError("refund must be positive")
+                if self.refunded_minor + amount.amount_minor > self.amount.amount_minor:
+                    raise ValueError("refund exceeds captured amount")
+                self.refunded_minor += amount.amount_minor
+                full = self.refunded_minor == self.amount.amount_minor
+                self.transition(PaymentStatus.REFUNDED if full else PaymentStatus.PARTIALLY_REFUNDED)
+
+
+        @dataclass(frozen=True)
+        class GatewayResult:
+            ok: bool
+            gateway_ref: str | None
+            retryable: bool = False
+            reason: str = ""
+
+
+        class PaymentGateway(Protocol):
+            name: str
+            def authorise(self, payment_id: str, amount: Money, method_token: str) -> GatewayResult: ...
+            def capture(self, gateway_ref: str, amount: Money) -> GatewayResult: ...
+            def void(self, gateway_ref: str) -> GatewayResult: ...
+            def refund(self, gateway_ref: str, amount: Money, refund_id: str) -> GatewayResult: ...
+
+
+        class GatewayRouter(Protocol):
+            def for_method(self, method: str) -> PaymentGateway: ...
+
+
+        class IdempotencyStore:
+            def __init__(self) -> None:
+                self._by_key: dict[str, tuple[str, str]] = {}      # key -> (request fingerprint, payment id)
+                self._lock = threading.Lock()
+
+            def claim(self, key: str, fingerprint: str, new_payment_id: str) -> str:
+                """Returns the payment id to use: the new one if the key is fresh, else the original."""
+                with self._lock:
+                    if key in self._by_key:
+                        seen_fp, payment_id = self._by_key[key]
+                        if seen_fp != fingerprint:
+                            raise ValueError("idempotency key reused with a different request")
+                        return payment_id
+                    self._by_key[key] = (fingerprint, new_payment_id)
+                    return new_payment_id
+
+
+        class PaymentService:
+            def __init__(self, payments, router: GatewayRouter, idempotency: IdempotencyStore, audit) -> None: ...
+
+            def create_and_authorise(self, idempotency_key: str, order_id: str, amount: Money,
+                                     method: str, method_token: str) -> Payment: ...
+            def capture(self, payment_id: str) -> Payment: ...
+            def void(self, payment_id: str) -> Payment: ...
+            def refund(self, payment_id: str, amount: Money, refund_id: str) -> Payment: ...
+            def handle_webhook(self, gateway: str, gateway_ref: str, event: str) -> None: ...
+      explanation: "The payment owns its lifecycle and refund invariant; gateways are adapters chosen by a router; the idempotency claim is atomic. A per-payment lock (or a version check on save) serialises capture, refund and webhook updates for the same payment."
+    rubric:
+      - {key: clarification, label: "Asks about auth-capture vs sale and currencies and webhooks and client timeout behaviour", points: 2}
+      - {key: responsibilities, label: "Payment enforces transitions and the refund cap while the service only orchestrates", points: 2}
+      - {key: abstractions, label: "Gateway interface with vendor adapters and a router strategy and Money as a value object", points: 2}
+      - {key: extensibility, label: "Shows a new gateway or method as an adapter plus router configuration", points: 1}
+      - {key: tradeoffs, label: "Explains in-process lock vs database unique key and webhook as source of truth", points: 1}
+      - {key: edge_cases, label: "Covers retry with same key and key reuse with different body and duplicate or out-of-order webhooks and over-refund", points: 1}
+      - {key: testability, label: "Uses a fake gateway that times out or declines and asserts no double charge", points: 1}
+    follow_ups:
+      - prompt: "Change request: if the primary gateway is down, fail over to the secondary for cards."
+        look_for: "Router returns an ordered list or a failover gateway composite; only retry on a definite failure, never after an ambiguous timeout without reconciliation."
+      - prompt: "Change request: support split payments, part wallet and part card."
+        look_for: "A PaymentIntent for the order holding several Payment legs; the order is paid when all legs capture; compensation (refund the wallet leg) if a later leg fails."
+      - prompt: "Change request: multi-currency checkout."
+        look_for: "Money already carries currency; record the exchange rate and settlement currency on the payment; refunds in the original currency."
+      - prompt: Two refund requests for the same payment arrive at the same time. What prevents over-refunding?
+        look_for: "A per-payment lock or optimistic version check around read-check-update of refunded_minor; refund_id as idempotency key for the gateway call."

@@ -17,14 +17,14 @@ def test_formatting_does_not_change_fingerprints(tmp_path: Path) -> None:
 
 def test_lock_workflow_for_a_new_version(tmp_path: Path) -> None:
     def change(raw: dict[str, object]) -> None:
-        bump_version(raw, "seed-v2")  # type: ignore[arg-type]
+        bump_version(raw, "seed-v3")  # type: ignore[arg-type]
         raw["problem_catalog"]["problems"][0]["title"] = "Two Sum (v2)"  # type: ignore[index]
 
     seed = copy_seed(tmp_path, mutate=change)
     assert {i.code for i in validate_seed_dir(seed).errors} == {"lock.unlocked_version"}
     version, lock_path = lock_seed_dir(seed)
-    assert version == "seed-v2"
+    assert version == "seed-v3"
     _, lock = read_seed(seed)
-    assert lock is not None and set(lock) == {"seed-v1", "seed-v2"}  # append-only
+    assert lock is not None and set(lock) == {"seed-v1", "seed-v2", "seed-v3"}  # append-only
     assert validate_seed_dir(seed).ok
     assert lock_path.name == "seed.lock.yaml"

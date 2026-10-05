@@ -25,6 +25,11 @@ from app.models import (
     AuditLog,
     BaselineItem,
     CatalogLoad,
+    LearningContent,
+    LearningContentSkill,
+    LearningTopic,
+    LearningTopicSkill,
+    LearningTrack,
     MissionTemplate,
     Problem,
     ProblemSkill,
@@ -266,6 +271,7 @@ class SeedLoader:
                     "is_canonical": p.is_canonical,
                     "active": True,
                     "seed_version": sv,
+                    "guide_json": _plain(p.guide) if p.guide is not None else None,
                 }
                 for p in catalog.problems
             ],
@@ -368,6 +374,7 @@ class SeedLoader:
             on_missing="delete",
             counts=report.tables.setdefault("roadmap_milestone_skills", TableCounts()),
         )
+        self._apply_learning(catalog, report, {str(k): v for k, v in skill_id.items()})
         _sync(
             s,
             BaselineItem,
@@ -389,6 +396,116 @@ class SeedLoader:
             counts=report.tables.setdefault("baseline_items", TableCounts()),
         )
         s.flush()
+
+    def _apply_learning(self, catalog: Catalog, report: LoadReport, skill_id: Mapping[str, int]) -> None:
+        """Curriculum and content (LEARNING_ENGINE §2). Content no longer in the seed is deactivated, never
+        deleted: sessions and observations keep referring to its key."""
+        sv, s, learning = catalog.seed_version, self._session, catalog.learning
+        tracks = _sync(
+            s,
+            LearningTrack,
+            key=lambda r: r.track_key,
+            desired=[
+                {
+                    "track_key": t.key,
+                    "title": t.title,
+                    "summary": t.summary,
+                    "components_json": list(t.components),
+                    "position": t.position,
+                    "seed_version": sv,
+                }
+                for t in learning.tracks
+            ],
+            desired_key=lambda d: d["track_key"],
+            on_missing="keep",  # removed below, after their topics
+            counts=report.tables.setdefault("learning_tracks", TableCounts()),
+            flush=True,
+        )
+        topics = _sync(
+            s,
+            LearningTopic,
+            key=lambda r: r.topic_key,
+            desired=[
+                {
+                    "topic_key": p.key,
+                    "track_id": tracks[t.key].id,
+                    "title": p.title,
+                    "summary": p.summary,
+                    "position": p.position,
+                    "seed_version": sv,
+                }
+                for t in learning.tracks
+                for p in t.topics
+            ],
+            desired_key=lambda d: d["topic_key"],
+            on_missing="delete",
+            counts=report.tables.setdefault("learning_topics", TableCounts()),
+            flush=True,
+            delete_children=lambda ids: s.query(LearningTopicSkill).filter(
+                LearningTopicSkill.topic_id.in_(ids)
+            ),
+        )
+        wanted = {t.key for t in learning.tracks}
+        for row in s.query(LearningTrack).filter(LearningTrack.track_key.notin_(wanted or {""})).all():
+            s.delete(row)
+            counts = report.tables["learning_tracks"]
+            counts.deleted += 1
+            counts.unchanged -= 1
+        _sync(
+            s,
+            LearningTopicSkill,
+            key=lambda r: (r.topic_id, r.skill_id),
+            desired=[
+                {"topic_id": topics[p.key].id, "skill_id": skill_id[k], "position": j}
+                for t in learning.tracks
+                for p in t.topics
+                for j, k in enumerate(p.skills, start=1)
+            ],
+            desired_key=lambda d: (d["topic_id"], d["skill_id"]),
+            on_missing="delete",
+            counts=report.tables.setdefault("learning_topic_skills", TableCounts()),
+        )
+        content = _sync(
+            s,
+            LearningContent,
+            key=lambda r: r.content_key,
+            desired=[
+                {
+                    "content_key": c.key,
+                    "content_type": c.type,
+                    "title": c.title,
+                    "minutes": c.minutes,
+                    "difficulty": c.difficulty,
+                    "stages_json": list(c.stages),
+                    "observation_kind": c.observation_kind,
+                    "time_limit_seconds": c.time_limit_seconds,
+                    "problem_ids_json": list(c.problem_ids),
+                    "body_json": _plain(c.body),
+                    "source_file": c.source_file,
+                    "position": c.position,
+                    "active": True,
+                    "seed_version": sv,
+                }
+                for c in learning.content
+            ],
+            desired_key=lambda d: d["content_key"],
+            on_missing="deactivate",
+            counts=report.tables.setdefault("learning_content", TableCounts()),
+            flush=True,
+        )
+        _sync(
+            s,
+            LearningContentSkill,
+            key=lambda r: (r.content_id, r.skill_id),
+            desired=[
+                {"content_id": content[c.key].id, "skill_id": skill_id[k], "position": j}
+                for c in learning.content
+                for j, k in enumerate(c.skills)
+            ],
+            desired_key=lambda d: (d["content_id"], d["skill_id"]),
+            on_missing="delete",
+            counts=report.tables.setdefault("learning_content_skills", TableCounts()),
+        )
 
     def _record(self, report: LoadReport) -> None:
         now = self._clock.now_utc()
