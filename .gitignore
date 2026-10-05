@@ -1,0 +1,16 @@
+# secrets
+.env
+# python
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+# node
+node_modules/
+frontend/dist/
+frontend/coverage/
+# local backups
+backups/
+exports/

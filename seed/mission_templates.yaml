@@ -1,0 +1,157 @@
+# Mission templates (catalog). Owner doc: docs/domain/MISSION_LIBRARY.md
+# Lookup (MENTOR_ENGINE §7), most specific first:
+#   1 component+stage+gap_type+applies_to  2 component+stage+applies_to  3 component+stage+gap_type
+#   4 component+stage  5 generic+stage.  Ties: lowest key.
+# pass_rule / partial_rule use the observation fields defined in docs/engineering/DATA_MODEL.md.
+# output_level = highest evidence level the mission can produce when passed.
+seed_version: seed-v1
+templates:
+# ---------------- DSA ----------------
+- {key: dsa.diagnose, component: dsa, stage: DIAGNOSE, minutes: 40, difficulty: MEDIUM, needs_problem: true,
+   observation: {kind: ATTEMPT, mode: DIAGNOSTIC, timed: true, limit: expected, record: [pattern_identified, self_rating_before, mistakes]},
+   pass_rule: "outcome == PASS and hints_used == 0", output_level: 4, next_on_pass: GAP_ENGINE, next_on_fail: GAP_ENGINE}
+- {key: dsa.learn, component: dsa, stage: LEARN, minutes: 45, difficulty: EASY, needs_problem: true,
+   observation: {kind: [STUDY_SESSION, RECALL_QUIZ, ATTEMPT], note: "25 min study of pattern + invariant; 5-question closed-book quiz; 1 easy problem with hints allowed"},
+   pass_rule: "recall_quiz.outcome_points >= 60", output_level: 2, next_on_pass: GUIDED, next_on_fail: LEARN}
+- {key: dsa.recall, component: dsa, stage: RECALL, minutes: 15, difficulty: null, needs_problem: false,
+   observation: {kind: RECALL_QUIZ, note: "write the pattern template + invariant + 2 trigger signals from memory, check against notes"},
+   pass_rule: "outcome_points >= 60", output_level: 1, next_on_pass: GUIDED, next_on_fail: LEARN}
+- {key: dsa.guided, component: dsa, stage: GUIDED, minutes: 30, difficulty: EASY, needs_problem: true,
+   observation: {kind: ATTEMPT, mode: PRACTICE, hints: "ladder: 1 approach, 2 invariant, 3 skeleton"},
+   pass_rule: "outcome == PASS and hints_used <= 1 and not solution_viewed", output_level: 3, next_on_pass: INDEPENDENT, next_on_fail: GUIDED}
+- {key: dsa.independent, component: dsa, stage: INDEPENDENT, minutes: 35, difficulty: MEDIUM, needs_problem: true,
+   observation: {kind: ATTEMPT, mode: PRACTICE, hints: none, soft_stop_minutes: 45, record: [pattern_identified]},
+   pass_rule: "outcome == PASS and hints_used == 0", output_level: 3, next_on_pass: TIMED, next_on_fail: GUIDED}
+- {key: dsa.timed, component: dsa, stage: TIMED, minutes: 40, difficulty: MEDIUM, needs_problem: true,
+   observation: {kind: ATTEMPT, mode: PRACTICE, timed: true, limit: expected, record: [pattern_identified]},
+   pass_rule: "outcome == PASS and hints_used == 0 and time_seconds <= time_limit_seconds", output_level: 4, next_on_pass: EXPLAIN, next_on_fail: INDEPENDENT}
+- {key: dsa.explain, component: dsa, stage: EXPLAIN, minutes: 40, difficulty: MEDIUM, needs_problem: true,
+   observation: {kind: ATTEMPT, mode: PRACTICE, timed: true, limit: expected, record: [explanation_score, complexity_correct],
+                 rubric: "explanation_score = 2 each: approach, invariant, complexity, trade-off vs alternative, edge cases"},
+   pass_rule: "L4 conditions and explanation_score >= 7 and complexity_correct", output_level: 5, next_on_pass: TRANSFER, next_on_fail: TIMED}
+- {key: dsa.transfer, component: dsa, stage: TRANSFER, minutes: 50, difficulty: HARD, needs_problem: true,
+   observation: {kind: ATTEMPT, mode: PRACTICE, timed: true, limit: expected, record: [explanation_score, complexity_correct, followup_solved]},
+   pass_rule: "L5 conditions and (difficulty == HARD or followup_solved)", output_level: 6, next_on_pass: SIMULATE, next_on_fail: EXPLAIN}
+- {key: dsa.simulate, component: dsa, stage: SIMULATE, minutes: 45, difficulty: MEDIUM, needs_problem: true,
+   observation: {kind: ATTEMPT, mode: SIMULATION, timed: true, limit: expected, recorded_audio: true, record: [execution_rubric, explanation_score, complexity_correct, followup_solved]},
+   pass_rule: "outcome == PASS and execution_rubric mean >= 7", output_level: 6, next_on_pass: MOCK, next_on_fail: EXPLAIN}
+- {key: dsa.pattern_drill, component: dsa, stage: PATTERN_DRILL, minutes: 25, difficulty: null, needs_problem: true,
+   observation: {kind: PATTERN_DRILL, timed: true, limit_seconds: 480, note: "classify 5 statements (name pattern + key invariant), then sketch approach for the 2 target-pattern statements; statements stay unseen-for-solving"},
+   pass_rule: "correct >= 4 of 5", partial_rule: "correct == 3", output_level: 4, next_on_pass: INDEPENDENT, next_on_fail: PATTERN_DRILL}
+- {key: dsa.reinforce, component: dsa, stage: REINFORCE, minutes: 30, difficulty: null, needs_problem: true,
+   observation: {kind: [STUDY_SESSION, ATTEMPT], mode: REVISION, note: "10 min re-read own canonical notes, then re-solve the canonical problem cold"},
+   pass_rule: "outcome == PASS and hints_used == 0", output_level: 3, next_on_pass: GAP_ENGINE, next_on_fail: GUIDED}
+# ---------------- Coding & interview execution ----------------
+- {key: coding.diagnose, component: coding, stage: DIAGNOSE, minutes: 30, difficulty: EASY, needs_problem: false,
+   observation: {kind: CODE_EXERCISE, timed: true, limit_seconds: 1500, note: "5 Python warm-ups covering the unassessed python.* skills; per-skill outcome"},
+   pass_rule: "outcome_points >= 70 per skill", output_level: 4, next_on_pass: GAP_ENGINE, next_on_fail: GAP_ENGINE}
+- {key: coding.learn, component: coding, stage: LEARN, minutes: 40, difficulty: EASY, needs_problem: false,
+   observation: {kind: [STUDY_SESSION, CODE_EXERCISE], note: "study the idiom/API, then 3 exercises with docs open"},
+   pass_rule: "outcome_points >= 60", output_level: 2, next_on_pass: GUIDED, next_on_fail: LEARN}
+- {key: coding.guided, component: coding, stage: GUIDED, minutes: 25, difficulty: EASY, needs_problem: false,
+   observation: {kind: CODE_EXERCISE, reference_used: true}, pass_rule: "outcome_points >= 70", output_level: 2, next_on_pass: INDEPENDENT, next_on_fail: LEARN}
+- {key: coding.independent, component: coding, stage: INDEPENDENT, minutes: 25, difficulty: MEDIUM, needs_problem: false,
+   observation: {kind: CODE_EXERCISE, reference_used: false}, pass_rule: "outcome_points >= 70", output_level: 3, next_on_pass: TIMED, next_on_fail: GUIDED}
+- {key: coding.timed, component: coding, stage: TIMED, minutes: 25, difficulty: MEDIUM, needs_problem: false,
+   observation: {kind: CODE_EXERCISE, timed: true, limit_seconds: 1200}, pass_rule: "outcome_points >= 70 within limit", output_level: 4, next_on_pass: EXPLAIN, next_on_fail: INDEPENDENT}
+- {key: coding.explain, component: coding, stage: EXPLAIN, minutes: 25, difficulty: MEDIUM, needs_problem: false,
+   observation: {kind: CODE_EXERCISE, timed: true, limit_seconds: 1200, record: [followup_points], note: "solve, then explain complexity of each built-in used and one alternative"}, pass_rule: "followup_points >= 70", output_level: 5, next_on_pass: TRANSFER, next_on_fail: TIMED}
+- {key: coding.transfer, component: coding, stage: TRANSFER, minutes: 45, needs_problem: false,
+   observation: {kind: APPLIED_TASK, record: [followup_points], note: "use the idiom in real code (own project or a small tool) and defend the choice"}, pass_rule: "outcome_points >= 70 and followup_points >= 70", output_level: 6, next_on_pass: SIMULATE, next_on_fail: EXPLAIN}
+- {key: coding.execution_drill, component: coding, stage: [GUIDED, INDEPENDENT, TIMED, EXPLAIN], applies_to: [execution.], minutes: 40, difficulty: MEDIUM, needs_problem: true,
+   observation: {kind: ATTEMPT, mode: PRACTICE, timed: true, limit: expected, record: [execution_rubric, mistakes, followup_solved],
+                 note: "solve a DSA problem focusing on the target execution skill; self-score the 5-dimension rubric (0-10) against the rubric card"},
+   pass_rule: "target rubric dimension >= 7 and outcome == PASS", output_level: 4, next_on_pass: GAP_ENGINE, next_on_fail: GUIDED}
+- {key: coding.think_aloud, component: coding, stage: THINK_ALOUD, minutes: 40, difficulty: MEDIUM, needs_problem: true,
+   observation: {kind: ATTEMPT, mode: PRACTICE, timed: true, limit: expected, recorded_audio: true, record: [execution_rubric]},
+   pass_rule: "execution_rubric.think_aloud >= 7 and execution_rubric.clarification >= 7", output_level: 4, next_on_pass: GAP_ENGINE, next_on_fail: THINK_ALOUD}
+- {key: coding.simulate, component: coding, stage: SIMULATE, minutes: 45, difficulty: MEDIUM, needs_problem: true,
+   observation: {kind: ATTEMPT, mode: SIMULATION, timed: true, limit: expected, recorded_audio: true, record: [execution_rubric, followup_solved]},
+   pass_rule: "outcome == PASS and execution_rubric mean >= 7", output_level: 4, next_on_pass: MOCK, next_on_fail: THINK_ALOUD}
+# ---------------- CS fundamentals (incl. DBMS) ----------------
+- {key: cs.diagnose, component: cs, stage: DIAGNOSE, minutes: 20, difficulty: null, needs_problem: false,
+   observation: {kind: RECALL_QUIZ, note: "10 closed-book questions covering up to 3 unassessed skills of one group; per-skill outcome"},
+   pass_rule: "outcome_points >= 60 per skill", output_level: 1, next_on_pass: GAP_ENGINE, next_on_fail: GAP_ENGINE}
+- {key: cs.learn, component: cs, stage: LEARN, minutes: 40, difficulty: null, needs_problem: false,
+   observation: {kind: [STUDY_SESSION, RECALL_QUIZ], note: "25 min study, one-page notes in own words, 5-question closed-book quiz"},
+   pass_rule: "recall_quiz.outcome_points >= 60", output_level: 1, next_on_pass: GUIDED, next_on_fail: LEARN}
+- {key: cs.recall, component: cs, stage: RECALL, minutes: 15, observation: {kind: RECALL_QUIZ}, pass_rule: "outcome_points >= 60", output_level: 1, next_on_pass: GUIDED, next_on_fail: LEARN}
+- {key: cs.guided, component: cs, stage: GUIDED, minutes: 20, observation: {kind: CONCEPT_EXPLAIN, notes_used: true, prompts: 3}, pass_rule: "outcome_points >= 70", output_level: 2, next_on_pass: INDEPENDENT, next_on_fail: RECALL}
+- {key: cs.independent, component: cs, stage: INDEPENDENT, minutes: 20, observation: {kind: CONCEPT_EXPLAIN, notes_used: false, prompts: 3}, pass_rule: "outcome_points >= 70", output_level: 3, next_on_pass: TIMED, next_on_fail: GUIDED}
+- {key: cs.timed, component: cs, stage: TIMED, minutes: 20, observation: {kind: CONCEPT_EXPLAIN, timed: true, limit_seconds: 900, prompts: 8, note: "rapid-fire interview questions"}, pass_rule: "outcome_points >= 70 within limit", output_level: 4, next_on_pass: EXPLAIN, next_on_fail: INDEPENDENT}
+- {key: cs.explain, component: cs, stage: EXPLAIN, minutes: 25, observation: {kind: CONCEPT_EXPLAIN, timed: true, limit_seconds: 900, record: [followup_points], note: "why/trade-off/failure-mode questions"}, pass_rule: "followup_points >= 70", output_level: 5, next_on_pass: TRANSFER, next_on_fail: TIMED}
+- {key: cs.transfer, component: cs, stage: TRANSFER, minutes: 60, observation: {kind: APPLIED_TASK, record: [followup_points]}, pass_rule: "outcome_points >= 70 and followup_points >= 70", output_level: 6, next_on_pass: SIMULATE, next_on_fail: EXPLAIN}
+- {key: cs.simulate, component: cs, stage: SIMULATE, minutes: 30, observation: {kind: CONCEPT_EXPLAIN, timed: true, limit_seconds: 1800, recorded_audio: true, record: [followup_points, communication_points]}, pass_rule: "outcome_points >= 70", output_level: 5, next_on_pass: MOCK, next_on_fail: EXPLAIN}
+- {key: cs.dbms_query_lab, component: cs, stage: [INDEPENDENT, TIMED], applies_to: [db.sql_querying, db.indexing, db.query_optimization, db.modeling_normalization], minutes: 35, difficulty: MEDIUM, needs_problem: false,
+   observation: {kind: CODE_EXERCISE, note: "write queries against the seeded practice schema in local MySQL; run EXPLAIN; justify index choice"},
+   pass_rule: "outcome_points >= 70", output_level: 4, next_on_pass: EXPLAIN, next_on_fail: GUIDED}
+- {key: cs.dbms_transaction_lab, component: cs, stage: TRANSFER, applies_to: [db.transactions_acid, db.isolation_mvcc, db.locking_deadlocks], minutes: 60,
+   observation: {kind: APPLIED_TASK, record: [followup_points], note: "two MySQL sessions: reproduce an anomaly or deadlock, explain why, fix it"},
+   pass_rule: "outcome_points >= 70 and followup_points >= 70", output_level: 6, next_on_pass: SIMULATE, next_on_fail: EXPLAIN}
+- {key: cs.concurrency_lab, component: cs, stage: TRANSFER, applies_to: [os.synchronization, os.concurrency_practical, os.deadlocks], minutes: 60,
+   observation: {kind: APPLIED_TASK, record: [followup_points], note: "implement a bounded blocking queue or thread pool in Python with tests; explain the race it prevents"},
+   pass_rule: "outcome_points >= 70 and followup_points >= 70", output_level: 6, next_on_pass: SIMULATE, next_on_fail: EXPLAIN}
+# ---------------- LLD / OOD ----------------
+- {key: lld.diagnose, component: lld, stage: DIAGNOSE, minutes: 45, observation: {kind: LLD_DESIGN, note: "untimed small design (e.g. parking lot lite); rubric per lld.* skill"}, pass_rule: "outcome_points >= 70 per skill", output_level: 3, next_on_pass: GAP_ENGINE, next_on_fail: GAP_ENGINE}
+- {key: lld.learn, component: lld, stage: LEARN, minutes: 45, observation: {kind: [STUDY_SESSION, RECALL_QUIZ, CODE_EXERCISE], note: "study principle/pattern, quiz, small refactor exercise"}, pass_rule: "recall_quiz.outcome_points >= 60", output_level: 2, next_on_pass: GUIDED, next_on_fail: LEARN}
+- {key: lld.guided, component: lld, stage: GUIDED, minutes: 45, observation: {kind: LLD_DESIGN, reference_used: true}, pass_rule: "outcome_points >= 70", output_level: 2, next_on_pass: INDEPENDENT, next_on_fail: LEARN}
+- {key: lld.independent, component: lld, stage: INDEPENDENT, minutes: 60, observation: {kind: LLD_DESIGN, note: "requirements -> entities -> class diagram -> key method signatures -> 1 sequence"}, pass_rule: "outcome_points >= 70", output_level: 3, next_on_pass: TIMED, next_on_fail: GUIDED}
+- {key: lld.timed, component: lld, stage: TIMED, minutes: 60, observation: {kind: LLD_DESIGN, timed: true, limit_seconds: 2700}, pass_rule: "outcome_points >= 70 within limit", output_level: 4, next_on_pass: EXPLAIN, next_on_fail: INDEPENDENT}
+- {key: lld.explain, component: lld, stage: EXPLAIN, minutes: 40, observation: {kind: LLD_DESIGN, timed: true, limit_seconds: 2400, record: [followup_points], note: "3 change requests against own design; show what changes"}, pass_rule: "followup_points >= 70", output_level: 5, next_on_pass: TRANSFER, next_on_fail: TIMED}
+- {key: lld.machine_coding, component: lld, stage: [INDEPENDENT, TIMED, EXPLAIN, TRANSFER], applies_to: [lld.machine_coding], minutes: 90, min_budget: 90,
+   observation: {kind: MACHINE_CODING, timed: true, limit_seconds: 5400, record: [followup_points], note: "working, modular, tested Python in 90 min; rubric: runs, structure, extensibility, tests, naming"},
+   pass_rule: "outcome_points >= 70 within limit", output_level: 5, next_on_pass: TRANSFER, next_on_fail: INDEPENDENT}
+- {key: lld.transfer, component: lld, stage: TRANSFER, minutes: 60, observation: {kind: LLD_DESIGN, unseen_variant: true, record: [followup_points], note: "unseen variant or peer review"}, pass_rule: "L5 conditions and (peer_evaluated or unseen_variant)", output_level: 6, next_on_pass: SIMULATE, next_on_fail: EXPLAIN}
+- {key: lld.simulate, component: lld, stage: SIMULATE, minutes: 60, observation: {kind: LLD_DESIGN, timed: true, limit_seconds: 3600, recorded_audio: true, record: [followup_points, communication_points]}, pass_rule: "outcome_points >= 70", output_level: 5, next_on_pass: MOCK, next_on_fail: EXPLAIN}
+# ---------------- System design ----------------
+- {key: system_design.diagnose, component: system_design, stage: DIAGNOSE, minutes: 45, observation: {kind: SD_DESIGN, note: "untimed URL-shortener-class design; rubric row per framework step -> sd.* skill"}, pass_rule: "outcome_points >= 70 per skill", output_level: 3, next_on_pass: GAP_ENGINE, next_on_fail: GAP_ENGINE}
+- {key: system_design.learn, component: system_design, stage: LEARN, minutes: 40, observation: {kind: [STUDY_SESSION, RECALL_QUIZ], note: "study building block, 5-question quiz, one-paragraph application to a known system"}, pass_rule: "recall_quiz.outcome_points >= 60", output_level: 1, next_on_pass: GUIDED, next_on_fail: LEARN}
+- {key: system_design.recall, component: system_design, stage: RECALL, minutes: 15, observation: {kind: RECALL_QUIZ}, pass_rule: "outcome_points >= 60", output_level: 1, next_on_pass: GUIDED, next_on_fail: LEARN}
+- {key: system_design.guided, component: system_design, stage: GUIDED, minutes: 45, observation: {kind: SD_DESIGN, reference_used: true}, pass_rule: "outcome_points >= 70", output_level: 2, next_on_pass: INDEPENDENT, next_on_fail: RECALL}
+- {key: system_design.independent, component: system_design, stage: INDEPENDENT, minutes: 60, observation: {kind: SD_DESIGN, note: "full design without notes, untimed, 10-step framework"}, pass_rule: "outcome_points >= 70", output_level: 3, next_on_pass: TIMED, next_on_fail: GUIDED}
+- {key: system_design.timed, component: system_design, stage: TIMED, minutes: 50, observation: {kind: SD_DESIGN, timed: true, limit_seconds: 2700}, pass_rule: "outcome_points >= 70 within limit", output_level: 4, next_on_pass: EXPLAIN, next_on_fail: INDEPENDENT}
+- {key: system_design.explain, component: system_design, stage: EXPLAIN, minutes: 30, observation: {kind: SD_DESIGN, timed: true, limit_seconds: 1500, record: [followup_points], note: "defend own design against 3 probes: failure, scale x10, consistency"}, pass_rule: "followup_points >= 70", output_level: 5, next_on_pass: TRANSFER, next_on_fail: TIMED}
+- {key: system_design.drill, component: system_design, stage: [GUIDED, INDEPENDENT, TIMED, EXPLAIN], applies_to: [sd.capacity_estimation, sd.requirements_scoping, sd.api_design, sd.data_modeling, sd.deep_dive_bottlenecks, sd.tradeoff_articulation, sd.time_boxing], minutes: 20,
+   observation: {kind: [ESTIMATION_DRILL, SD_DESIGN], timed: true, limit_seconds: 900, note: "one sub-step on 2 fresh prompts (e.g. estimate QPS/storage/bandwidth)"},
+   pass_rule: "outcome_points >= 70", output_level: 4, next_on_pass: GAP_ENGINE, next_on_fail: GUIDED}
+- {key: system_design.transfer, component: system_design, stage: TRANSFER, minutes: 60, observation: {kind: [SD_DESIGN, APPLIED_TASK], record: [followup_points], note: "peer-reviewed design or apply to own/real system"}, pass_rule: "L5 conditions and (peer_evaluated or applied)", output_level: 6, next_on_pass: SIMULATE, next_on_fail: EXPLAIN}
+- {key: system_design.simulate, component: system_design, stage: SIMULATE, minutes: 50, observation: {kind: SD_DESIGN, timed: true, limit_seconds: 2700, recorded_audio: true, record: [followup_points, communication_points]}, pass_rule: "outcome_points >= 70", output_level: 5, next_on_pass: MOCK, next_on_fail: EXPLAIN}
+# ---------------- Behavioral ----------------
+- {key: behavioral.diagnose, component: behavioral, stage: DIAGNOSE, minutes: 20, observation: {kind: STORY_REHEARSAL, note: "answer 2 competency questions cold, recorded; rubric"}, pass_rule: "outcome_points >= 70 per skill", output_level: 3, next_on_pass: GAP_ENGINE, next_on_fail: GAP_ENGINE}
+- {key: behavioral.learn, component: behavioral, stage: LEARN, minutes: 30, observation: {kind: [STUDY_SESSION, STORY_REHEARSAL], notes_used: true, note: "draft STAR story with a metric and a lesson; rehearse once with notes"}, pass_rule: "outcome_points >= 60", output_level: 2, next_on_pass: INDEPENDENT, next_on_fail: LEARN}
+- {key: behavioral.guided, component: behavioral, stage: GUIDED, minutes: 15, observation: {kind: STORY_REHEARSAL, notes_used: true}, pass_rule: "outcome_points >= 70", output_level: 2, next_on_pass: INDEPENDENT, next_on_fail: LEARN}
+- {key: behavioral.independent, component: behavioral, stage: INDEPENDENT, minutes: 15, observation: {kind: STORY_REHEARSAL, notes_used: false}, pass_rule: "outcome_points >= 70", output_level: 3, next_on_pass: TIMED, next_on_fail: GUIDED}
+- {key: behavioral.timed, component: behavioral, stage: TIMED, minutes: 15, observation: {kind: STORY_REHEARSAL, timed: true, limit_seconds: 180, recorded_audio: true}, pass_rule: "outcome_points >= 70 within limit", output_level: 4, next_on_pass: EXPLAIN, next_on_fail: INDEPENDENT}
+- {key: behavioral.explain, component: behavioral, stage: EXPLAIN, minutes: 20, observation: {kind: STORY_REHEARSAL, timed: true, limit_seconds: 180, record: [followup_points], note: "3 probing follow-ups: what would you do differently, numbers, your exact role"}, pass_rule: "followup_points >= 70", output_level: 5, next_on_pass: TRANSFER, next_on_fail: TIMED}
+- {key: behavioral.structure_drill, component: behavioral, stage: THINK_ALOUD, minutes: 20, observation: {kind: STORY_REHEARSAL, timed: true, limit_seconds: 180, recorded_audio: true, record: [communication_points], note: "re-deliver 2 stories: direct answer first, STAR, one metric, under 3 minutes"}, pass_rule: "communication_points >= 70", output_level: 4, next_on_pass: GAP_ENGINE, next_on_fail: THINK_ALOUD}
+- {key: behavioral.transfer, component: behavioral, stage: TRANSFER, minutes: 30, observation: {kind: STORY_REHEARSAL, peer_evaluated: true, record: [followup_points]}, pass_rule: "L5 conditions and peer_evaluated", output_level: 6, next_on_pass: SIMULATE, next_on_fail: EXPLAIN}
+- {key: behavioral.simulate, component: behavioral, stage: SIMULATE, minutes: 30, observation: {kind: STORY_REHEARSAL, timed: true, limit_seconds: 1800, recorded_audio: true, record: [followup_points, communication_points], note: "4 questions back-to-back"}, pass_rule: "outcome_points >= 70", output_level: 5, next_on_pass: MOCK, next_on_fail: EXPLAIN}
+# ---------------- Project deep dive & engineering ----------------
+- {key: project.diagnose, component: project, stage: DIAGNOSE, minutes: 25, observation: {kind: PROJECT_WALKTHROUGH, note: "walk through own main project cold, recorded"}, pass_rule: "outcome_points >= 70 per skill", output_level: 3, next_on_pass: GAP_ENGINE, next_on_fail: GAP_ENGINE}
+- {key: project.learn, component: project, stage: LEARN, minutes: 40, observation: {kind: [STUDY_SESSION, PROJECT_WALKTHROUGH], notes_used: true, note: "write architecture brief: diagram, 3 decisions + alternatives, numbers, one incident"}, pass_rule: "outcome_points >= 60", output_level: 2, next_on_pass: INDEPENDENT, next_on_fail: LEARN}
+- {key: project.guided, component: project, stage: GUIDED, minutes: 20, observation: {kind: PROJECT_WALKTHROUGH, notes_used: true}, pass_rule: "outcome_points >= 70", output_level: 2, next_on_pass: INDEPENDENT, next_on_fail: LEARN}
+- {key: project.independent, component: project, stage: INDEPENDENT, minutes: 20, observation: {kind: PROJECT_WALKTHROUGH, notes_used: false}, pass_rule: "outcome_points >= 70", output_level: 3, next_on_pass: TIMED, next_on_fail: GUIDED}
+- {key: project.timed, component: project, stage: TIMED, minutes: 15, observation: {kind: PROJECT_WALKTHROUGH, timed: true, limit_seconds: 600, recorded_audio: true}, pass_rule: "outcome_points >= 70 within limit", output_level: 4, next_on_pass: EXPLAIN, next_on_fail: INDEPENDENT}
+- {key: project.explain, component: project, stage: EXPLAIN, minutes: 25, observation: {kind: PROJECT_WALKTHROUGH, timed: true, limit_seconds: 600, record: [followup_points], note: "5 why-questions on own decisions; what breaks at 10x"}, pass_rule: "followup_points >= 70", output_level: 5, next_on_pass: TRANSFER, next_on_fail: TIMED}
+- {key: project.transfer, component: project, stage: TRANSFER, minutes: 30, observation: {kind: PROJECT_WALKTHROUGH, peer_evaluated: true, record: [followup_points]}, pass_rule: "L5 conditions and peer_evaluated", output_level: 6, next_on_pass: SIMULATE, next_on_fail: EXPLAIN}
+- {key: project.engineering_lab, component: project, stage: [INDEPENDENT, TIMED, TRANSFER], applies_to: [engineering., testing.], minutes: 60, observation: {kind: APPLIED_TASK, record: [followup_points], note: "real change in own codebase (e.g. add tests, profile and fix a slow query); write what/why"}, pass_rule: "outcome_points >= 70", output_level: 6, next_on_pass: GAP_ENGINE, next_on_fail: INDEPENDENT}
+- {key: project.simulate, component: project, stage: SIMULATE, minutes: 30, observation: {kind: PROJECT_WALKTHROUGH, timed: true, limit_seconds: 1800, recorded_audio: true, record: [followup_points, communication_points]}, pass_rule: "outcome_points >= 70", output_level: 5, next_on_pass: MOCK, next_on_fail: EXPLAIN}
+# ---------------- Generic fallbacks (any component) ----------------
+- {key: generic.recall, component: generic, stage: RECALL, minutes: 15, observation: {kind: RECALL_QUIZ}, pass_rule: "outcome_points >= 60", output_level: 1, next_on_pass: GUIDED, next_on_fail: LEARN}
+- {key: generic.reinforce, component: generic, stage: REINFORCE, minutes: 25, observation: {kind: [STUDY_SESSION, CONCEPT_EXPLAIN], note: "10 min re-study own notes, then closed-book explanation/exercise"}, pass_rule: "outcome_points >= 70", output_level: 3, next_on_pass: GAP_ENGINE, next_on_fail: GUIDED}
+- {key: generic.think_aloud, component: generic, stage: THINK_ALOUD, minutes: 30, observation: {kind: CONCEPT_EXPLAIN, recorded_audio: true, record: [communication_points], note: "explain a solution/design of the skill aloud, recorded; score clarity, structure, pacing"}, pass_rule: "communication_points >= 70", output_level: 3, next_on_pass: GAP_ENGINE, next_on_fail: THINK_ALOUD}
+- {key: generic.pattern_drill, component: generic, stage: PATTERN_DRILL, minutes: 25, needs_problem: true, observation: {kind: PATTERN_DRILL, timed: true, limit_seconds: 480}, pass_rule: "correct >= 4 of 5", output_level: 4, next_on_pass: INDEPENDENT, next_on_fail: PATTERN_DRILL}
+# ---------------- Revision (REVISION_ENGINE item types) ----------------
+- {key: revision.problem, component: revision, stage: REVISION, item_type: PROBLEM, minutes: null, minutes_rule: "item minutes: EASY 15 / MEDIUM 25 / HARD 35", needs_problem: true, observation: {kind: ATTEMPT, mode: REVISION, timed: true, limit: item_minutes}, pass_rule: "PASS, 0 hints, time <= item minutes", partial_rule: "PASS with hints or slower, or PARTIAL", output_level: 3}
+- {key: revision.pattern, component: revision, stage: REVISION, item_type: PATTERN, minutes: 10, needs_problem: true, observation: {kind: PATTERN_DRILL, timed: true, limit_seconds: 300}, pass_rule: "correct >= 4 of 5", partial_rule: "correct == 3", output_level: 4}
+- {key: revision.cs, component: revision, stage: REVISION, item_type: CS, minutes: 10, observation: {kind: CONCEPT_EXPLAIN, notes_used: false, prompts: 3}, pass_rule: "outcome_points >= 70", partial_rule: "50-69", output_level: 3}
+- {key: revision.concept, component: revision, stage: REVISION, item_type: CONCEPT, minutes: 10, observation: {kind: [CONCEPT_EXPLAIN, CODE_EXERCISE], notes_used: false}, pass_rule: "outcome_points >= 70", partial_rule: "50-69", output_level: 3}
+- {key: revision.sd, component: revision, stage: REVISION, item_type: SD, minutes: 20, observation: {kind: [SD_DESIGN, ESTIMATION_DRILL], timed: true, limit_seconds: 1200}, pass_rule: "outcome_points >= 70", partial_rule: "50-69", output_level: 4}
+- {key: revision.story, component: revision, stage: REVISION, item_type: BEHAVIORAL, minutes: 10, observation: {kind: STORY_REHEARSAL, timed: true, limit_seconds: 180}, pass_rule: "outcome_points >= 70", partial_rule: "50-69", output_level: 4}
+- {key: revision.project, component: revision, stage: REVISION, item_type: BEHAVIORAL, minutes: 15, observation: {kind: PROJECT_WALKTHROUGH, timed: true, limit_seconds: 600}, pass_rule: "outcome_points >= 70", partial_rule: "50-69", output_level: 4}
+- {key: revision.mock_weakness, component: revision, stage: REVISION, item_type: MOCK_WEAKNESS, minutes: 15, observation: {kind: ITEM_DEFINED, note: "the component DRILL/TIMED template observation, 15-min cut"}, pass_rule: "outcome_points >= 70", partial_rule: "50-69", output_level: 4}
+- {key: revision.reinforce, component: revision, stage: REINFORCE, item_type: ANY, minutes: null, minutes_rule: "item minutes + 10", observation: {kind: [STUDY_SESSION, ITEM_DEFINED], note: "10-min refresh, then the item review observation"}, pass_rule: "as item type", output_level: 3}
+# ---------------- Mock preparation & mocks ----------------
+- {key: mock.round, component: mock, stage: SIMULATE, minutes: null, minutes_rule: "round minutes + 15 review (DSA 60, CS 45, LLD 105, SD 60, BEHAVIORAL 45, PROJECT_DEEP_DIVE 45)", observation: {kind: MOCK, rounds: 1, record: [round_score, rubric, per-skill outcome_points, is_weakness]}, pass_rule: "round_score >= 70", output_level: 7}
+- {key: mock.prep, component: mock, stage: SIMULATE, minutes: 20, observation: {kind: [STUDY_SESSION, RECALL_QUIZ], note: "used when the mock does not fit today's budget: review last 2 mocks' weaknesses + rubric card + 5-question warm-up; the MOCK candidate is offered again on the next day it fits"}, pass_rule: "n/a", output_level: 1}
+- {key: mock.final_simulation, component: mock, stage: SIMULATE, minutes: 160, min_budget: 160, observation: {kind: MOCK, is_final_simulation: true, rounds: "DSA 45, SYSTEM_DESIGN or LLD 45-60 (alternate), BEHAVIORAL 15, PROJECT_DEEP_DIVE 15, CS 20 (+ breaks)"}, pass_rule: "every round >= 70 and mean >= 75", output_level: 7}

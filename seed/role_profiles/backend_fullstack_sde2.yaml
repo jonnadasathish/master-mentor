@@ -1,0 +1,215 @@
+# Role profile: internal preparation benchmark. NOT a claim about any company's interview loop.
+# Owner doc: docs/domain/ROLE_PROFILE.md. Gate *logic* is owned by docs/domain/READINESS_MODEL.md;
+# this file owns gate *parameters*. Changing any value requires a DECISION_LOG entry and seed_version bump.
+seed_version: seed-v1
+profile_key: backend_fullstack_sde2
+name: Software Engineer — Backend/Full-Stack (SDE-2 benchmark)
+role: SOFTWARE_ENGINEER_BACKEND_FULLSTACK
+seniority: MID_SDE2
+objective: Maximum readiness for top product-company / FAANG-style SWE interviews
+
+interview_loop:            # order = loop order; round_type is used by mocks
+  - {round: DSA_1, round_type: DSA, minutes: 45, components: [dsa, coding]}
+  - {round: DSA_2, round_type: DSA, minutes: 45, components: [dsa, coding]}
+  - {round: CS_FUNDAMENTALS, round_type: CS, minutes: 30, components: [cs]}
+  - {round: LLD, round_type: LLD, minutes: 90, components: [lld]}
+  - {round: SYSTEM_DESIGN, round_type: SYSTEM_DESIGN, minutes: 45, components: [system_design]}
+  - {round: BEHAVIORAL, round_type: BEHAVIORAL, minutes: 30, components: [behavioral]}
+  - {round: PROJECT_DEEP_DIVE, round_type: PROJECT_DEEP_DIVE, minutes: 30, components: [project]}
+  - {round: FINAL_SIMULATION, round_type: null, minutes: 160, components: []}   # gate G9, not a component
+
+components:                # weight sums to 100; gate = G2 minimum; stretch = STRONG minimum
+  - {key: dsa,           name: DSA,                weight: 25, gate: 72, stretch: 80, track: dsa_coding}
+  - {key: coding,        name: Coding & Execution, weight: 10, gate: 70, stretch: 78, track: dsa_coding}
+  - {key: cs,            name: CS Fundamentals,    weight: 12, gate: 70, stretch: 78, track: cs}
+  - {key: lld,           name: LLD / OOD,          weight: 13, gate: 72, stretch: 80, track: lld}
+  - {key: system_design, name: System Design,      weight: 18, gate: 72, stretch: 80, track: system_design}
+  - {key: behavioral,    name: Behavioral,         weight: 10, gate: 70, stretch: 78, track: behavioral_project}
+  - {key: project,       name: Project Deep Dive,  weight: 12, gate: 70, stretch: 78, track: behavioral_project}
+
+tiers:                     # importance, target_score, floor_score (0 = no floor); required = counts in readiness
+  T1: {label: CRITICAL,   importance: 100, target: 80, floor: 65, required: true}
+  T2: {label: CORE,       importance: 75,  target: 75, floor: 55, required: true}
+  T3: {label: SUPPORTING, importance: 50,  target: 65, floor: 0,  required: true}
+  T4: {label: OPTIONAL,   importance: 20,  target: 50, floor: 0,  required: false}
+
+tracks:                    # weekly minutes (sum 600 = 10 h). Mentor track floors use these.
+  dsa_coding: {minutes: 210, components: [dsa, coding]}
+  cs: {minutes: 75, components: [cs]}
+  lld: {minutes: 75, components: [lld]}
+  system_design: {minutes: 90, components: [system_design]}
+  behavioral_project: {minutes: 60, components: [behavioral, project]}
+  mock: {minutes: 60, components: []}
+  # remaining 30 min: weekly review (15) + buffer (15)
+
+weekday_budgets_default: [90, 90, 90, 90, 90, 75, 75]   # Mon..Sun = 600 min; the goal may override
+
+gate_parameters:           # consumed by READINESS_MODEL.md
+  G0_measured_min_assessed_pct: 70          # per component, required skills assessed
+  G1_foundation_min_component: 45
+  G1_foundation_t1_min_level: 3
+  G3_coverage_min_medium_confidence_pct: 80 # per component
+  G4_critical_min_level: 4                  # T1 skills; plus effective >= floor
+  G6_mock_window_days: 60
+  G6_min_rounds_per_type: {DSA: 3, CS: 2, LLD: 2, SYSTEM_DESIGN: 2, BEHAVIORAL: 2, PROJECT_DEEP_DIVE: 2}
+  G6_min_non_self_rounds_per_type: 1
+  G6_last_n_rounds: 6
+  G6_last_n_mean_min: 70
+  G6_latest_per_type_min: 65
+  G6_last_3_each_min: 55
+  G7_overdue_days_max: 7                    # for T1/T2 revision items
+  G7_pass_rate_window_days: 30
+  G7_pass_rate_min_pct: 70
+  G7_min_reviews_in_window: 10
+  G8_recency_days: 21
+  G9_final_sim_count: 3
+  G9_window_days: 30
+  G9_round_min: 70
+  G9_mean_min: 75
+  G9_min_non_self: 2
+  STRONG_last_n_rounds_mean_min: 80
+  STRONG_sustained_days: 14
+
+final_simulation:          # composition of one final simulation (READINESS_MODEL.md section 6)
+  required_round_types: [DSA, CS, BEHAVIORAL, PROJECT_DEEP_DIVE]
+  one_of_round_types: [SYSTEM_DESIGN, LLD]   # the 3 counted sims must include each at least once
+  max_span_days: 1
+
+skill_tiers:
+  T1:
+  - execution.brute_force_to_optimal
+  - execution.bug_free_coding
+  - dsa.complexity_analysis
+  - hashing.lookup_frequency
+  - two_pointers.core
+  - sliding_window.core
+  - binary_search.basic
+  - recursion.fundamentals
+  - trees.traversal
+  - heap.top_k
+  - graph.traversal
+  - dp.fundamentals
+  - dsa.pattern_recognition
+  - db.sql_querying
+  - db.indexing
+  - db.transactions_acid
+  - os.processes_threads
+  - os.synchronization
+  - network.http
+  - lld.requirements_entities
+  - lld.class_design
+  - lld.machine_coding
+  - sd.requirements_scoping
+  - sd.data_modeling
+  - sd.high_level_decomposition
+  - sd.caching
+  - sd.database_scaling
+  - sd.queues_async
+  - sd.deep_dive_bottlenecks
+  - sd.tradeoff_articulation
+  - behavioral.ownership
+  - behavioral.impact
+  - communication.structured_answers
+  - project.architecture_walkthrough
+  - project.tradeoffs_decisions
+  T2:
+  - python.core_syntax
+  - python.collections
+  - execution.clarification
+  - execution.think_aloud
+  - execution.testing_dry_run
+  - execution.time_management
+  - arrays.traversal
+  - strings.manipulation
+  - prefix_sum.core
+  - intervals.core
+  - linked_list.manipulation
+  - stack.basic
+  - stack.monotonic
+  - binary_search.boundaries
+  - binary_search.answer_space
+  - trees.path_depth
+  - bst.operations
+  - graph.grid_multisource
+  - graph.topological_sort
+  - graph.union_find
+  - graph.shortest_path
+  - backtracking.core
+  - greedy.core
+  - dp.knapsack_subset
+  - dp.strings_subsequence
+  - dp.grid_paths
+  - design_ds.core
+  - db.modeling_normalization
+  - db.query_optimization
+  - db.isolation_mvcc
+  - db.locking_deadlocks
+  - os.concurrency_practical
+  - network.tcp_ip_udp
+  - network.rest_semantics
+  - network.sessions_auth
+  - oop.principles
+  - oop.composition_solid
+  - lld.design_patterns
+  - lld.extensibility
+  - sd.capacity_estimation
+  - sd.api_design
+  - sd.load_balancing_cdn
+  - sd.idempotency_retries
+  - sd.rate_limiting
+  - sd.consistency_cap
+  - sd.fault_tolerance
+  - sd.time_boxing
+  - behavioral.self_introduction
+  - behavioral.conflict_disagreement
+  - behavioral.failure_learning
+  - behavioral.ambiguity
+  - behavioral.influence_leadership
+  - communication.followup_handling
+  - project.metrics_impact
+  - project.incident_debugging_story
+  - engineering.debugging
+  T3:
+  - python.sorting_keys
+  - python.oop
+  - python.builtin_complexity
+  - execution.debugging_under_pressure
+  - execution.followup_handling
+  - sorting.algorithms
+  - linked_list.fast_slow
+  - queue.deque
+  - trees.lca_construction
+  - trie.core
+  - heap.two_heaps_merge_k
+  - graph.cycles_bipartite
+  - db.nosql_tradeoffs
+  - os.memory_virtual
+  - os.deadlocks
+  - network.dns
+  - network.tls_https
+  - network.realtime_protocols
+  - security.web_basics
+  - lld.concurrency_safety
+  - sd.storage_search
+  - sd.consistent_hashing
+  - sd.observability
+  - sd.security_design
+  - sd.realtime_delivery
+  - behavioral.difficult_decision
+  - behavioral.prioritization
+  - behavioral.why_change
+  - engineering.performance_profiling
+  - engineering.api_engineering
+  - testing.unit_integration
+  - testing.test_design
+  T4:
+  - python.iterators_generators
+  - graph.mst
+  - dp.interval_state_machine
+  - dp.tree
+  - bit_manipulation.core
+  - math.number_basics
+  - os.scheduling_context_switch
+  - sd.distributed_coordination
+  - engineering.tooling
+  - engineering.caching_practice

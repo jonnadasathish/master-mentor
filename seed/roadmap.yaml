@@ -1,0 +1,309 @@
+# Roadmap: parallel tracks of ordered milestones + the M0 baseline battery. Owner doc: docs/product/ROADMAP.md
+# Validator: every skill appears in exactly one milestone.
+seed_version: seed-v1
+milestone_exit_rule: every required (T1-T3) skill listed has level >= L3, plus any extra_exit criteria
+baseline:
+  key: M0-BASELINE
+  name: Baseline calibration battery
+  total_minutes: 420
+  items:
+  - key: M0-B01
+    name: 'Familiarity sweep: SELF_ASSESSMENT (NONE/SOME/SOLID) for every required skill'
+    minutes: 15
+    observation: SELF_ASSESSMENT
+    covers:
+    - all required
+  - key: M0-B02
+    name: 'DSA diagnostic A: 2 unseen MEDIUM problems (arrays, hashing, two pointers, sliding window), timed'
+    minutes: 60
+    observation: ATTEMPT
+    covers:
+    - dsa.foundations
+  - key: M0-B03
+    name: 'Python warm-up: 5 exercises, timed 25 min'
+    minutes: 30
+    observation: CODE_EXERCISE
+    covers:
+    - lang.python
+  - key: M0-B04
+    name: 'CS quiz: DBMS, 10 closed-book questions'
+    minutes: 20
+    observation: RECALL_QUIZ
+    covers:
+    - cs.dbms
+  - key: M0-B05
+    name: 'CS quiz: OS & concurrency, 10 questions'
+    minutes: 20
+    observation: RECALL_QUIZ
+    covers:
+    - cs.os
+  - key: M0-B06
+    name: 'CS quiz: networking + OOP + security, 10 questions'
+    minutes: 20
+    observation: RECALL_QUIZ
+    covers:
+    - cs.networking
+    - cs.oop
+    - cs.security
+  - key: M0-B07
+    name: 'DSA diagnostic B: trees, graphs, heap (2 MEDIUM)'
+    minutes: 60
+    observation: ATTEMPT
+    covers:
+    - dsa.trees_heaps
+    - dsa.graphs
+  - key: M0-B08
+    name: 'DSA diagnostic C: binary search, recursion/backtracking, DP (2 MEDIUM)'
+    minutes: 60
+    observation: ATTEMPT
+    covers:
+    - dsa.linear
+    - dsa.search_dp
+  - key: M0-B09
+    name: 'SD diagnostic: URL shortener, untimed, rubric per framework step'
+    minutes: 45
+    observation: SD_DESIGN
+    covers:
+    - sd.fundamentals
+    - sd.distributed
+    - sd.execution
+  - key: M0-B10
+    name: 'LLD diagnostic: parking lot lite, untimed'
+    minutes: 45
+    observation: LLD_DESIGN
+    covers:
+    - lld.design
+  - key: M0-B11
+    name: 'Behavioral: 2 recorded answers (ownership, conflict)'
+    minutes: 20
+    observation: STORY_REHEARSAL
+    covers:
+    - beh.competencies
+    - beh.communication
+  - key: M0-B12
+    name: Project walkthrough of main project, cold, recorded
+    minutes: 25
+    observation: PROJECT_WALKTHROUGH
+    covers:
+    - pdd.project
+tracks:
+  dsa_coding:
+  - key: DSA-1
+    name: Python & DSA foundations
+    skills:
+    - python.core_syntax
+    - python.collections
+    - python.sorting_keys
+    - python.oop
+    - python.iterators_generators
+    - python.builtin_complexity
+    - dsa.complexity_analysis
+    - arrays.traversal
+    - hashing.lookup_frequency
+    - strings.manipulation
+    - two_pointers.core
+    - sliding_window.core
+    - prefix_sum.core
+    - linked_list.manipulation
+    - stack.basic
+    - binary_search.basic
+    - recursion.fundamentals
+    - execution.clarification
+    - execution.testing_dry_run
+    content: ~40 problems + 20 Python exercises
+  - key: DSA-2
+    name: Core patterns
+    skills:
+    - sorting.algorithms
+    - intervals.core
+    - linked_list.fast_slow
+    - stack.monotonic
+    - queue.deque
+    - binary_search.boundaries
+    - binary_search.answer_space
+    - trees.traversal
+    - trees.path_depth
+    - trees.lca_construction
+    - bst.operations
+    - heap.top_k
+    - heap.two_heaps_merge_k
+    - graph.traversal
+    - graph.grid_multisource
+    - backtracking.core
+    - greedy.core
+    - design_ds.core
+    - execution.brute_force_to_optimal
+    - execution.think_aloud
+    - execution.bug_free_coding
+    content: ~60 problems
+  - key: DSA-3
+    name: Advanced graphs, tries, DP
+    skills:
+    - graph.topological_sort
+    - graph.union_find
+    - graph.shortest_path
+    - graph.cycles_bipartite
+    - graph.mst
+    - trie.core
+    - dp.fundamentals
+    - dp.knapsack_subset
+    - dp.strings_subsequence
+    - dp.grid_paths
+    - dp.interval_state_machine
+    - dp.tree
+    - bit_manipulation.core
+    - math.number_basics
+    content: ~45 problems
+  - key: DSA-4
+    name: Interview execution
+    skills:
+    - dsa.pattern_recognition
+    - execution.time_management
+    - execution.debugging_under_pressure
+    - execution.followup_handling
+    extra_exit:
+    - every T1 skill of components dsa and coding has level >= L4
+    content: ~25 timed/mixed problems; 150-170 total
+  cs:
+  - key: CS-1
+    name: DBMS
+    skills:
+    - db.sql_querying
+    - db.modeling_normalization
+    - db.indexing
+    - db.query_optimization
+    - db.transactions_acid
+    - db.isolation_mvcc
+    - db.locking_deadlocks
+    - db.nosql_tradeoffs
+    content: labs on local MySQL
+  - key: CS-2
+    name: OS & concurrency
+    skills:
+    - os.processes_threads
+    - os.scheduling_context_switch
+    - os.memory_virtual
+    - os.synchronization
+    - os.deadlocks
+    - os.concurrency_practical
+    content: includes a concurrency lab
+  - key: CS-3
+    name: Networking, OOP, security
+    skills:
+    - network.tcp_ip_udp
+    - network.dns
+    - network.http
+    - network.tls_https
+    - network.rest_semantics
+    - network.sessions_auth
+    - network.realtime_protocols
+    - oop.principles
+    - oop.composition_solid
+    - security.web_basics
+  lld:
+  - key: LLD-1
+    name: Requirements to class design
+    skills:
+    - lld.requirements_entities
+    - lld.class_design
+    content: parking lot, library, LRU cache
+  - key: LLD-2
+    name: Patterns, extensibility, thread safety
+    skills:
+    - lld.design_patterns
+    - lld.extensibility
+    - lld.concurrency_safety
+    content: elevator, splitwise, vending machine, pub-sub logger
+  - key: LLD-3
+    name: Machine coding
+    skills:
+    - lld.machine_coding
+    extra_exit:
+    - 3 MACHINE_CODING assessments >= 70 on distinct exercises
+    content: in-memory KV store with TTL, rate limiter class, snake & ladder, booking system
+  system_design:
+  - key: SD-1
+    name: Building blocks
+    skills:
+    - sd.requirements_scoping
+    - sd.capacity_estimation
+    - sd.api_design
+    - sd.data_modeling
+    - sd.high_level_decomposition
+    - sd.caching
+    - sd.load_balancing_cdn
+    - sd.storage_search
+    content: URL shortener, rate limiter
+  - key: SD-2
+    name: Distributed systems
+    skills:
+    - sd.database_scaling
+    - sd.consistent_hashing
+    - sd.queues_async
+    - sd.idempotency_retries
+    - sd.rate_limiting
+    - sd.consistency_cap
+    - sd.distributed_coordination
+    - sd.fault_tolerance
+    - sd.observability
+    - sd.security_design
+    - sd.realtime_delivery
+    content: notification system, chat, news feed
+  - key: SD-3
+    name: Practice systems & round execution
+    skills:
+    - sd.deep_dive_bottlenecks
+    - sd.tradeoff_articulation
+    - sd.time_boxing
+    extra_exit:
+    - 6 timed SD_DESIGN assessments >= 70 on distinct exercises
+    content: file storage, ride booking, food delivery, video platform, autocomplete
+  behavioral_project:
+  - key: BP-1
+    name: Story bank & project brief
+    skills:
+    - behavioral.self_introduction
+    - behavioral.ownership
+    - behavioral.impact
+    - behavioral.conflict_disagreement
+    - behavioral.failure_learning
+    - communication.structured_answers
+    - project.architecture_walkthrough
+    - project.metrics_impact
+    extra_exit:
+    - 2 stories exist for each behavioral/communication skill listed in BP-1
+  - key: BP-2
+    name: Full competency coverage
+    skills:
+    - behavioral.ambiguity
+    - behavioral.influence_leadership
+    - behavioral.difficult_decision
+    - behavioral.prioritization
+    - behavioral.why_change
+    - project.tradeoffs_decisions
+    - project.incident_debugging_story
+  - key: BP-3
+    name: Follow-ups & engineering depth
+    skills:
+    - communication.followup_handling
+    - engineering.debugging
+    - engineering.performance_profiling
+    - engineering.api_engineering
+    - engineering.tooling
+    - engineering.caching_practice
+    - testing.unit_integration
+    - testing.test_design
+    content: real changes in own codebase
+  mock:
+  - key: MOCK-1
+    name: Mock rounds
+    starts_when: readiness >= DEVELOPING or phase != BUILD
+    skills: []
+    extra_exit:
+    - gate G6 passes
+  - key: MOCK-2
+    name: Final simulations
+    starts_when: simulation_eligible and day budget >= 160
+    skills: []
+    extra_exit:
+    - gate G9 passes

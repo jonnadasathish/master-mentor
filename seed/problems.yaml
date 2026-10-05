@@ -1,0 +1,511 @@
+# Representative problem catalog (seed-v1). Small on purpose: enough to validate picker, revision and evidence rules.
+# expected_minutes null => DEFAULT_EXPECTED_MINUTES (EASY 15, MEDIUM 30, HARD 45). is_canonical => PROBLEM revision items always created.
+# Validator: unique (platform, platform_key); every skill key exists and is_pattern or allowed; exactly one primary (10000) mapping.
+seed_version: seed-v1
+problems:
+- id: 1
+  platform: LEETCODE
+  platform_key: two-sum
+  title: Two Sum
+  difficulty: EASY
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: hashing.lookup_frequency
+    mapping_weight_bp: 10000
+  - skill: arrays.traversal
+    mapping_weight_bp: 5000
+- id: 2
+  platform: LEETCODE
+  platform_key: group-anagrams
+  title: Group Anagrams
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: hashing.lookup_frequency
+    mapping_weight_bp: 10000
+  - skill: strings.manipulation
+    mapping_weight_bp: 5000
+- id: 3
+  platform: LEETCODE
+  platform_key: top-k-frequent-elements
+  title: Top K Frequent Elements
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: heap.top_k
+    mapping_weight_bp: 10000
+  - skill: hashing.lookup_frequency
+    mapping_weight_bp: 5000
+- id: 4
+  platform: LEETCODE
+  platform_key: 3sum
+  title: 3Sum
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: two_pointers.core
+    mapping_weight_bp: 10000
+  - skill: sorting.algorithms
+    mapping_weight_bp: 5000
+- id: 5
+  platform: LEETCODE
+  platform_key: container-with-most-water
+  title: Container With Most Water
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: two_pointers.core
+    mapping_weight_bp: 10000
+  - skill: greedy.core
+    mapping_weight_bp: 5000
+- id: 6
+  platform: LEETCODE
+  platform_key: longest-substring-without-repeating-characters
+  title: Longest Substring Without Repeating Characters
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: sliding_window.core
+    mapping_weight_bp: 10000
+  - skill: hashing.lookup_frequency
+    mapping_weight_bp: 5000
+- id: 7
+  platform: LEETCODE
+  platform_key: minimum-window-substring
+  title: Minimum Window Substring
+  difficulty: HARD
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: sliding_window.core
+    mapping_weight_bp: 10000
+  - skill: hashing.lookup_frequency
+    mapping_weight_bp: 5000
+- id: 8
+  platform: LEETCODE
+  platform_key: subarray-sum-equals-k
+  title: Subarray Sum Equals K
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: prefix_sum.core
+    mapping_weight_bp: 10000
+  - skill: hashing.lookup_frequency
+    mapping_weight_bp: 5000
+- id: 9
+  platform: LEETCODE
+  platform_key: merge-intervals
+  title: Merge Intervals
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: intervals.core
+    mapping_weight_bp: 10000
+  - skill: python.sorting_keys
+    mapping_weight_bp: 5000
+- id: 10
+  platform: LEETCODE
+  platform_key: reverse-linked-list
+  title: Reverse Linked List
+  difficulty: EASY
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: linked_list.manipulation
+    mapping_weight_bp: 10000
+- id: 11
+  platform: LEETCODE
+  platform_key: linked-list-cycle-ii
+  title: Linked List Cycle II
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: linked_list.fast_slow
+    mapping_weight_bp: 10000
+- id: 12
+  platform: LEETCODE
+  platform_key: daily-temperatures
+  title: Daily Temperatures
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: stack.monotonic
+    mapping_weight_bp: 10000
+  - skill: stack.basic
+    mapping_weight_bp: 5000
+- id: 13
+  platform: LEETCODE
+  platform_key: valid-parentheses
+  title: Valid Parentheses
+  difficulty: EASY
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: stack.basic
+    mapping_weight_bp: 10000
+- id: 14
+  platform: LEETCODE
+  platform_key: sliding-window-maximum
+  title: Sliding Window Maximum
+  difficulty: HARD
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: queue.deque
+    mapping_weight_bp: 10000
+  - skill: sliding_window.core
+    mapping_weight_bp: 5000
+- id: 15
+  platform: LEETCODE
+  platform_key: binary-search
+  title: Binary Search
+  difficulty: EASY
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: binary_search.basic
+    mapping_weight_bp: 10000
+- id: 16
+  platform: LEETCODE
+  platform_key: search-in-rotated-sorted-array
+  title: Search in Rotated Sorted Array
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: binary_search.boundaries
+    mapping_weight_bp: 10000
+  - skill: binary_search.basic
+    mapping_weight_bp: 5000
+- id: 17
+  platform: LEETCODE
+  platform_key: find-first-and-last-position-of-element-in-sorted-array
+  title: Find First and Last Position of Element in Sorted Array
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: binary_search.boundaries
+    mapping_weight_bp: 10000
+- id: 18
+  platform: LEETCODE
+  platform_key: koko-eating-bananas
+  title: Koko Eating Bananas
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: binary_search.answer_space
+    mapping_weight_bp: 10000
+- id: 19
+  platform: LEETCODE
+  platform_key: time-based-key-value-store
+  title: Time Based Key-Value Store
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: binary_search.basic
+    mapping_weight_bp: 10000
+  - skill: design_ds.core
+    mapping_weight_bp: 5000
+- id: 20
+  platform: LEETCODE
+  platform_key: maximum-depth-of-binary-tree
+  title: Maximum Depth of Binary Tree
+  difficulty: EASY
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: trees.traversal
+    mapping_weight_bp: 10000
+  - skill: recursion.fundamentals
+    mapping_weight_bp: 5000
+- id: 21
+  platform: LEETCODE
+  platform_key: binary-tree-level-order-traversal
+  title: Binary Tree Level Order Traversal
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: trees.traversal
+    mapping_weight_bp: 10000
+  - skill: queue.deque
+    mapping_weight_bp: 5000
+- id: 22
+  platform: LEETCODE
+  platform_key: diameter-of-binary-tree
+  title: Diameter of Binary Tree
+  difficulty: EASY
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: trees.path_depth
+    mapping_weight_bp: 10000
+  - skill: trees.traversal
+    mapping_weight_bp: 5000
+- id: 23
+  platform: LEETCODE
+  platform_key: lowest-common-ancestor-of-a-binary-tree
+  title: Lowest Common Ancestor of a Binary Tree
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: trees.lca_construction
+    mapping_weight_bp: 10000
+- id: 24
+  platform: LEETCODE
+  platform_key: validate-binary-search-tree
+  title: Validate Binary Search Tree
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: bst.operations
+    mapping_weight_bp: 10000
+  - skill: trees.traversal
+    mapping_weight_bp: 5000
+- id: 25
+  platform: LEETCODE
+  platform_key: implement-trie-prefix-tree
+  title: Implement Trie (Prefix Tree)
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: trie.core
+    mapping_weight_bp: 10000
+- id: 26
+  platform: LEETCODE
+  platform_key: find-median-from-data-stream
+  title: Find Median from Data Stream
+  difficulty: HARD
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: heap.two_heaps_merge_k
+    mapping_weight_bp: 10000
+  - skill: heap.top_k
+    mapping_weight_bp: 5000
+- id: 27
+  platform: LEETCODE
+  platform_key: number-of-islands
+  title: Number of Islands
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: graph.traversal
+    mapping_weight_bp: 10000
+  - skill: graph.grid_multisource
+    mapping_weight_bp: 5000
+- id: 28
+  platform: LEETCODE
+  platform_key: clone-graph
+  title: Clone Graph
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: graph.traversal
+    mapping_weight_bp: 10000
+  - skill: hashing.lookup_frequency
+    mapping_weight_bp: 5000
+- id: 29
+  platform: LEETCODE
+  platform_key: number-of-connected-components-in-an-undirected-graph
+  title: Number of Connected Components in an Undirected Graph
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: graph.traversal
+    mapping_weight_bp: 10000
+  - skill: graph.union_find
+    mapping_weight_bp: 5000
+- id: 30
+  platform: LEETCODE
+  platform_key: word-ladder
+  title: Word Ladder
+  difficulty: HARD
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: graph.traversal
+    mapping_weight_bp: 10000
+  - skill: strings.manipulation
+    mapping_weight_bp: 5000
+- id: 31
+  platform: LEETCODE
+  platform_key: rotting-oranges
+  title: Rotting Oranges
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: graph.grid_multisource
+    mapping_weight_bp: 10000
+  - skill: graph.traversal
+    mapping_weight_bp: 5000
+- id: 32
+  platform: LEETCODE
+  platform_key: course-schedule
+  title: Course Schedule
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: graph.topological_sort
+    mapping_weight_bp: 10000
+  - skill: graph.cycles_bipartite
+    mapping_weight_bp: 5000
+- id: 33
+  platform: LEETCODE
+  platform_key: redundant-connection
+  title: Redundant Connection
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: graph.union_find
+    mapping_weight_bp: 10000
+- id: 34
+  platform: LEETCODE
+  platform_key: network-delay-time
+  title: Network Delay Time
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: graph.shortest_path
+    mapping_weight_bp: 10000
+  - skill: heap.top_k
+    mapping_weight_bp: 5000
+- id: 35
+  platform: LEETCODE
+  platform_key: subsets
+  title: Subsets
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: backtracking.core
+    mapping_weight_bp: 10000
+  - skill: recursion.fundamentals
+    mapping_weight_bp: 5000
+- id: 36
+  platform: LEETCODE
+  platform_key: jump-game
+  title: Jump Game
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: greedy.core
+    mapping_weight_bp: 10000
+- id: 37
+  platform: LEETCODE
+  platform_key: climbing-stairs
+  title: Climbing Stairs
+  difficulty: EASY
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: dp.fundamentals
+    mapping_weight_bp: 10000
+  - skill: recursion.fundamentals
+    mapping_weight_bp: 5000
+- id: 38
+  platform: LEETCODE
+  platform_key: house-robber
+  title: House Robber
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: dp.fundamentals
+    mapping_weight_bp: 10000
+- id: 39
+  platform: LEETCODE
+  platform_key: coin-change
+  title: Coin Change
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: dp.knapsack_subset
+    mapping_weight_bp: 10000
+  - skill: dp.fundamentals
+    mapping_weight_bp: 5000
+- id: 40
+  platform: LEETCODE
+  platform_key: longest-common-subsequence
+  title: Longest Common Subsequence
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: dp.strings_subsequence
+    mapping_weight_bp: 10000
+  - skill: dp.fundamentals
+    mapping_weight_bp: 5000
+- id: 41
+  platform: LEETCODE
+  platform_key: unique-paths
+  title: Unique Paths
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: dp.grid_paths
+    mapping_weight_bp: 10000
+  - skill: dp.fundamentals
+    mapping_weight_bp: 5000
+- id: 42
+  platform: LEETCODE
+  platform_key: lru-cache
+  title: LRU Cache
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: design_ds.core
+    mapping_weight_bp: 10000
+  - skill: linked_list.manipulation
+    mapping_weight_bp: 5000
+  - skill: hashing.lookup_frequency
+    mapping_weight_bp: 5000
+- id: 43
+  platform: LEETCODE
+  platform_key: kth-largest-element-in-an-array
+  title: Kth Largest Element in an Array
+  difficulty: MEDIUM
+  expected_minutes: null
+  is_canonical: false
+  skills:
+  - skill: heap.top_k
+    mapping_weight_bp: 10000
+  - skill: sorting.algorithms
+    mapping_weight_bp: 5000
+- id: 44
+  platform: LEETCODE
+  platform_key: single-number
+  title: Single Number
+  difficulty: EASY
+  expected_minutes: null
+  is_canonical: true
+  skills:
+  - skill: bit_manipulation.core
+    mapping_weight_bp: 10000

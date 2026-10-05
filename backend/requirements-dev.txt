@@ -1,0 +1,6 @@
+# Test / lint / type tooling (pinned, D-038).
+pytest==8.4.2
+httpx2==2.13.1  # starlette TestClient transport (replaces httpx, deprecated by starlette 1.x)
+ruff==0.16.10
+mypy==1.20.2
+types-PyYAML==6.0.12.20260906

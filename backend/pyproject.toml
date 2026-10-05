@@ -1,0 +1,47 @@
+[project]
+name = "master-mentor-backend"
+version = "0.1.0"
+description = "Master Mentor backend (FastAPI modular monolith)"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers -p no:cacheprovider"  # no cache dirs in the bind mount
+markers = [
+    "db: requires the MySQL test database (TEST_DATABASE_URL)",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 110
+cache-dir = "/tmp/.ruff_cache"
+extend-exclude = ["alembic/versions/__pycache__"]
+
+[tool.ruff.lint]
+# E/W pycodestyle, F pyflakes, I isort, UP pyupgrade, B bugbear, SIM simplify,
+# DTZ: no naive datetimes anywhere (determinism + UTC rule, CLAUDE.md rules 10-11).
+select = ["E", "W", "F", "I", "UP", "B", "SIM", "DTZ"]
+
+[tool.ruff.lint.isort]
+# A local alembic/ migrations folder must not make the alembic package look first-party.
+known-third-party = ["alembic"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["DTZ001"]
+"tests/golden/**" = ["DTZ001", "E501"]  # expected texts and scenario tables are kept verbatim
+"app/domain/mentor/messages.py" = ["E501"]  # user-facing message templates read best unbroken
+
+[tool.mypy]
+python_version = "3.12"
+plugins = ["pydantic.mypy"]
+packages = ["app"]
+cache_dir = "/tmp/.mypy_cache"
+warn_unused_ignores = true
+warn_redundant_casts = true
+check_untyped_defs = true
+disallow_untyped_defs = true
+
+# Domain code is pure and fully strict (CLAUDE.md rule 3).
+[[tool.mypy.overrides]]
+module = ["app.domain", "app.domain.*"]
+strict = true

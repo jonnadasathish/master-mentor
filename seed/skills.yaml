@@ -1,0 +1,1941 @@
+# Canonical skill graph (catalog). Source of truth for keys, parents, prerequisites, components.
+# Targets/importance live in seed/role_profiles/*.yaml (skill_tiers). Validated by the seed validator:
+#   unique keys, known parents/prereqs, acyclic prerequisites, min_score in {30,45,60},
+#   min_score <= prerequisite target, no required (T1-T3) skill depending on an optional (T4) skill.
+seed_version: seed-v1
+groups:
+- key: lang.python
+  name: Python (interview language)
+  component: coding
+- key: coding.execution
+  name: Interview execution (coding rounds)
+  component: coding
+- key: dsa.foundations
+  name: DSA foundations & array patterns
+  component: dsa
+- key: dsa.linear
+  name: Linear structures & binary search
+  component: dsa
+- key: dsa.trees_heaps
+  name: Recursion, trees, tries, heaps
+  component: dsa
+- key: dsa.graphs
+  name: Graphs
+  component: dsa
+- key: dsa.search_dp
+  name: Backtracking, greedy, dynamic programming
+  component: dsa
+- key: dsa.misc
+  name: Bits, math, data-structure design, recognition
+  component: dsa
+- key: cs.dbms
+  name: DBMS
+  component: cs
+- key: cs.os
+  name: Operating systems & concurrency
+  component: cs
+- key: cs.networking
+  name: Networking
+  component: cs
+- key: cs.oop
+  name: OOP
+  component: cs
+- key: cs.security
+  name: Security basics
+  component: cs
+- key: lld.design
+  name: LLD / OOD / machine coding
+  component: lld
+- key: sd.fundamentals
+  name: System design fundamentals
+  component: system_design
+- key: sd.distributed
+  name: Distributed systems
+  component: system_design
+- key: sd.execution
+  name: System design round execution
+  component: system_design
+- key: beh.competencies
+  name: Behavioral competencies
+  component: behavioral
+- key: beh.communication
+  name: Communication
+  component: behavioral
+- key: pdd.project
+  name: Project / technical deep dive
+  component: project
+- key: pdd.engineering
+  name: Practical engineering, debugging, performance
+  component: project
+- key: pdd.testing
+  name: Engineering testing
+  component: project
+skills:
+- key: python.core_syntax
+  name: Core syntax, functions, scope, exceptions
+  parent: lang.python
+  component: coding
+  is_pattern: false
+  prerequisites: []
+  evidence_kinds:
+  - attempt
+  - recall
+  - practice
+  - timed
+  topics:
+  - primitives
+  - functions
+  - scope
+  - exceptions
+  - modules
+- key: python.collections
+  name: dict/set/list/deque/heapq/bisect/Counter/defaultdict
+  parent: lang.python
+  component: coding
+  is_pattern: false
+  prerequisites:
+  - skill: python.core_syntax
+    min_score: 45
+  evidence_kinds:
+  - attempt
+  - recall
+  - practice
+  - timed
+- key: python.sorting_keys
+  name: Sorting, custom keys and ordering
+  parent: lang.python
+  component: coding
+  is_pattern: false
+  prerequisites:
+  - skill: python.core_syntax
+    min_score: 45
+  evidence_kinds:
+  - attempt
+  - recall
+  - practice
+  - timed
+- key: python.oop
+  name: Python classes, dataclasses, composition
+  parent: lang.python
+  component: coding
+  is_pattern: false
+  prerequisites:
+  - skill: python.core_syntax
+    min_score: 45
+  evidence_kinds:
+  - attempt
+  - recall
+  - practice
+  - timed
+- key: python.iterators_generators
+  name: Iterators and generators
+  parent: lang.python
+  component: coding
+  is_pattern: false
+  prerequisites:
+  - skill: python.core_syntax
+    min_score: 45
+  evidence_kinds:
+  - attempt
+  - recall
+  - practice
+  - timed
+- key: python.builtin_complexity
+  name: Complexity of built-in operations
+  parent: lang.python
+  component: coding
+  is_pattern: false
+  prerequisites:
+  - skill: python.collections
+    min_score: 45
+  - skill: dsa.complexity_analysis
+    min_score: 30
+  evidence_kinds:
+  - attempt
+  - recall
+  - practice
+  - timed
+- key: execution.clarification
+  name: Clarify requirements, inputs, constraints
+  parent: coding.execution
+  component: coding
+  is_pattern: false
+  prerequisites: []
+  evidence_kinds:
+  - attempt
+  - recall
+  - practice
+  - timed
+  - mock_round
+- key: execution.brute_force_to_optimal
+  name: Brute force first, then optimize with reasoning
+  parent: coding.execution
+  component: coding
+  is_pattern: false
+  prerequisites:
+  - skill: dsa.complexity_analysis
+    min_score: 45
+  evidence_kinds:
+  - attempt
+  - recall
+  - practice
+  - timed
+  - mock_round
+- key: execution.think_aloud
+  name: Think aloud while solving
+  parent: coding.execution
+  component: coding
+  is_pattern: false
+  prerequisites: []
+  evidence_kinds:
+  - attempt
+  - recall
+  - practice
+  - timed
+  - mock_round
+- key: execution.bug_free_coding
+  name: Write correct code on first pass
+  parent: coding.execution
+  component: coding
+  is_pattern: false
+  prerequisites:
+  - skill: python.collections
+    min_score: 45
+  evidence_kinds:
+  - attempt
+  - recall
+  - practice
+  - timed
+  - mock_round
+- key: execution.testing_dry_run
+  name: Dry-run and test own code, edge cases
+  parent: coding.execution
+  component: coding
+  is_pattern: false
+  prerequisites: []
+  evidence_kinds:
+  - attempt
+  - recall
+  - practice
+  - timed
+  - mock_round
+- key: execution.time_management
+  name: Finish within round time
+  parent: coding.execution
+  component: coding
+  is_pattern: false
+  prerequisites: []
+  evidence_kinds:
+  - attempt
+  - recall
+  - practice
+  - timed
+  - mock_round
+- key: execution.debugging_under_pressure
+  name: Locate and fix bugs live
+  parent: coding.execution
+  component: coding
+  is_pattern: false
+  prerequisites:
+  - skill: execution.testing_dry_run
+    min_score: 30
+  evidence_kinds:
+  - attempt
+  - recall
+  - practice
+  - timed
+  - mock_round
+- key: execution.followup_handling
+  name: Handle follow-up variants and constraints
+  parent: coding.execution
+  component: coding
+  is_pattern: false
+  prerequisites:
+  - skill: execution.brute_force_to_optimal
+    min_score: 45
+  evidence_kinds:
+  - attempt
+  - recall
+  - practice
+  - timed
+  - mock_round
+- key: dsa.complexity_analysis
+  name: Time/space complexity analysis
+  parent: dsa.foundations
+  component: dsa
+  is_pattern: false
+  prerequisites: []
+  evidence_kinds:
+  - attempt
+  - recall
+  - mock_round
+- key: arrays.traversal
+  name: Array traversal and in-place updates
+  parent: dsa.foundations
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: python.core_syntax
+    min_score: 30
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: hashing.lookup_frequency
+  name: Hash lookup, frequency, grouping
+  parent: dsa.foundations
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: arrays.traversal
+    min_score: 45
+  - skill: python.collections
+    min_score: 30
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: strings.manipulation
+  name: String manipulation and palindromes
+  parent: dsa.foundations
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: arrays.traversal
+    min_score: 45
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: two_pointers.core
+  name: Two pointers
+  parent: dsa.foundations
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: arrays.traversal
+    min_score: 45
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: sliding_window.core
+  name: Sliding window (fixed/variable)
+  parent: dsa.foundations
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: two_pointers.core
+    min_score: 45
+  - skill: hashing.lookup_frequency
+    min_score: 45
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: prefix_sum.core
+  name: Prefix sums and prefix-state hashing
+  parent: dsa.foundations
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: arrays.traversal
+    min_score: 45
+  - skill: hashing.lookup_frequency
+    min_score: 45
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: sorting.algorithms
+  name: Merge sort, quickselect, counting sort
+  parent: dsa.foundations
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: arrays.traversal
+    min_score: 45
+  - skill: dsa.complexity_analysis
+    min_score: 30
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: intervals.core
+  name: 'Intervals: merge, insert, sweep line'
+  parent: dsa.foundations
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: python.sorting_keys
+    min_score: 30
+  - skill: arrays.traversal
+    min_score: 45
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: linked_list.manipulation
+  name: Linked list reverse/merge/intersection
+  parent: dsa.linear
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: python.core_syntax
+    min_score: 30
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: linked_list.fast_slow
+  name: 'Fast/slow pointers: middle, cycle'
+  parent: dsa.linear
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: linked_list.manipulation
+    min_score: 45
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: stack.basic
+  name: Stack, expression evaluation, parentheses
+  parent: dsa.linear
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: arrays.traversal
+    min_score: 45
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: stack.monotonic
+  name: Monotonic stack, next greater/smaller
+  parent: dsa.linear
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: stack.basic
+    min_score: 45
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: queue.deque
+  name: Queue, deque, monotonic queue
+  parent: dsa.linear
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: stack.basic
+    min_score: 30
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: binary_search.basic
+  name: Binary search on sorted data
+  parent: dsa.linear
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: arrays.traversal
+    min_score: 45
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: binary_search.boundaries
+  name: Lower/upper bounds, rotated arrays
+  parent: dsa.linear
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: binary_search.basic
+    min_score: 60
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: binary_search.answer_space
+  name: Binary search on the answer
+  parent: dsa.linear
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: binary_search.boundaries
+    min_score: 45
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: recursion.fundamentals
+  name: 'Recursion: base case, state, recursion tree'
+  parent: dsa.trees_heaps
+  component: dsa
+  is_pattern: false
+  prerequisites:
+  - skill: python.core_syntax
+    min_score: 30
+  evidence_kinds:
+  - attempt
+  - recall
+  - mock_round
+- key: trees.traversal
+  name: Tree DFS/BFS traversals
+  parent: dsa.trees_heaps
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: recursion.fundamentals
+    min_score: 45
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: trees.path_depth
+  name: Height, diameter, path sums
+  parent: dsa.trees_heaps
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: trees.traversal
+    min_score: 60
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: trees.lca_construction
+  name: LCA, tree construction, serialization
+  parent: dsa.trees_heaps
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: trees.traversal
+    min_score: 45
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: bst.operations
+  name: BST search/insert/validate/kth
+  parent: dsa.trees_heaps
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: trees.traversal
+    min_score: 45
+  - skill: binary_search.basic
+    min_score: 45
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: trie.core
+  name: Trie insert/search/prefix
+  parent: dsa.trees_heaps
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: trees.traversal
+    min_score: 45
+  - skill: hashing.lookup_frequency
+    min_score: 45
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: heap.top_k
+  name: Heap / top-K / k-th element
+  parent: dsa.trees_heaps
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: python.collections
+    min_score: 45
+  - skill: dsa.complexity_analysis
+    min_score: 30
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: heap.two_heaps_merge_k
+  name: Two heaps, merge K, scheduling
+  parent: dsa.trees_heaps
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: heap.top_k
+    min_score: 60
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: graph.traversal
+  name: Graph representation, BFS/DFS, components
+  parent: dsa.graphs
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: trees.traversal
+    min_score: 45
+  - skill: hashing.lookup_frequency
+    min_score: 45
+  - skill: queue.deque
+    min_score: 30
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: graph.grid_multisource
+  name: Grid BFS/DFS, multi-source BFS
+  parent: dsa.graphs
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: graph.traversal
+    min_score: 60
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: graph.topological_sort
+  name: Topological sort, dependency ordering
+  parent: dsa.graphs
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: graph.traversal
+    min_score: 60
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: graph.union_find
+  name: Union-find (DSU)
+  parent: dsa.graphs
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: graph.traversal
+    min_score: 45
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: graph.shortest_path
+  name: Dijkstra / weighted shortest path
+  parent: dsa.graphs
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: graph.traversal
+    min_score: 60
+  - skill: heap.top_k
+    min_score: 45
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: graph.cycles_bipartite
+  name: Cycle detection, bipartite check
+  parent: dsa.graphs
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: graph.traversal
+    min_score: 45
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: graph.mst
+  name: Minimum spanning tree
+  parent: dsa.graphs
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: graph.union_find
+    min_score: 45
+  - skill: heap.top_k
+    min_score: 45
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: backtracking.core
+  name: Subsets, permutations, combinations, constraints
+  parent: dsa.search_dp
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: recursion.fundamentals
+    min_score: 60
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: greedy.core
+  name: Greedy choice and exchange argument
+  parent: dsa.search_dp
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: python.sorting_keys
+    min_score: 30
+  - skill: dsa.complexity_analysis
+    min_score: 30
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: dp.fundamentals
+  name: DP state, transition, memo/tabulation, 1-D DP
+  parent: dsa.search_dp
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: recursion.fundamentals
+    min_score: 60
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: dp.knapsack_subset
+  name: Knapsack / subset-sum family
+  parent: dsa.search_dp
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: dp.fundamentals
+    min_score: 60
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: dp.strings_subsequence
+  name: LIS/LCS/edit distance, string DP
+  parent: dsa.search_dp
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: dp.fundamentals
+    min_score: 60
+  - skill: strings.manipulation
+    min_score: 45
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: dp.grid_paths
+  name: Grid DP
+  parent: dsa.search_dp
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: dp.fundamentals
+    min_score: 45
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: dp.interval_state_machine
+  name: Interval DP, state-machine DP
+  parent: dsa.search_dp
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: dp.fundamentals
+    min_score: 60
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: dp.tree
+  name: DP on trees
+  parent: dsa.search_dp
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: dp.fundamentals
+    min_score: 60
+  - skill: trees.path_depth
+    min_score: 45
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: bit_manipulation.core
+  name: Bit manipulation
+  parent: dsa.misc
+  component: dsa
+  is_pattern: true
+  prerequisites: []
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: math.number_basics
+  name: GCD, modulo, overflow, primes
+  parent: dsa.misc
+  component: dsa
+  is_pattern: false
+  prerequisites: []
+  evidence_kinds:
+  - attempt
+  - recall
+  - mock_round
+- key: design_ds.core
+  name: Design a data structure (LRU, min-stack, iterator)
+  parent: dsa.misc
+  component: dsa
+  is_pattern: true
+  prerequisites:
+  - skill: hashing.lookup_frequency
+    min_score: 45
+  - skill: linked_list.manipulation
+    min_score: 45
+  evidence_kinds:
+  - attempt
+  - recall
+  - pattern_drill
+  - mock_round
+- key: dsa.pattern_recognition
+  name: Identify the right pattern from a problem statement
+  parent: dsa.misc
+  component: dsa
+  is_pattern: false
+  prerequisites:
+  - skill: hashing.lookup_frequency
+    min_score: 45
+  - skill: two_pointers.core
+    min_score: 45
+  evidence_kinds:
+  - attempt
+  - pattern_drill
+  - mock_round
+- key: db.sql_querying
+  name: 'SQL: joins, aggregation, subqueries, window functions'
+  parent: cs.dbms
+  component: cs
+  is_pattern: false
+  prerequisites: []
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: db.modeling_normalization
+  name: Relational modeling, keys, normalization
+  parent: cs.dbms
+  component: cs
+  is_pattern: false
+  prerequisites:
+  - skill: db.sql_querying
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: db.indexing
+  name: B-tree, composite and covering indexes
+  parent: cs.dbms
+  component: cs
+  is_pattern: false
+  prerequisites:
+  - skill: db.sql_querying
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: db.query_optimization
+  name: EXPLAIN, query plans, N+1
+  parent: cs.dbms
+  component: cs
+  is_pattern: false
+  prerequisites:
+  - skill: db.indexing
+    min_score: 60
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: db.transactions_acid
+  name: Transactions and ACID
+  parent: cs.dbms
+  component: cs
+  is_pattern: false
+  prerequisites:
+  - skill: db.sql_querying
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: db.isolation_mvcc
+  name: Isolation levels, anomalies, MVCC
+  parent: cs.dbms
+  component: cs
+  is_pattern: false
+  prerequisites:
+  - skill: db.transactions_acid
+    min_score: 60
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: db.locking_deadlocks
+  name: Row/table locks, deadlocks
+  parent: cs.dbms
+  component: cs
+  is_pattern: false
+  prerequisites:
+  - skill: db.transactions_acid
+    min_score: 60
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: db.nosql_tradeoffs
+  name: SQL vs NoSQL data models
+  parent: cs.dbms
+  component: cs
+  is_pattern: false
+  prerequisites:
+  - skill: db.modeling_normalization
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: os.processes_threads
+  name: Processes vs threads, address space
+  parent: cs.os
+  component: cs
+  is_pattern: false
+  prerequisites: []
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: os.scheduling_context_switch
+  name: Scheduling, context switching
+  parent: cs.os
+  component: cs
+  is_pattern: false
+  prerequisites:
+  - skill: os.processes_threads
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: os.memory_virtual
+  name: Memory, virtual memory, paging
+  parent: cs.os
+  component: cs
+  is_pattern: false
+  prerequisites:
+  - skill: os.processes_threads
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: os.synchronization
+  name: Races, mutex, semaphore, condition variables
+  parent: cs.os
+  component: cs
+  is_pattern: false
+  prerequisites:
+  - skill: os.processes_threads
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: os.deadlocks
+  name: Deadlock conditions and prevention
+  parent: cs.os
+  component: cs
+  is_pattern: false
+  prerequisites:
+  - skill: os.synchronization
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: os.concurrency_practical
+  name: Thread pools, producer-consumer, asyncio, GIL, I/O models
+  parent: cs.os
+  component: cs
+  is_pattern: false
+  prerequisites:
+  - skill: os.synchronization
+    min_score: 45
+  - skill: python.core_syntax
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: network.tcp_ip_udp
+  name: TCP/IP, TCP vs UDP, handshake
+  parent: cs.networking
+  component: cs
+  is_pattern: false
+  prerequisites: []
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: network.dns
+  name: DNS resolution
+  parent: cs.networking
+  component: cs
+  is_pattern: false
+  prerequisites:
+  - skill: network.tcp_ip_udp
+    min_score: 30
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: network.http
+  name: HTTP semantics, headers, caching, HTTP/2
+  parent: cs.networking
+  component: cs
+  is_pattern: false
+  prerequisites:
+  - skill: network.tcp_ip_udp
+    min_score: 30
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: network.tls_https
+  name: TLS handshake, HTTPS
+  parent: cs.networking
+  component: cs
+  is_pattern: false
+  prerequisites:
+  - skill: network.http
+    min_score: 45
+  - skill: network.tcp_ip_udp
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: network.rest_semantics
+  name: REST semantics, status codes, idempotent methods
+  parent: cs.networking
+  component: cs
+  is_pattern: false
+  prerequisites:
+  - skill: network.http
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: network.sessions_auth
+  name: Cookies, sessions, JWT, OAuth basics
+  parent: cs.networking
+  component: cs
+  is_pattern: false
+  prerequisites:
+  - skill: network.http
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: network.realtime_protocols
+  name: WebSockets, SSE, long polling
+  parent: cs.networking
+  component: cs
+  is_pattern: false
+  prerequisites:
+  - skill: network.http
+    min_score: 45
+  - skill: network.tcp_ip_udp
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: oop.principles
+  name: Encapsulation, abstraction, inheritance, polymorphism
+  parent: cs.oop
+  component: cs
+  is_pattern: false
+  prerequisites: []
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: oop.composition_solid
+  name: Composition over inheritance, SOLID, DI
+  parent: cs.oop
+  component: cs
+  is_pattern: false
+  prerequisites:
+  - skill: oop.principles
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: security.web_basics
+  name: OWASP basics, authn vs authz, password hashing, injection
+  parent: cs.security
+  component: cs
+  is_pattern: false
+  prerequisites:
+  - skill: network.sessions_auth
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: lld.requirements_entities
+  name: Requirements to entities and use cases
+  parent: lld.design
+  component: lld
+  is_pattern: false
+  prerequisites: []
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: lld.class_design
+  name: Class design, relationships, interfaces
+  parent: lld.design
+  component: lld
+  is_pattern: false
+  prerequisites:
+  - skill: oop.principles
+    min_score: 45
+  - skill: lld.requirements_entities
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: lld.design_patterns
+  name: Applied design patterns (strategy, factory, observer, state)
+  parent: lld.design
+  component: lld
+  is_pattern: false
+  prerequisites:
+  - skill: oop.composition_solid
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: lld.extensibility
+  name: Extensibility and change scenarios
+  parent: lld.design
+  component: lld
+  is_pattern: false
+  prerequisites:
+  - skill: lld.class_design
+    min_score: 60
+  - skill: oop.composition_solid
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: lld.concurrency_safety
+  name: Thread-safe designs (locks, queues)
+  parent: lld.design
+  component: lld
+  is_pattern: false
+  prerequisites:
+  - skill: lld.class_design
+    min_score: 45
+  - skill: os.synchronization
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: lld.machine_coding
+  name: Working, tested, modular code in 90 minutes
+  parent: lld.design
+  component: lld
+  is_pattern: false
+  prerequisites:
+  - skill: lld.class_design
+    min_score: 60
+  - skill: python.oop
+    min_score: 45
+  - skill: execution.bug_free_coding
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: sd.requirements_scoping
+  name: Functional/non-functional requirements, scope
+  parent: sd.fundamentals
+  component: system_design
+  is_pattern: false
+  prerequisites: []
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: sd.capacity_estimation
+  name: Back-of-envelope estimation
+  parent: sd.fundamentals
+  component: system_design
+  is_pattern: false
+  prerequisites: []
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: sd.api_design
+  name: API design
+  parent: sd.fundamentals
+  component: system_design
+  is_pattern: false
+  prerequisites:
+  - skill: network.rest_semantics
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: sd.data_modeling
+  name: Data model and storage choice
+  parent: sd.fundamentals
+  component: system_design
+  is_pattern: false
+  prerequisites:
+  - skill: db.modeling_normalization
+    min_score: 45
+  - skill: db.indexing
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: sd.high_level_decomposition
+  name: High-level architecture and components
+  parent: sd.fundamentals
+  component: system_design
+  is_pattern: false
+  prerequisites:
+  - skill: sd.requirements_scoping
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: sd.caching
+  name: Caching strategies, invalidation, hot keys
+  parent: sd.fundamentals
+  component: system_design
+  is_pattern: false
+  prerequisites:
+  - skill: network.http
+    min_score: 45
+  - skill: sd.high_level_decomposition
+    min_score: 30
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: sd.load_balancing_cdn
+  name: Load balancing, proxies, CDN
+  parent: sd.fundamentals
+  component: system_design
+  is_pattern: false
+  prerequisites:
+  - skill: network.http
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: sd.storage_search
+  name: Object storage, search/inverted index, geo indexing, ID generation
+  parent: sd.fundamentals
+  component: system_design
+  is_pattern: false
+  prerequisites:
+  - skill: sd.data_modeling
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: sd.database_scaling
+  name: Replication, read replicas, partitioning, sharding
+  parent: sd.distributed
+  component: system_design
+  is_pattern: false
+  prerequisites:
+  - skill: db.indexing
+    min_score: 60
+  - skill: db.transactions_acid
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: sd.consistent_hashing
+  name: Consistent hashing
+  parent: sd.distributed
+  component: system_design
+  is_pattern: false
+  prerequisites:
+  - skill: sd.database_scaling
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: sd.queues_async
+  name: Queues, pub/sub, async processing, delivery semantics, outbox
+  parent: sd.distributed
+  component: system_design
+  is_pattern: false
+  prerequisites:
+  - skill: sd.high_level_decomposition
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: sd.idempotency_retries
+  name: Idempotency keys, retries, backoff
+  parent: sd.distributed
+  component: system_design
+  is_pattern: false
+  prerequisites:
+  - skill: sd.queues_async
+    min_score: 45
+  - skill: network.rest_semantics
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: sd.rate_limiting
+  name: Rate limiting algorithms and placement
+  parent: sd.distributed
+  component: system_design
+  is_pattern: false
+  prerequisites:
+  - skill: sd.caching
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: sd.consistency_cap
+  name: Consistency models, CAP/PACELC
+  parent: sd.distributed
+  component: system_design
+  is_pattern: false
+  prerequisites:
+  - skill: sd.database_scaling
+    min_score: 45
+  - skill: db.isolation_mvcc
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: sd.distributed_coordination
+  name: Distributed locks, leader election (concepts)
+  parent: sd.distributed
+  component: system_design
+  is_pattern: false
+  prerequisites:
+  - skill: sd.consistency_cap
+    min_score: 60
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: sd.fault_tolerance
+  name: Timeouts, circuit breakers, backpressure, disaster recovery
+  parent: sd.distributed
+  component: system_design
+  is_pattern: false
+  prerequisites:
+  - skill: sd.idempotency_retries
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: sd.observability
+  name: Logs, metrics, traces, alerting
+  parent: sd.distributed
+  component: system_design
+  is_pattern: false
+  prerequisites: []
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: sd.security_design
+  name: Security in system design
+  parent: sd.distributed
+  component: system_design
+  is_pattern: false
+  prerequisites:
+  - skill: security.web_basics
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: sd.realtime_delivery
+  name: Real-time delivery and fan-out
+  parent: sd.distributed
+  component: system_design
+  is_pattern: false
+  prerequisites:
+  - skill: network.realtime_protocols
+    min_score: 45
+  - skill: sd.queues_async
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: sd.deep_dive_bottlenecks
+  name: Deep dive and bottleneck identification
+  parent: sd.execution
+  component: system_design
+  is_pattern: false
+  prerequisites:
+  - skill: sd.high_level_decomposition
+    min_score: 60
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: sd.tradeoff_articulation
+  name: Articulate and defend trade-offs
+  parent: sd.execution
+  component: system_design
+  is_pattern: false
+  prerequisites:
+  - skill: sd.high_level_decomposition
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: sd.time_boxing
+  name: Drive a 45-minute design round
+  parent: sd.execution
+  component: system_design
+  is_pattern: false
+  prerequisites: []
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: behavioral.self_introduction
+  name: Self-introduction (2 minutes)
+  parent: beh.competencies
+  component: behavioral
+  is_pattern: false
+  prerequisites: []
+  evidence_kinds:
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: behavioral.ownership
+  name: Ownership
+  parent: beh.competencies
+  component: behavioral
+  is_pattern: false
+  prerequisites: []
+  evidence_kinds:
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: behavioral.impact
+  name: Impact with measurable results
+  parent: beh.competencies
+  component: behavioral
+  is_pattern: false
+  prerequisites: []
+  evidence_kinds:
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: behavioral.conflict_disagreement
+  name: Conflict and disagreement
+  parent: beh.competencies
+  component: behavioral
+  is_pattern: false
+  prerequisites: []
+  evidence_kinds:
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: behavioral.failure_learning
+  name: Failure and learning
+  parent: beh.competencies
+  component: behavioral
+  is_pattern: false
+  prerequisites: []
+  evidence_kinds:
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: behavioral.ambiguity
+  name: Handling ambiguity
+  parent: beh.competencies
+  component: behavioral
+  is_pattern: false
+  prerequisites: []
+  evidence_kinds:
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: behavioral.influence_leadership
+  name: Influence without authority, leadership
+  parent: beh.competencies
+  component: behavioral
+  is_pattern: false
+  prerequisites: []
+  evidence_kinds:
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: behavioral.difficult_decision
+  name: Difficult decisions
+  parent: beh.competencies
+  component: behavioral
+  is_pattern: false
+  prerequisites: []
+  evidence_kinds:
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: behavioral.prioritization
+  name: Prioritization under constraints
+  parent: beh.competencies
+  component: behavioral
+  is_pattern: false
+  prerequisites: []
+  evidence_kinds:
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: behavioral.why_change
+  name: Why this company / why change
+  parent: beh.competencies
+  component: behavioral
+  is_pattern: false
+  prerequisites:
+  - skill: behavioral.self_introduction
+    min_score: 30
+  evidence_kinds:
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: communication.structured_answers
+  name: Structured, concise, direct answers (STAR)
+  parent: beh.communication
+  component: behavioral
+  is_pattern: false
+  prerequisites: []
+  evidence_kinds:
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: communication.followup_handling
+  name: Handle probing follow-ups
+  parent: beh.communication
+  component: behavioral
+  is_pattern: false
+  prerequisites:
+  - skill: communication.structured_answers
+    min_score: 45
+  evidence_kinds:
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: project.architecture_walkthrough
+  name: Walk through own project architecture
+  parent: pdd.project
+  component: project
+  is_pattern: false
+  prerequisites: []
+  evidence_kinds:
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: project.tradeoffs_decisions
+  name: Defend own design decisions and alternatives
+  parent: pdd.project
+  component: project
+  is_pattern: false
+  prerequisites:
+  - skill: project.architecture_walkthrough
+    min_score: 45
+  evidence_kinds:
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: project.metrics_impact
+  name: Quantify own project impact
+  parent: pdd.project
+  component: project
+  is_pattern: false
+  prerequisites:
+  - skill: project.architecture_walkthrough
+    min_score: 30
+  evidence_kinds:
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: project.incident_debugging_story
+  name: Incident / hard-bug story with root cause
+  parent: pdd.project
+  component: project
+  is_pattern: false
+  prerequisites:
+  - skill: project.architecture_walkthrough
+    min_score: 30
+  evidence_kinds:
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: engineering.debugging
+  name: Systematic debugging
+  parent: pdd.engineering
+  component: project
+  is_pattern: false
+  prerequisites: []
+  evidence_kinds:
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: engineering.performance_profiling
+  name: Profiling and performance fixes
+  parent: pdd.engineering
+  component: project
+  is_pattern: false
+  prerequisites:
+  - skill: db.query_optimization
+    min_score: 45
+  evidence_kinds:
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: engineering.api_engineering
+  name: 'API implementation: validation, errors, auth'
+  parent: pdd.engineering
+  component: project
+  is_pattern: false
+  prerequisites:
+  - skill: network.rest_semantics
+    min_score: 45
+  evidence_kinds:
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: engineering.tooling
+  name: Git, Linux, Docker, CI/CD
+  parent: pdd.engineering
+  component: project
+  is_pattern: false
+  prerequisites: []
+  evidence_kinds:
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: engineering.caching_practice
+  name: Redis/caching in practice
+  parent: pdd.engineering
+  component: project
+  is_pattern: false
+  prerequisites:
+  - skill: sd.caching
+    min_score: 45
+  evidence_kinds:
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: testing.unit_integration
+  name: Unit and integration testing
+  parent: pdd.testing
+  component: project
+  is_pattern: false
+  prerequisites: []
+  evidence_kinds:
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round
+- key: testing.test_design
+  name: 'Test design: edge cases, mocks, fixtures'
+  parent: pdd.testing
+  component: project
+  is_pattern: false
+  prerequisites:
+  - skill: testing.unit_integration
+    min_score: 45
+  evidence_kinds:
+  - practice
+  - timed
+  - followup
+  - applied
+  - mock_round

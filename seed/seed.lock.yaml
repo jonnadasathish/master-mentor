@@ -1,0 +1,12 @@
+# Frozen fingerprints of every released seed_version (append-only; written by `make seed-lock`).
+# A fingerprint is the SHA-256 of the canonical JSON of the parsed YAML file, so comments and formatting
+# do not matter but any content change does. Changing a locked version's content fails validation:
+# bump seed_version in every seed file, run `make seed-lock`, and add a DECISION_LOG entry.
+seed-v1:
+  catalog: 7546c05d7c7139cab9fecc7d8f5392cac5fa6557cb8ad02239ccc99cd80a0b60
+  files:
+    mission_templates: 0221041da06fe211041afe66936b00df11ff005b0217b4594ac26fbcaa38d745
+    problem_catalog: 8c48feb4ea3f75cf3e3e2aafc062e2c20ac041edaec39cbbc6b17a8a29c9d4fb
+    roadmap: a069985f744175ea92509618aa5305de75f371d30b2c13b943e93267ed214e2c
+    role_profile:backend_fullstack_sde2: 5864dc27e467972849de309ede768f2fad0a0fdcd0cb181d4c5eaf0534c545bf
+    skill_graph: ddf556eafa86c50cbce2d8317964da38a02da009f6b459cd91b1fdf6a987702d
