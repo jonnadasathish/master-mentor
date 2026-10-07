@@ -1,5 +1,5 @@
 # Practical engineering 3: API implementation (validation, errors, idempotency, auth) and the delivery pipeline.
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- API engineering
 - key: eng.api_engineering.lesson

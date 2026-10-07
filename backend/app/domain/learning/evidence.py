@@ -11,9 +11,22 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.domain.communication.metrics import speaking_points
 from app.domain.learning import grading
 from app.domain.learning import vocabulary as lv
 from app.domain.learning.model import ContentItem
+
+
+@dataclass(frozen=True)
+class SpeechEvidence:
+    """A speaking practice (D-087). ``measured`` are the 0/1/2 ratings of the criteria the transcript can
+    show (computed on the server for BROWSER, empty for MANUAL). A MANUAL practice is recorded as supported
+    practice (``reference_used``), so the existing practice ladder caps it at L2; a BROWSER practice follows
+    the ladder."""
+
+    source: str  # BROWSER | MANUAL
+    duration_seconds: int
+    measured: Mapping[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -35,6 +48,7 @@ class Submission:
     milestone: str | None = None  # project: the milestone being completed
     defense: bool = False  # project: the interview defense of the project
     notes: str | None = None
+    speech: SpeechEvidence | None = None  # interview_question only
 
 
 @dataclass(frozen=True)
@@ -98,7 +112,17 @@ def grade_completion(item: ContentItem, sub: Submission, components: Mapping[str
     if item.type == "project":
         return _project(item, sub, base, components)
 
-    points = grading.rubric_points(rubric_of(item), sub.ratings)
+    if sub.speech is not None and item.type != "interview_question":
+        raise CompletionError("speaking practice records only on an interview question")
+    if sub.speech is not None:
+        rubric = rubric_of(item)
+        self_rated = {
+            str(r["key"]): (grading.rating_of(sub.ratings.get(str(r["key"]))), int(r["points"]))
+            for r in rubric
+        }
+        points = speaking_points(sub.speech.measured, self_rated)
+    else:
+        points = grading.rubric_points(rubric_of(item), sub.ratings)
     follow_ups = item.body.get("follow_ups") or ()
     fpoints = grading.followup_points(follow_ups, sub.followups) if follow_ups and sub.followups else None
     payload = (
@@ -146,14 +170,17 @@ def _project(
 
 
 def _practice_fields(item: ContentItem, sub: Submission) -> dict[str, Any]:
-    timed = bool(sub.timed and item.time_limit_seconds and sub.time_seconds is not None)
+    speech = sub.speech
+    time_seconds = speech.duration_seconds if speech and speech.source == "BROWSER" else sub.time_seconds
+    manual = speech is not None and speech.source == "MANUAL"
+    timed = bool(sub.timed and item.time_limit_seconds and time_seconds is not None and not manual)
     return {
         "notes_used": sub.notes_used,
-        "reference_used": sub.reference_used,
+        "reference_used": sub.reference_used or manual,
         "hints_used": max(0, min(sub.hints_used, 20)),
         "timed": timed,
         "time_limit_seconds": item.time_limit_seconds if timed else None,
-        "time_seconds": sub.time_seconds if timed else None,
+        "time_seconds": time_seconds if timed else None,
         "difficulty": item.difficulty or "MEDIUM",
     }
 

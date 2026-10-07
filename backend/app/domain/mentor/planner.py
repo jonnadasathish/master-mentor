@@ -12,6 +12,7 @@ from types import ModuleType
 
 from app.domain.catalog.model import MissionTemplate
 from app.domain.catalog.templates import resolve_template
+from app.domain.communication.vocabulary import is_optional_communication_skill
 from app.domain.gaps.model import Gap
 from app.domain.mentor.messages import choose_message
 from app.domain.mentor.model import DailyPlan, Dropped, Explanation, PlanInputs, PlanItem, StopEntry
@@ -628,6 +629,8 @@ def _stop_list(inputs: PlanInputs, ruleset: ModuleType) -> list[StopEntry]:
     out: list[StopEntry] = []
     total = inputs.practice.total_minutes_14d
     for g in sorted(inputs.gaps.gaps, key=lambda x: x.skill_key):
+        if is_optional_communication_skill(g.skill_key):
+            continue  # optional (T4) communication skills stay reachable via sessions and revision (D-087)
         minutes_7d = inputs.practice.skill_minutes_7d.get(g.skill_key, 0)
         state = inputs.states.get(g.skill_key)
         if g.status == "PARKED":
@@ -717,25 +720,35 @@ def generate_daily_plan(inputs: PlanInputs, ruleset: ModuleType) -> DailyPlan:
         _admit(final, pack)
         dropped.extend(Dropped(c.key, "ITEM_CAP") for c in ordered if c is not final)
     else:
-        for i, c in enumerate(ordered):
+        # D-087: optional communication practice (a GAP or DIAGNOSTIC on a comm.* skill) is considered after
+        # every technical candidate and the focus follow-up, so it only uses time technical work did not need.
+        primary = [c for c in ordered if not _is_optional_communication_work(c)]
+        deferred = [c for c in ordered if _is_optional_communication_work(c)]
+
+        def consider(c: Candidate, rest: list[Candidate]) -> None:
             if c.type == "FINAL_SIMULATION":
                 dropped.append(Dropped(c.key, "BUDGET"))
-                continue
-            reason = _reject_reason(c, pack, inputs, ordered[i + 1 :], ruleset)
+                return
+            reason = _reject_reason(c, pack, inputs, rest, ruleset)
             if reason is None and c.minutes <= 0 and c.type != "BASELINE":
                 reason = "CONTENT_MISSING"
             if reason is not None:
                 dropped.append(Dropped(c.key, reason, c.held_detail))
-                continue
+                return
             if c.problem_ids and set(c.problem_ids) & pack.used_problems and c.type != "REVISION":
                 _attach_content(replace_problems(c), inputs, pack.used_problems)
                 if c.held is not None:
                     dropped.append(Dropped(c.key, c.held, c.held_detail))
-                    continue
+                    return
             _admit(c, pack)
+
+        for i, c in enumerate(primary):
+            consider(c, primary[i + 1 :])
         follow = _follow_up(pack, inputs, ruleset)
         if follow is not None:
             _admit(follow, pack)
+        for i, c in enumerate(deferred):
+            consider(c, deferred[i + 1 :])
 
     items = tuple(
         PlanItem(
@@ -773,6 +786,12 @@ def generate_daily_plan(inputs: PlanInputs, ruleset: ModuleType) -> DailyPlan:
     held = [c for c in candidates if c.held == "NEW_TOPIC_HOLD"]
     message = choose_message(plan_wo_message, inputs, held_learn=held, ruleset=ruleset)
     return replace(plan_wo_message, message=message)
+
+
+def _is_optional_communication_work(c: Candidate) -> bool:
+    return (
+        c.type in ("GAP", "DIAGNOSTIC") and c.skill is not None and is_optional_communication_skill(c.skill)
+    )
 
 
 def replace_problems(c: Candidate) -> Candidate:

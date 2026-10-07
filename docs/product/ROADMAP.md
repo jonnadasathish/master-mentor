@@ -131,3 +131,7 @@ That puts INTERVIEW_READY at roughly **8–10 months**. A target date sooner tha
 ## 6. Learning paths (MASTER_SPEC_V3, D-083)
 
 The milestones above order the tracks; `seed/learning/curriculum.yaml` orders the teaching inside them (tracks DSA, Python, CS fundamentals, LLD, System design, Practical engineering, Projects, Behavioral; topics in teaching order). Neither decides what comes first for a learner: the mentor's gap ranking does, prerequisites first (a weak prerequisite is taught before the downstream skill, never "Arrays because Arrays are first"). Each roadmap item's "why now" is the personal roadmap's reason plus, on the skill page, the learning session the mentor's stage opens.
+
+### `COMM-1` Professional communication (optional, D-087)
+
+An optional milestone on the `dsa_coding` track holding the 28 T4 `comm.*` skills. It adds no weekly minutes and never gates a milestone exit; communication practice fits in leftover time, inside technical sessions and in revision.

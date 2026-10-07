@@ -792,6 +792,7 @@ export interface ContentSummary {
   observation_kind: string
   time_limit_seconds: number | null
   progress: ContentProgress | null
+  spoken?: boolean
 }
 
 export interface ProblemBrief {
@@ -850,7 +851,88 @@ export interface CompletionInput {
   milestone?: string
   defense?: boolean
   notes?: string
+  speech?: SpeechInput
   client_request_id?: string
+}
+
+/** A speaking practice (D-087). The server computes every metric itself; the client sends only what it heard. */
+export interface SpeechInput {
+  source: 'BROWSER' | 'MANUAL'
+  transcript?: string
+  duration_seconds: number
+  reflection?: string
+}
+
+export interface SpeakingResult {
+  source: 'BROWSER' | 'MANUAL'
+  metrics_version: string
+  word_count: number
+  sentence_count: number | null
+  duration_seconds: number
+  words_per_minute: number | null
+  filler_count: number
+  filler_per_100_words: number
+  fillers: [string, number][]
+  structure_markers: string[]
+  vocabulary_used: string[]
+  vocabulary_missing: string[]
+  repeated_phrases: [string, number][]
+  criteria: Record<string, number>
+  evidence_note: string
+}
+
+export interface CommunicationSkill {
+  key: string
+  name: string
+  score: number | null
+  level: number | null
+  confidence: string
+  measured: number
+  manual: number
+  other: number
+  self_reported: boolean
+}
+
+export interface CommunicationArea {
+  key: string
+  title: string
+  status: 'NOT_STARTED' | 'DEVELOPING' | 'WORKING' | 'STRONG'
+  status_label: string
+  summary: string
+  skills_total: number
+  skills_with_evidence: number
+  measured_rows: number
+  manual_rows: number
+  other_rows: number
+  self_reported_only: number
+  self_report: string | null
+  skills: CommunicationSkill[]
+}
+
+export interface SpeakingHistoryRow {
+  assessment_id: number
+  skill: string
+  skill_name: string
+  content_key: string | null
+  observed_on: string
+  source: 'BROWSER' | 'MANUAL'
+  duration_seconds: number
+  word_count: number
+  filler_count: number
+  filler_per_100_words: number | null
+  timed: boolean
+  reference_used: boolean
+  reflection: string | null
+}
+
+export interface SpeakingHistory {
+  rows: SpeakingHistoryRow[]
+  note: string
+}
+
+export interface CommunicationReadiness {
+  areas: CommunicationArea[]
+  note: string
 }
 
 export interface QuestionResult {
@@ -871,6 +953,7 @@ export interface CompletionResult {
   questions: QuestionResult[]
   observation: AssessmentRecord
   progress: ContentProgress | null
+  speaking?: SpeakingResult | null
 }
 
 export interface TopicSkill {
@@ -911,6 +994,7 @@ export interface StepPreview {
   content_key: string | null
   content_type: ContentType | null
   problem_id: number | null
+  optional?: boolean
 }
 
 export interface NextAction {
@@ -976,6 +1060,7 @@ export interface SessionStep {
   points: number | null
   passed: boolean | null
   reflection: string | null
+  optional?: boolean
 }
 
 export interface LearningSession {

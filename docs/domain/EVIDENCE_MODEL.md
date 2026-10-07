@@ -334,3 +334,23 @@ All examples use as_of `2026-11-02`, MEDIUM difficulty, primary mapping.
 | `CONFIDENCE` | §8 |
 | `UNCERTAINTY` | LOW 15, MEDIUM 7, HIGH 0 |
 | `DEFAULT_EXPECTED_MINUTES` | EASY 15, MEDIUM 30, HARD 45 (when a problem has none) |
+
+## 14. Communication evidence (D-087)
+
+Spoken and written communication practice flows through the existing observation model; there is no second evidence or scoring path.
+
+| What the learner did | Recorded as | Effect |
+|---|---|---|
+| Self-reported "my English is weak/good" | `SELF_ASSESSMENT` (L0) or starting-profile context | Context only. Never a score or a level. Shown as "Self-reported". |
+| Lesson, concept | `STUDY_SESSION` (L0) | Study time only. |
+| Concept check, revision card | `RECALL_QUIZ` | Existing recall ladder (L1 closed-book). |
+| **Manual** speaking practice (browser measurement unavailable or declined) | `CONCEPT_EXPLAIN` with `reference_used = true` | Supported practice: capped at **L2**. Never shown as measured; timed is ignored. |
+| **Browser** speaking practice (transcript from the browser's speech recognition) | `CONCEPT_EXPLAIN`, independent | **L3**. |
+| Browser practice inside its time limit (the server uses its own measured duration) | `CONCEPT_EXPLAIN`, timed | **L4**. |
+| Follow-ups rated, then peer or unseen variant | existing rules | L5 / L6 only through the existing follow-up, peer and unseen-variant rules; speaking alone never claims interview grade. |
+
+**Points** are the existing rubric share (`share_points`): the item's key points are self-rated 0/1/2 as for every practice, and the criteria a transcript can show (length, duration, filler words, structure phrases, target phrases, repeated phrases) are rated 0/1/2 **by the server** against the item's seed targets (`body.speaking`) and counted with weight 1 each. The metrics are signals, not scores: fewer fillers or more words never add points by themselves, and nothing here judges grammar, pronunciation, accent, pauses or confidence.
+
+**Strict semantics.** The client sends only the transcript, a duration and its own ratings, never metrics or scores; the server recomputes everything and rejects a transcript that is too short, a duration that is impossible for the transcript (> 300 words per minute), a manual practice with a transcript, or unknown fields. The browser can still not prove that the words were spoken: this is practice evidence, exactly as every self-logged practice is. Every `speaking_practices` row carries `metrics_version` (`speak-v1`). No audio is ever stored.
+
+**Isolation.** The evidence affects only the communication skill(s) of the item. Cross-track "explain aloud" steps record a separate assessment on the communication skill, never on the technical skill (`LEARNING_ENGINE.md` §10). `comm.*` rows never satisfy readiness gate G8 (`READINESS_MODEL.md` §4).

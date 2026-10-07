@@ -37,13 +37,13 @@ defineProps<{ items: ContentSummary[]; testid?: string }>()
       <StatusPill
         v-if="c.progress?.passed"
         state="completed"
-        :label="c.progress.best_points !== null ? `${c.progress.best_points}` : 'Done'"
+        :label="c.spoken ? 'Practised' : c.progress.best_points !== null ? `${c.progress.best_points}` : 'Done'"
         quiet
       />
       <StatusPill
         v-else-if="c.progress && c.progress.best_points !== null"
         state="medium"
-        :label="`Best ${c.progress.best_points}`"
+        :label="c.spoken ? 'Practised' : `Best ${c.progress.best_points}`"
         quiet
       />
       <StatusPill

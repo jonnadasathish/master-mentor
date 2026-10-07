@@ -1,5 +1,5 @@
 # Learning content: operating systems — stack and heap, virtual memory, paging, TLB, page faults, mmap, swapping, file systems and fsync (Linux-oriented).
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- virtual memory
 - key: os.memory_virtual.lesson

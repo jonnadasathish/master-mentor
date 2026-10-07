@@ -98,6 +98,7 @@ Track minutes are soft floors, not quotas. (The gap engine's feasibility check a
 - Assessments split their minutes equally across their skills (integer division; the remainder goes to the first skill by key).
 - Mocks attribute each round's minutes equally across that round's skills.
 - Track minutes = Σ over the track's skills, over days [as_of − 7, as_of − 1].
+- **Communication isolation (D-087).** Minutes on optional `comm.*` skills still count in the total and per skill, but are not attributed to any track (they carry component `coding` only because a skill needs one). They therefore cannot raise `dsa_coding` minutes, cannot cancel the track-floor boost, and do not inflate weekly DSA/coding minutes. `communication.*` (required, behavioral) is attributed as before.
 
 ## 6. Ranking and budget packing
 
@@ -182,6 +183,8 @@ If no template is found, the candidate is dropped with `CONTENT_MISSING`. A temp
 - Order: fewest total attempts, then `platform_key` asc.
 - If the difficulty is unavailable, relax one step toward MEDIUM. Otherwise drop with `CONTENT_MISSING`, which the message reports as "add 3 problems for X".
 
+**Communication packing (D-087).** A GAP or DIAGNOSTIC candidate on an optional `comm.*` skill is considered only after every technical candidate and the focus follow-up have been packed, so communication uses time technical work did not need and can never displace, reorder or shrink a technical mission (verified for budgets 30–120 min). Communication candidates use the ordinary gap ranking (T4 importance 20, so a weak communication skill is at most a LOW gap) and their own `coding.comm_*` mission templates (`applies_to: comm.`), never coding-problem templates. The 5-item cap, the focus limit and the time budget apply unchanged. After the BUILD phase T4 skills are parked and communication continues through the optional cross-track step and due revision. Due revision items for communication skills are ordinary revision candidates.
+
 ## 8. Stop list (stop-learning rules)
 
 | Entry | Condition | Instruction |
@@ -190,7 +193,7 @@ If no template is found, the candidate is dropped with `CONTENT_MISSING`. A temp
 | `OVER_TARGET` | `effective ≥ target`, HIGH confidence, and the skill took > 20% of practice minutes in the last 14 days | "Maintain only; move time to the top gap." |
 | `STUDIED_NOT_TESTED` | gap reason `STUDIED_NOT_TESTED` | "Stop reading X; test yourself (RECALL)." |
 
-One entry per skill. When several conditions hold, the entry type is the first in table order (PARKED > OVER_TARGET > STUDIED_NOT_TESTED). For rules 15 and 16, the subject is the qualifying entry with the most practice minutes in the last 7 days, then skill key asc.
+`comm.*` skills never appear in the stop list (D-087): the T4 parking rule would otherwise list all 28 as "stop studying" outside BUILD, although communication stays reachable through cross-track "explain it aloud" steps and revision. One entry per skill. When several conditions hold, the entry type is the first in table order (PARKED > OVER_TARGET > STUDIED_NOT_TESTED). For rules 15 and 16, the subject is the qualifying entry with the most practice minutes in the last 7 days, then skill key asc.
 
 ## 9. Mentor message rules (first match wins)
 

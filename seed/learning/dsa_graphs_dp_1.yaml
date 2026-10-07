@@ -1,5 +1,5 @@
 # Learning content: graph representation and traversal (BFS/DFS, components), grids and multi-source BFS, cycles and bipartite checks.
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- graph traversal
 - key: dsa.graph_traversal.lesson

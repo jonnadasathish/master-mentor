@@ -1,5 +1,5 @@
 # Learning content: HTTP semantics, caching and versions; TLS 1.3, certificates, HTTPS and HSTS.
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- HTTP
 - key: net.http.lesson

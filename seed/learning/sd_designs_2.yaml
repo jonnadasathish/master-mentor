@@ -1,5 +1,5 @@
 # Learning content: distributed systems II — real-time delivery and fan-out, security in design, observability (RED/USE, SLOs, alerting).
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- real-time delivery
 - key: sdx.realtime.lesson

@@ -1,5 +1,5 @@
 # Practical engineering 4: testing strategy (unit, integration, contract, end-to-end) and test design.
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- unit and integration testing
 - key: eng.unit_integration.lesson

@@ -1,5 +1,5 @@
 # Learning content, Python for interviews (1/4): core language — functions, scope, closures, decorators, exceptions, context managers, mutability and the memory model.
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- functions, scope, closures, decorators
 - key: py.core_syntax.lesson

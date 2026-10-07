@@ -330,7 +330,7 @@ def test_seed_cannot_take_over_a_personal_problem(
     from tests.catalog_helpers import bump_version, copy_seed
 
     def add_same(raw: dict[str, Any]) -> None:
-        bump_version(raw, "seed-v3")
+        bump_version(raw, "seed-v4")
         problems = raw["problem_catalog"]["problems"]
         problems.append(
             {**problems[0], "id": 900, "platform_key": "zigzag-conversion", "title": "Zigzag Conversion"}

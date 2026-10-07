@@ -3,6 +3,8 @@ import { computed } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import Icon from '../components/common/Icon.vue'
 import PageHeader from '../components/common/PageHeader.vue'
+import CommunicationReadiness from '../components/learning/CommunicationReadiness.vue'
+import SpeakingHistory from '../components/learning/SpeakingHistory.vue'
 import CurriculumSection from '../components/learning/CurriculumSection.vue'
 import { CURRICULUM_PAGES } from '../presentation/language'
 
@@ -13,6 +15,8 @@ const SCORED_IN: Record<string, string> = {
   python: 'Python skills are part of your DSA and coding readiness.',
   engineering: 'Practical engineering is part of your project and deep-dive readiness.',
   projects: 'Project milestones produce applied evidence; the defense is scored as a project walkthrough.',
+  communication:
+    'Clear, concise spoken and written English for work and interviews. Optional skills: practice here never changes your Overall Readiness.',
 }
 </script>
 
@@ -33,6 +37,10 @@ const SCORED_IN: Record<string, string> = {
         /> Log practice
       </RouterLink>
     </PageHeader>
+    <template v-if="page.slug === 'communication'">
+      <CommunicationReadiness />
+      <SpeakingHistory />
+    </template>
     <CurriculumSection
       :key="page.track"
       :track="page.track"

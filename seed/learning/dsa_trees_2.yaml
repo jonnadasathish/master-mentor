@@ -1,5 +1,5 @@
 # Learning content, DSA (2/4): recursion fundamentals (base case, recursion tree, call stack) and backtracking (subsets, permutations, combinations, constraints).
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- recursion
 - key: dsa.recursion.lesson

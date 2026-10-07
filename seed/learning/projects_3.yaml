@@ -1,5 +1,5 @@
 # Learning content: flagship projects URL Shortener, Notification Platform and Job Queue.
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- URL shortener
 - key: proj.url_shortener.project

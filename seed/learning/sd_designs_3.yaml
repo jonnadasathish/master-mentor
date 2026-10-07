@@ -1,5 +1,5 @@
 # Learning content: running the design round — deep dives and bottlenecks, trade-off articulation, time-boxing — and full designs (URL shortener, chat, food delivery).
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- deep dives and bottlenecks
 - key: sdx.deep_dive.lesson

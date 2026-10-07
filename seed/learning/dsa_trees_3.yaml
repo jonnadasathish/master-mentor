@@ -1,5 +1,5 @@
 # Learning content, DSA (3/4): binary tree traversals, height/diameter/path problems, LCA and construction, and binary search trees.
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- tree traversal
 - key: dsa.tree_traversal.lesson

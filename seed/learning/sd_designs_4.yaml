@@ -1,5 +1,5 @@
 # Learning content: full system designs II — ride booking, notification platform, video platform, job queue, payment system, social feed, inventory.
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- full design: ride booking
 - key: sdx.ride_booking.case

@@ -46,6 +46,10 @@ Docker Compose (`docker-compose.yml`) runs `mysql`, `backend`, `frontend` and th
 
 Backend domains (packages under `backend/app/domain/`): `catalog`, `evidence`, `skills`, `gaps`, `revision`, `mentor`, `readiness`, `review`, and `learning` (content validation, grading, completion → observation mapping, sessions, practice resolution, coverage; it produces existing observations and owns no scoring rule).
 
+## Communication track (D-087)
+
+Alongside technical preparation, a **Communication & professional English** track helps with spoken and written workplace and interview communication. It is an optional (T4) skill family inside the same deterministic loop: no second mentor, planner, evidence or readiness engine, no LLM or paid API, no audio storage. Required skills stay 123 and calibration is unchanged. Communication Readiness is a separate read-only view that never feeds Overall Readiness, and `comm.*` is isolated from technical readiness (G8), technical track minutes and the stop list. Self-reported difficulty is context only; evidence comes from practice. Browser speech recognition is optional and disclosed; manual practice is weaker evidence.
+
 ## Determinism
 
 The same:

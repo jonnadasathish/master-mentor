@@ -260,8 +260,8 @@ def test_curriculum_track_and_coverage(activity_client: TestClient) -> None:
     assert activity_client.get("/api/v1/learning/tracks/nope").status_code == 404
 
     coverage = get(activity_client, "/learning/coverage")["data"]
-    assert len(coverage["rows"]) == 133
-    assert sum(coverage["summary"]["all"].values()) == 133
+    assert len(coverage["rows"]) == 161
+    assert sum(coverage["summary"]["all"].values()) == 161
     row = next(r for r in coverage["rows"] if r["skill_key"] == "dsa.complexity_analysis")
     assert row["coverage_state"] == "FULL" and row["mock_coverage"] == ["DSA"]
     assert coverage["content_counts"]["lesson"] >= 2

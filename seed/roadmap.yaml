@@ -1,6 +1,6 @@
 # Roadmap: parallel tracks of ordered milestones + the M0 baseline battery. Owner doc: docs/product/ROADMAP.md
 # Validator: every skill appears in exactly one milestone.
-seed_version: seed-v2
+seed_version: seed-v3
 milestone_exit_rule: every required (T1-T3) skill listed has level >= L3, plus any extra_exit criteria
 baseline:
   key: M0-BASELINE
@@ -164,6 +164,38 @@ tracks:
     extra_exit:
     - every T1 skill of components dsa and coding has level >= L4
     content: ~25 timed/mixed problems; 150-170 total
+  - key: COMM-1
+    name: Professional communication (optional, T4)
+    skills:
+    - comm.sentence_formation
+    - comm.question_formation
+    - comm.tense_consistency
+    - comm.articles_prepositions
+    - comm.think_in_english
+    - comm.speak_30s
+    - comm.speak_1m
+    - comm.speak_2m
+    - comm.word_recovery
+    - comm.filler_reduction
+    - comm.delivery_confidence
+    - comm.status_update
+    - comm.clarification_request
+    - comm.help_and_blockers
+    - comm.feedback_and_disagreement
+    - comm.senior_engineer_comms
+    - comm.meeting_participation
+    - comm.explain_code
+    - comm.explain_bug_root_cause
+    - comm.explain_decisions_tradeoffs
+    - comm.explain_query_optimization
+    - comm.explain_api_change
+    - comm.explain_architecture
+    - comm.explain_simply
+    - comm.chat_message
+    - comm.ticket_comment
+    - comm.email
+    - comm.tech_doc_incident
+    content: spoken practice, workplace and technical explanation; optional skills do not gate readiness
   cs:
   - key: CS-1
     name: DBMS

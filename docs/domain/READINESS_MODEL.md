@@ -52,8 +52,10 @@ limiting_component   := component with the largest (gate − component_score); t
 | **G5** | No critical gaps | zero gaps with status `CRITICAL` (absolute scale, `GAP_ENGINE.md` §7) |
 | **G6** | Mocks | over mock rounds in the last 60 days (§5): ≥ 3 `DSA` and ≥ 2 of each other round type; ≥ 1 non-SELF round per type; mean of the last 6 rounds ≥ 70; latest round per type ≥ 65; each of the last 3 rounds ≥ 55 |
 | **G7** | Revision health | `overdue_t1_t2_over_7d = 0` (ACTIVE items only) **and** `reviews_30d ≥ 10` **and** `pass_rate_30d ≥ 70` (integer floor) (`REVISION_ENGINE.md` §9) |
-| **G8** | Recency | every component has ≥ 1 scoring row with `outcome_points ≥ 60` in the last 21 days |
+| **G8** | Recency | every component has ≥ 1 scoring row with `outcome_points ≥ 60` in the last 21 days (rows on optional communication skills `comm.*` are ignored, see below) |
 | **G9** | Final simulation | the 3 most recent **valid** final simulations (§6) all pass, the oldest is ≤ 30 days old, together they include `SYSTEM_DESIGN` and `LLD`, and ≥ 2 of them are non-SELF |
+
+**Communication isolation (D-087).** The optional (T4) `comm.*` skills carry component `coding` only because every skill must have a component. Their practice never counts as recency for any technical component: G8 skips every `comm.*` row. Required communication skills (`communication.*`, STAR and follow-ups) are behavioral and unchanged. Communication Readiness is a separate, read-only view (`UI_SPEC.md`); it is not a component, has no weight or gate, and never feeds Overall Readiness. All other gates already read required skills only, so no further change was needed.
 
 ## 5. Mock round rules for G6
 

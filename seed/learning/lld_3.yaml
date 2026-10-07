@@ -1,5 +1,5 @@
 # Learning content: applied design patterns and extensibility; case studies Vending Machine, Elevator, Notification System, Payment System.
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- design patterns
 - key: lld.design_patterns.lesson

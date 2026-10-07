@@ -5,6 +5,7 @@ Every write is one transaction: the assessment row(s) + one audit_log row per cr
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC
 from typing import Any
 
@@ -116,11 +117,21 @@ class AssessmentService:
                 ErrorCode.CONFLICT, "This assessment was already recorded.", 409, {"assessment_id": dup.id}
             )
 
-    def record(self, payload: AssessmentInput, *, plan_item_id: int | None = None) -> AssessmentOut:
+    def record(
+        self,
+        payload: AssessmentInput,
+        *,
+        plan_item_id: int | None = None,
+        with_assessment: Callable[[Assessment], None] | None = None,
+    ) -> AssessmentOut:
+        """``with_assessment`` adds rows that belong to this observation (a speaking practice) in the same
+        transaction, so the assessment never exists without them."""
         self._check_duplicate(payload.client_request_id)
         assessment, links = self._build(payload, supersedes_id=None)
         assessment.plan_item_id = plan_item_id
         self._repo.add(assessment, links)
+        if with_assessment is not None:
+            with_assessment(assessment)
         self._audit(assessment, "CREATE_ASSESSMENT", payload.model_dump(mode="json"))
         self._commit()
         return self.get(assessment.id)

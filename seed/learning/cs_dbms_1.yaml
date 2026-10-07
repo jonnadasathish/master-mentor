@@ -1,5 +1,5 @@
 # Learning content: SQL querying (joins, aggregation, subqueries, window functions) and relational modeling/normalisation. MySQL 8 / InnoDB unless stated.
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- SQL querying
 - key: db.sql_querying.lesson

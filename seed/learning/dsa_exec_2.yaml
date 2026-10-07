@@ -1,5 +1,5 @@
 # Learning content: designing data structures and recognising the pattern from a problem statement.
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- design a data structure
 - key: dsa.design_ds.lesson

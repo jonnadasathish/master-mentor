@@ -1,5 +1,5 @@
 # Learning content, DSA (4/4): heaps (top-K and k-th element), two heaps and K-way merging, and tries.
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- heap: top-K
 - key: dsa.heap_topk.lesson

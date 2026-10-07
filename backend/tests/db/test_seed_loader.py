@@ -33,16 +33,16 @@ from tests.catalog_helpers import (
 pytestmark = pytest.mark.db
 CLOCK = FixedClock(datetime(2026, 10, 4, 12, 0, tzinfo=UTC))
 EXPECTED = {
-    "skill_groups": 22,
-    "skills": 133,
-    "skill_prerequisites": 134,
+    "skill_groups": 27,
+    "skills": 161,
+    "skill_prerequisites": 161,
     "role_profiles": 1,
-    "role_skill_targets": 133,
+    "role_skill_targets": 161,
     "problems": 137,
     "problem_skills": 242,
-    "mission_templates": 86,
-    "roadmap_milestones": 18,
-    "roadmap_milestone_skills": 133,
+    "mission_templates": 96,
+    "roadmap_milestones": 19,
+    "roadmap_milestone_skills": 161,
     "baseline_items": 12,
 }
 # Learning catalog counts follow the content files (they grow as content is authored); derived from the
@@ -70,7 +70,7 @@ def test_first_load_into_clean_database(catalog_session: Session) -> None:
     assert {name: c.inserted for name, c in report.tables.items()} == EXPECTED
     assert report.catalog_load_id is not None
     current = catalog_session.scalar(select(CatalogLoad).order_by(CatalogLoad.id.desc()))
-    assert current is not None and current.seed_version == "seed-v2"
+    assert current is not None and current.seed_version == "seed-v3"
     assert current.catalog_fingerprint == report.catalog_fingerprint
     assert (
         set(current.file_fingerprints_json)
@@ -117,7 +117,7 @@ def test_invalid_seed_fails_before_any_write(catalog_session: Session, tmp_path:
     before = catalog_snapshot(catalog_session, include_ids=True)
 
     def corrupt(raw: dict[str, Any]) -> None:
-        bump_version(raw, "seed-v3")
+        bump_version(raw, "seed-v4")
         raw["skill_graph"]["skills"][0]["prerequisites"].append({"skill": "ghost.skill", "min_score": 45})
         raw["problem_catalog"]["problems"][0]["title"] = "would be written if validation were skipped"
 
@@ -148,7 +148,7 @@ def test_changed_seed_updates_deactivates_and_records_new_version(
     retired_problems: list[int] = []
 
     def change(raw: dict[str, Any]) -> None:
-        bump_version(raw, "seed-v3")
+        bump_version(raw, "seed-v4")
         problems = raw["problem_catalog"]["problems"]
         problems[0]["title"] = "Two Sum (renamed)"
         problems[:] = [p for p in problems if p["platform_key"] != "single-number"]  # id 44 retired
@@ -175,7 +175,7 @@ def test_changed_seed_updates_deactivates_and_records_new_version(
     lock_seed_dir(seed)
     report = load(catalog_session, seed)
 
-    assert report.changed and report.seed_version == "seed-v3"
+    assert report.changed and report.seed_version == "seed-v4"
     assert report.tables["problems"].inserted == 1
     assert report.tables["problems"].deactivated == 1 + len(
         retired_problems
@@ -192,10 +192,10 @@ def test_changed_seed_updates_deactivates_and_records_new_version(
     } == skill_ids_before  # stable ids
     assert catalog_session.get(Problem, 1).title == "Two Sum (renamed)"  # type: ignore[union-attr]
     assert catalog_session.get(Problem, 44).active is False  # type: ignore[union-attr]
-    assert catalog_session.scalar(select(func.count()).select_from(RoleSkillTarget)) == 132
-    assert catalog_session.scalar(select(func.count()).select_from(RoadmapMilestoneSkill)) == 132
+    assert catalog_session.scalar(select(func.count()).select_from(RoleSkillTarget)) == 160
+    assert catalog_session.scalar(select(func.count()).select_from(RoadmapMilestoneSkill)) == 160
     loads = catalog_session.scalars(select(CatalogLoad).order_by(CatalogLoad.id)).all()
-    assert [entry.seed_version for entry in loads] == ["seed-v2", "seed-v3"]
+    assert [entry.seed_version for entry in loads] == ["seed-v3", "seed-v4"]
 
     # Loading the changed seed again is a no-op too.
     assert not load(catalog_session, seed).changed

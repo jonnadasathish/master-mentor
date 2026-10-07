@@ -191,7 +191,7 @@ watch(id, load)
                 <span class="title">{{ s.title }}</span>
                 <span class="muted small">
                   {{ s.kind === 'REFLECTION' ? 'Reflection' : s.kind === 'PROBLEM' ? 'Problem' : CONTENT_TYPE_LABEL[s.content_type ?? 'lesson'] }}
-                  · {{ formatMinutes(s.minutes) }}<template v-if="s.points !== null"> · {{ s.points }}/100</template>
+                  · {{ formatMinutes(s.minutes) }}<template v-if="s.optional"> · optional</template><template v-if="s.points !== null"> · {{ s.points }}/100</template>
                   <span class="sr-only"> · {{ s.status.toLowerCase() }}</span>
                 </span>
               </span>

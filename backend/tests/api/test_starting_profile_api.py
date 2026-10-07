@@ -329,7 +329,7 @@ def test_the_roadmap_is_derived_from_measured_state_and_respects_prerequisites(
     assert {w["skill_key"] for w in roadmap["why"]} <= {i["skill_key"] for i in focus}
     assert roadmap["why"][0]["prerequisites"] is not None and "n_fail_last5" in roadmap["why"][0]["metrics"]
     counts = {k: v["count"] for k, v in roadmap["sections"].items() if k != "later"}
-    assert sum(counts.values()) == 133  # every skill of the catalog is in exactly one section
+    assert sum(counts.values()) == 161  # every skill of the catalog is in exactly one section
     assert roadmap["changes"]["since"] == "2026-10-03"
 
 

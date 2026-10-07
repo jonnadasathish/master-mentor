@@ -1,4 +1,5 @@
 import type { BatteryItem, PlanItem } from '../api/types'
+import { areaLabel } from './communication'
 import { COMPONENT_LABEL, OBSERVATION_LABEL, STAGE_LABEL } from './language'
 import { prettyKey } from './format'
 import { reasonPhrases } from './reasons'
@@ -56,7 +57,9 @@ export function missionText(item: PlanItem, ctx: MissionContext): MissionText {
   const skill = item.skill
   const skillName = skill ? ctx.nameOf(skill) : null
   const component = skill ? ctx.componentOf(skill) : null
-  const skillLabel = skillName ? `${component ? `${COMPONENT_LABEL[component] ?? prettyKey(component)} · ` : ''}${skillName}` : null
+  const skillLabel = skillName
+    ? `${component && skill ? `${areaLabel(skill, component, COMPONENT_LABEL)} · ` : ''}${skillName}`
+    : null
   const stage = item.stage ? (STAGE_LABEL[item.stage] ?? prettyKey(item.stage)) : null
   const outcome = item.explanation.expected_outcome ? tidyCriteria(item.explanation.expected_outcome) : null
 

@@ -1,5 +1,5 @@
 # Learning content: scaling building blocks — caching, load balancing and CDNs, database replication and sharding, consistent hashing.
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- caching
 - key: sd.caching.lesson

@@ -280,3 +280,58 @@ Test counts and results are in the table below (all actually run).
 - The "learning path" shows the real session steps (lesson, concept check, practice…) from the mission library, not a fixed five-step list; the number of steps depends on the content that exists for that skill/stage.
 
 **Next logical task:** none required for this correction; optionally tick the matching line in `IMPLEMENTATION_PLAN.md` if the owner tracks UX corrections there.
+
+---
+
+# Part IV: Communication & professional English track (D-087, `seed-v3`, migration `0013`)
+
+**Status: COMPLETE.** An optional (T4) skill family inside the existing deterministic loop. No second mentor, planner, gap, evidence or readiness engine; no LLM or paid API; no audio storage; no ruleset v2.
+
+## What changed
+
+| Area | Change |
+|---|---|
+| Skills | 28 optional `comm.*` skills in 5 groups (component `coding` as a data slot), all T4, prerequisites inside the family; interview communication reuses `communication.*`, `execution.clarification/think_aloud`. Counts: groups 27, skills 161, **required 123 (unchanged)**, T4 38. |
+| Seed | `seed-v3` (fingerprint `7efc6c6bdc50`, frozen with the project's lock tool; v1/v2 untouched): `COMM-1` milestone, 10 `coding.comm_*` templates, `communication` curriculum track, 128 content items (53 spoken prompts, 8+ cross-track prompts). Coverage: FULL 144, PARTIAL 17, CONTENT_GAP 0; required FULL 123. |
+| Database | One additive migration `0013_speaking_practice`: table `speaking_practices` (transcript text and counts, no audio, append-only, one row per assessment). |
+| Evidence | Speaking practice is a `CONCEPT_EXPLAIN` assessment: BROWSER L3 (L4 inside the limit), MANUAL capped at L2 (`reference_used`); the server computes all metrics; self-report is context only. |
+| Learning sessions | Optional "explain it aloud" step after technical practice; never blocks completion or supplies plan closure; separate assessment on the communication skill only. |
+| Mentor | Existing planner and gap engine; communication gap/diagnostic candidates are packed after technical work and the focus follow-up; stop list skips `comm.*`. |
+| Revision | `comm.` joins the CONCEPT prefixes (one item per skill, from real practice). |
+| UI | Communication page, speaking runner (browser path with disclosure, manual fallback), signals without grades, Communication Readiness (six areas) and history, UI isolation of `comm.*`. |
+
+## Isolation found and fixed (every one is a `coding`-slot leak)
+
+1. **G8 recency**: a speaking practice made the `coding` gate pass (found by the readiness-invariance test, failing 7 to 6). `comm.*` is skipped.
+2. **Track minutes**: communication minutes were credited to `dsa_coding`, weakening the track-floor boost. Skipped for track attribution; still in totals and per-skill minutes.
+3. **Stop list**: 28 "stop studying comm.*" entries after BUILD. Skipped.
+4. **Packing**: a 10-minute communication gap displaced the technical follow-up at 80-89 minute budgets. Communication is now packed last.
+5. **UI**: DSA page, "Coding" label, starting-profile section.
+6. **Mock kits, `/gaps?component=`, coverage mock rounds, "tested in ... rounds"**: excluded.
+
+## Verification (final tree)
+
+| Gate | Result |
+|---|---|
+| Backend | **617 passed**, 0 failed (baseline 533); ruff clean; mypy clean (163 files) |
+| Frontend | **206 passed** (baseline 189); eslint, vue-tsc clean |
+| Seed | valid, `seed-v3` frozen, re-lock refused, loaded twice with no changes |
+| Goldens | unchanged except the approved S01 catalog-size counts (31/102 to 32/129); S14 stays 11 |
+| Required skills / calibration | 123 / 12 battery items, unchanged; Today shows 0/123 |
+| Readiness | unchanged by communication practice (components, score, gates, state, blockers) in tests, on the throwaway DB across the migration, and on the real DB across the seed load |
+| Browser (Chrome, throwaway DB) | 1280x720, 1440x900, 1920x1080, 390x844, 360x800: 143/143 checks, 50/50 onboarding checks, 0 console errors, 0 horizontal overflow, axe 0 violations (axe verified to detect planted problems); screenshots reviewed |
+
+Browser coverage: Today, Starting Profile (own optional communication self-report section), calibration, Communication page empty and populated, skill page, lesson, session with the optional step (skipped and spoken), speaking with a simulated browser recogniser, unsupported-browser fallback and manual practice, transcript review, signals, reflection, evidence, revision, roadmap, progress, resume after reload, keyboard focus and Space/Enter.
+
+## Real database
+
+Pre: `0012_learning`, 46 tables, `seed-v2`, 133 skills. Fresh backup `mastermentor-20261007T131422Z.sql.gz` restore-verified (46 of 46 tables, checksums). Applied `0013_speaking_practice` (only change: new empty table), then loaded `seed-v3` (5 groups, 28 skills, 10 templates, 128 content inserted; nothing deleted or deactivated). Post: every user preparation table identical (assessments 373, attempts 2, plans 3, plan items 10, learning sessions 3, revision items 12, goals 4, evidence 407, starting profile 1); the 133 existing skill states and the readiness snapshot identical; `audit_log` +1 (the seed load). Required skills 123, T4 38. The 28 new skills receive their derived states on the app's next mentor run (day change or next write); that path is covered by the test suite and the throwaway-DB run.
+
+## Known limitations
+
+- Browser transcripts only: no pronunciation, accent, grammar or pause analysis; recognition varies by accent and noise, and filler counts are a lower bound (browsers drop "um"/"uh"). The server cannot prove words were spoken; this is practice evidence.
+- T4 skills are parked outside the BUILD phase, so communication enters the plan as a direct gap only in BUILD (importance 20, at most a LOW gap); afterwards it arrives through the optional cross-track step and due revision. Lifting that needs a ruleset v2 decision.
+- The typed COMMUNICATION gap type still covers only its 4 original skills.
+- 17 non-core communication skills have no concept check (PARTIAL coverage, honest).
+- A restore-copy rehearsal of the first recompute on a copy of the real data was not performed (an optional extra blocked by a built-in safety check).
+

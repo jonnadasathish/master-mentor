@@ -97,9 +97,9 @@ def test_cold_start_gaps_are_unassessed_and_blocked(activity_client: TestClient)
     body = get(activity_client, "/gaps")
     report = body["data"]
     assert (report["phase"], report["weeks_left"], report["calibration_mode"]) == ("BUILD", "38.1", True)
-    assert body["meta"]["count"] == 133 and body["meta"]["run_id"] >= 1
+    assert body["meta"]["count"] == 161 and body["meta"]["run_id"] >= 1
     statuses = [g["status"] for g in report["gaps"]]
-    assert statuses.count("UNASSESSED") == 31 and statuses.count("BLOCKED") == 102
+    assert statuses.count("UNASSESSED") == 32 and statuses.count("BLOCKED") == 129
     first = report["gaps"][0]
     assert (first["skill_key"], first["priority"], first["rank"]) == ("behavioral.impact", 100, 1)
     assert first["recommended_focus"] == {"stage": "DIAGNOSE", "focus_skill": "behavioral.impact"}

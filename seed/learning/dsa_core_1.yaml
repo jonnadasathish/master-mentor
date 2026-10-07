@@ -1,5 +1,5 @@
 # Learning content: DSA foundations — array traversal, string manipulation, hashing and prefix sums.
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- arrays
 - key: dsa.arrays.lesson

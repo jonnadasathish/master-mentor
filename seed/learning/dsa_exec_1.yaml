@@ -1,5 +1,5 @@
 # Learning content: bit manipulation and number basics (GCD, modular arithmetic, overflow, primes).
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- bit manipulation
 - key: dsa.bits.lesson

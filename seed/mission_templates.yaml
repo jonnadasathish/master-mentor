@@ -4,7 +4,7 @@
 #   4 component+stage  5 generic+stage.  Ties: lowest key.
 # pass_rule / partial_rule use the observation fields defined in docs/engineering/DATA_MODEL.md.
 # output_level = highest evidence level the mission can produce when passed.
-seed_version: seed-v2
+seed_version: seed-v3
 templates:
 # ---------------- DSA ----------------
 - {key: dsa.diagnose, component: dsa, stage: DIAGNOSE, minutes: 40, difficulty: MEDIUM, needs_problem: true,
@@ -68,6 +68,37 @@ templates:
 - {key: coding.simulate, component: coding, stage: SIMULATE, minutes: 45, difficulty: MEDIUM, needs_problem: true,
    observation: {kind: ATTEMPT, mode: SIMULATION, timed: true, limit: expected, recorded_audio: true, record: [execution_rubric, followup_solved]},
    pass_rule: "outcome == PASS and execution_rubric mean >= 7", output_level: 4, next_on_pass: MOCK, next_on_fail: THINK_ALOUD}
+# ---------------- Communication (comm.* skills; component coding, T4; CONCEPT_EXPLAIN = spoken or written explanation) ----------------
+- {key: coding.comm_diagnose, component: coding, stage: DIAGNOSE, applies_to: [comm.], minutes: 10, difficulty: EASY, needs_problem: false,
+   observation: {kind: CONCEPT_EXPLAIN, note: "one short spoken or written prompt for the skill; browser transcript metrics when available, otherwise manual self-review (weaker evidence)"},
+   pass_rule: "outcome_points >= 70", output_level: 3, next_on_pass: GAP_ENGINE, next_on_fail: GAP_ENGINE}
+- {key: coding.comm_learn, component: coding, stage: LEARN, applies_to: [comm.], minutes: 15, difficulty: EASY, needs_problem: false,
+   observation: {kind: [STUDY_SESSION, RECALL_QUIZ, CONCEPT_EXPLAIN], notes_used: true, note: "read the lesson, answer the concept check, then one supported practice prompt"},
+   pass_rule: "outcome_points >= 60", output_level: 2, next_on_pass: GUIDED, next_on_fail: LEARN}
+- {key: coding.comm_recall, component: coding, stage: RECALL, applies_to: [comm.], minutes: 5, difficulty: null, needs_problem: false,
+   observation: {kind: RECALL_QUIZ, note: "recall the phrases and the structure from memory, then check the card"},
+   pass_rule: "outcome_points >= 60", output_level: 1, next_on_pass: GUIDED, next_on_fail: LEARN}
+- {key: coding.comm_guided, component: coding, stage: GUIDED, applies_to: [comm.], minutes: 10, difficulty: EASY, needs_problem: false,
+   observation: {kind: CONCEPT_EXPLAIN, reference_used: true, note: "practice prompt with the model structure visible"},
+   pass_rule: "outcome_points >= 70", output_level: 2, next_on_pass: INDEPENDENT, next_on_fail: LEARN}
+- {key: coding.comm_independent, component: coding, stage: INDEPENDENT, applies_to: [comm.], minutes: 10, difficulty: MEDIUM, needs_problem: false,
+   observation: {kind: CONCEPT_EXPLAIN, reference_used: false, note: "fresh prompt, no notes; speak it aloud when the browser supports speech recognition"},
+   pass_rule: "outcome_points >= 70", output_level: 3, next_on_pass: TIMED, next_on_fail: GUIDED}
+- {key: coding.comm_timed, component: coding, stage: TIMED, applies_to: [comm.], minutes: 10, difficulty: MEDIUM, needs_problem: false,
+   observation: {kind: CONCEPT_EXPLAIN, timed: true, limit_seconds: 120, note: "fresh prompt within the time limit"},
+   pass_rule: "outcome_points >= 70 within limit", output_level: 4, next_on_pass: EXPLAIN, next_on_fail: INDEPENDENT}
+- {key: coding.comm_explain, component: coding, stage: EXPLAIN, applies_to: [comm.], minutes: 12, difficulty: MEDIUM, needs_problem: false,
+   observation: {kind: CONCEPT_EXPLAIN, timed: true, limit_seconds: 150, record: [followup_points], note: "answer, then handle two follow-up questions"},
+   pass_rule: "followup_points >= 70", output_level: 5, next_on_pass: TRANSFER, next_on_fail: TIMED}
+- {key: coding.comm_think_aloud, component: coding, stage: THINK_ALOUD, applies_to: [comm.], minutes: 12, difficulty: MEDIUM, needs_problem: false,
+   observation: {kind: CONCEPT_EXPLAIN, timed: true, limit_seconds: 180, note: "think aloud through a work or interview scenario"},
+   pass_rule: "outcome_points >= 70", output_level: 4, next_on_pass: GAP_ENGINE, next_on_fail: THINK_ALOUD}
+- {key: coding.comm_transfer, component: coding, stage: TRANSFER, applies_to: [comm.], minutes: 15, difficulty: HARD, needs_problem: false,
+   observation: {kind: [CONCEPT_EXPLAIN, APPLIED_TASK], applied: true, note: "use the skill in real work: a standup, a ticket comment or a design discussion"},
+   pass_rule: "outcome_points >= 70", output_level: 6, next_on_pass: GAP_ENGINE, next_on_fail: EXPLAIN}
+- {key: coding.comm_simulate, component: coding, stage: SIMULATE, applies_to: [comm.], minutes: 15, difficulty: MEDIUM, needs_problem: false,
+   observation: {kind: CONCEPT_EXPLAIN, timed: true, limit_seconds: 300, note: "a realistic multi-prompt exchange"},
+   pass_rule: "outcome_points >= 70", output_level: 4, next_on_pass: GAP_ENGINE, next_on_fail: EXPLAIN}
 # ---------------- CS fundamentals (incl. DBMS) ----------------
 - {key: cs.diagnose, component: cs, stage: DIAGNOSE, minutes: 20, difficulty: null, needs_problem: false,
    observation: {kind: RECALL_QUIZ, note: "10 closed-book questions covering up to 3 unassessed skills of one group; per-skill outcome"},

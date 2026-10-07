@@ -1,0 +1,1428 @@
+# Learning content: communication track, technical explanation (explain code, bugs, decisions, queries, simple explanations, API changes, architecture).
+seed_version: seed-v3
+content:
+# ---------------------------------------------------------------------------------------------- explain code
+- key: comm.explain_code.lesson
+  type: lesson
+  title: Explain your code and approach aloud
+  skills: [comm.explain_code]
+  minutes: 14
+  difficulty: EASY
+  body:
+    summary: Explain code in a fixed order, purpose, input and output, key steps, complexity, edge cases, using short sentences and one idea per sentence.
+    what: |-
+      Explaining code aloud means telling a listener what the code does and why it works, without reading it line by line. In an interview, the listener cannot see your thinking. They only hear it.
+
+      Use five parts, always in the same order:
+
+      - **Purpose**: what problem does this code solve?
+      - **Input and output**: what goes in, what comes out?
+      - **Key steps**: the two to four main steps, not every line.
+      - **Complexity**: time and space, with the reason.
+      - **Edge cases**: what could break it, and how you handle it.
+    why: |-
+      Interviewers judge how you think from how you explain. A correct solution that you explain in a confusing way looks weaker than a clear explanation. For a speaker who is not fluent, a fixed order is a big help: you do not need to invent the structure while you speak, so you can spend your attention on the words.
+    when: |-
+      After you write a solution in a coding round. During a code walkthrough of your own project. In a code review, when a teammate asks "what does this function do?". When you hand work over to a colleague.
+    how: |-
+      1. **Start with the purpose in one sentence.** "This function finds two numbers in an array that add up to a target."
+      2. **Say the input and the output.** "It takes a list of integers and a target. It returns the two indexes, or an empty list."
+      3. **Describe the idea, then the steps.** "The idea is to remember each number I have seen in a hash map. Step one, I loop over the array. Step two, I check if the target minus the current number is already in the map. Step three, if yes, I return both indexes. If not, I store the current number."
+      4. **Give complexity with the reason.** "Time is O(n) because I visit each element once. Space is O(n) for the map."
+      5. **Finish with edge cases.** "If the array is empty, it returns an empty list. If there are duplicates, the map still works because I check before I store."
+
+      Do not read variable names one by one. Say what a line means, not what it says.
+    mental_model: |-
+      Think of a short tour guide. You do not describe every brick. You say what the building is for, how a visitor enters and leaves, the three main rooms, and where the dangerous floor is.
+    tradeoffs: |-
+      A short explanation is clear but may skip a detail the interviewer cares about. A long one covers more but loses the listener. Give the short version first, then say "I can go deeper into any step." Let the interviewer choose.
+    mistakes:
+      - Reading the code line by line, "here I declare a variable i, here I loop".
+      - Starting with details before saying what the code is for.
+      - Giving complexity with no reason, "it is O(n)" and nothing else.
+      - Forgetting edge cases until the interviewer asks.
+      - Using "this" and "that" with no noun, so the listener does not know what you point at.
+    interview: |-
+      After a coding solution, many interviewers say "walk me through your code" or "explain your approach". They listen for the idea first, then correctness, then complexity. A clear five-part answer in about 90 seconds usually leaves time for follow-up questions.
+    explain_it:
+      - Purpose in one sentence.
+      - Input and output in plain words.
+      - The main idea, then two to four steps.
+      - Time and space, each with a reason.
+      - Two edge cases and how the code handles them.
+    example:
+      language: python
+      code: |-
+        def first_unique_char(s: str) -> int:
+            counts = {}
+            for ch in s:
+                counts[ch] = counts.get(ch, 0) + 1
+            for i, ch in enumerate(s):
+                if counts[ch] == 1:
+                    return i
+            return -1
+      explanation: 'Spoken: "This function finds the first character that appears only once. It takes a string and returns its index, or minus one. First I count every character. Then I scan the string again and return the first index with count one. Time is O(n), two passes. Space is O(k), where k is the number of distinct characters. For an empty string or when all characters repeat, it returns minus one."'
+    edge_cases:
+      - "If the code is long, explain the main idea first and say 'I will skip the input parsing, it is simple.'"
+      - If you lose your place, say "Let me restate the idea" and start again from the purpose.
+      - If the interviewer interrupts, answer the question in one sentence, then say where you were.
+    misconceptions:
+      - A good explanation uses advanced vocabulary. Short, plain words are clearer and easier to say.
+      - You must explain every line. You explain the idea and the main steps.
+- key: comm.explain_code.check
+  type: concept_check
+  title: "Concept check: explaining code"
+  skills: [comm.explain_code]
+  minutes: 4
+  difficulty: EASY
+  body:
+    intro: Judge each sample explanation as a listener who cannot see the code.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "Which is the best first sentence when you explain a function?"
+        options:
+          - "So, first I declare an empty dictionary called seen."
+          - "This function finds two numbers in a list that add up to a target."
+          - "I think this is a hash map problem, maybe."
+          - "It is a bit long, so let me just read it."
+        answer: [1]
+        explanation: "The second option states the purpose first. Declaring a variable is a detail without context. 'Maybe' sounds unsure of your own code, and reading the code does not explain it."
+      - id: q2
+        kind: multi
+        prompt: "Which sentences belong in the complexity part?"
+        options:
+          - "Time is O(n) because I visit each element once."
+          - "Space is O(n) because the map can hold every element."
+          - "I used a for loop here."
+          - "It is fast."
+        answer: [0, 1]
+        explanation: "Complexity needs a value and a reason. 'I used a for loop' describes syntax, and 'It is fast' gives no measurable claim."
+      - id: q3
+        kind: single
+        prompt: "The interviewer interrupts: 'Why a hash map?' What is the best reply?"
+        options:
+          - "Because everyone uses it."
+          - "Sorry, let me start from the beginning."
+          - "Because a lookup is O(1) on average, so I avoid a second loop. Now, back to step two."
+          - "I do not know, it just works."
+        answer: [2]
+        explanation: "Answer the question in one sentence with a reason, then return to your place. Restarting wastes time, and 'it just works' hides the reasoning."
+      - id: q4
+        kind: short
+        prompt: "Name the five parts of a code explanation, in order."
+        model_answer: "Purpose, input and output, key steps, complexity, edge cases."
+        explanation: A fixed order lets you speak without inventing the structure while you talk.
+- key: comm.explain_code.practice
+  type: interview_question
+  title: "Practice: explain a function aloud"
+  skills: [comm.explain_code]
+  minutes: 8
+  difficulty: EASY
+  stages: [GUIDED, INDEPENDENT, DIAGNOSE]
+  observation: {kind: CONCEPT_EXPLAIN}
+  body:
+    prompt: |-
+      Read this function. Then explain it ALOUD in about 90 seconds, as in an interview. Use the five parts.
+
+      ```python
+      def merge_intervals(intervals):
+          intervals.sort(key=lambda x: x[0])
+          result = [intervals[0]]
+          for start, end in intervals[1:]:
+              if start <= result[-1][1]:
+                  result[-1][1] = max(result[-1][1], end)
+              else:
+                  result.append([start, end])
+          return result
+      ```
+    key_points:
+      - States the purpose in the first sentence.
+      - Says the input and the output in plain words.
+      - Gives the idea, sort by start, then merge neighbours that overlap.
+      - States time O(n log n) because of the sort, and space with a reason.
+      - Mentions at least one edge case, such as an empty list or touching intervals.
+    follow_ups:
+      - prompt: "This code crashes for an empty list. Where, and how do you fix it?"
+        look_for: "Finds result = [intervals[0]], and adds an early return for an empty input."
+      - prompt: "Why do you use max when you merge?"
+        look_for: "Explains that a later interval can be fully inside the earlier one, so the end must not shrink."
+    model_answer: |-
+      This function merges overlapping intervals. It takes a list of start and end pairs, and it returns a new list with no overlaps. The idea is to sort by start time. Then overlapping intervals are neighbours. First, I sort. Then I put the first interval in the result. For each next interval, if its start is before or equal to the last end, I merge them. I take the larger end. Otherwise I add it as a new interval. Time is O(n log n) because of the sort. Space is O(n) for the result. One edge case is an empty list, which would crash, so I would return early. Another is intervals that touch, like one to two and two to three. My code merges them.
+    pitfalls:
+      - Reading the loop line by line.
+      - Giving O(n) time and forgetting the sort.
+      - Not saying what the output is.
+    speaking:
+      target_seconds: 90
+      min_words: 100
+      max_words: 190
+      max_filler_per_100: 5
+      structure_markers_min: 3
+      vocabulary: [sort, overlap, merge, time, space, edge case, empty]
+- key: comm.explain_code.timed
+  type: interview_question
+  title: "Timed: explain code under pressure"
+  skills: [comm.explain_code]
+  minutes: 7
+  difficulty: MEDIUM
+  stages: [TIMED, EXPLAIN, THINK_ALOUD]
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 150}
+  body:
+    prompt: |-
+      You have 2 minutes. Explain this function ALOUD, then say its time and space complexity.
+
+      ```python
+      def is_valid_parentheses(s):
+          pairs = {")": "(", "]": "[", "}": "{"}
+          stack = []
+          for ch in s:
+              if ch in pairs:
+                  if not stack or stack.pop() != pairs[ch]:
+                      return False
+              else:
+                  stack.append(ch)
+          return not stack
+      ```
+    key_points:
+      - States the purpose in the first sentence.
+      - Explains the stack idea, push opening brackets, pop on closing ones.
+      - Says what makes it return False, a mismatch or a closing bracket with an empty stack.
+      - Says why it ends with "not stack", leftover opening brackets mean invalid.
+      - Gives O(n) time and O(n) space with a reason.
+    follow_ups:
+      - prompt: "What happens for the input '(]'?"
+        look_for: "Traces it: push '(', then ']' pops '(' which is not '[', so it returns False."
+    model_answer: |-
+      This function checks if a string of brackets is valid. It takes a string and returns true or false. The idea is a stack. I go through each character. If it is an opening bracket, I push it. If it is a closing bracket, I pop the top and check that it is the matching opening one. If the stack is empty or the pair does not match, I return false. At the end, the stack must be empty. If not, some bracket was never closed. Time is O(n), one pass. Space is O(n) in the worst case, when all characters are opening brackets. An edge case is an empty string, which is valid.
+    pitfalls:
+      - Forgetting the final check for leftover opening brackets.
+      - Saying "it uses a stack" but not why a stack fits.
+    speaking:
+      target_seconds: 90
+      min_words: 90
+      max_words: 180
+      max_filler_per_100: 5
+      structure_markers_min: 3
+      vocabulary: [stack, push, pop, match, time, space, empty]
+- key: comm.explain_code.cards
+  type: revision_card
+  title: "Recall: explaining code"
+  skills: [comm.explain_code]
+  minutes: 4
+  body:
+    cards:
+      - front: The five parts of a code explanation?
+        back: Purpose, input and output, key steps, complexity, edge cases.
+      - front: How do you start?
+        back: "One sentence of purpose: 'This function finds ...'."
+      - front: How do you give complexity?
+        back: A value plus a reason, "O(n) because I visit each item once."
+      - front: Phrase to move through the steps?
+        back: First, then, after that, finally.
+      - front: The interviewer interrupts with a question. What do you do?
+        back: Answer in one sentence, then say "back to step two".
+# ---------------------------------------------------------------------------------------------- explain a bug and its root cause
+- key: comm.explain_bug_root_cause.lesson
+  type: lesson
+  title: Explain a bug and its root cause
+  skills: [comm.explain_bug_root_cause]
+  minutes: 14
+  difficulty: MEDIUM
+  body:
+    summary: Explain a bug in six parts, symptom, impact, how you found it, root cause, fix, prevention, and keep the root cause separate from the symptom.
+    what: |-
+      A bug explanation tells another person what went wrong, why, and what you did about it. It is used in standups, incident channels, pull requests and interviews ("tell me about a hard bug").
+
+      Use six parts:
+
+      - **Symptom**: what people saw.
+      - **Impact**: who was affected and how much.
+      - **How I found it**: the steps you took.
+      - **Root cause**: the real reason, not the first thing you noticed.
+      - **Fix**: what you changed.
+      - **Prevention**: what stops it from happening again.
+    why: |-
+      Many engineers describe only the symptom ("the API was slow") or only the fix ("I added an index"). The listener then cannot trust that you understood the problem. Clear root-cause language shows that you debug with evidence, not with guesses.
+    when: |-
+      In an incident channel, in a postmortem, in a pull request description, and when an interviewer asks about a hard bug or a production issue.
+    how: |-
+      1. **Symptom in one sentence.** "Users saw a 500 error on checkout."
+      2. **Impact with a number.** "About 5 percent of orders failed for 20 minutes."
+      3. **How you found it.** "I checked the error logs. The errors started right after the 3 PM deploy. I reproduced it on staging."
+      4. **Root cause.** Start with the phrase "The root cause was". "The root cause was a new query without an index. Under load it used all database connections."
+      5. **Fix.** "I rolled back first. Then I added the index and deployed again."
+      6. **Prevention.** "We now check the query plan for new queries in code review."
+
+      A good root cause answers "why did this happen?" at least twice. "The query was slow" is a symptom. "The query had no index, and nobody checked the plan" is closer to a root cause.
+    mental_model: |-
+      A doctor's note. What hurts (symptom), how many patients (impact), which tests (how found), the diagnosis (root cause), the treatment (fix), and the advice to stay healthy (prevention).
+    tradeoffs: |-
+      A very detailed timeline is accurate but long. For an interview, give the short version in about two minutes and offer to go deeper. In an incident channel, give the impact and the status first, because people need to decide quickly.
+    mistakes:
+      - "Mixing symptom and cause: 'the root cause was a timeout'. A timeout is the symptom."
+      - Skipping impact, so the listener cannot tell if it was serious.
+      - Saying "we" everywhere, so nobody knows what you did.
+      - Blaming a person instead of a missing check.
+      - Ending with the fix and no prevention.
+    interview: |-
+      "Tell me about a bug you debugged" tests your method. The interviewer listens for how you narrowed the problem, whether you used evidence, and whether you fixed the cause or only the symptom. A prevention step shows maturity.
+    explain_it:
+      - Symptom and impact in the first two sentences.
+      - The steps you used to find it, in order.
+      - The phrase "The root cause was" and one precise reason.
+      - The fix, and whether you rolled back first.
+      - One prevention, such as a test, an alert or a review check.
+    example:
+      language: text
+      code: |-
+        "Last month our order API returned errors for about 20 minutes. About 5 percent of
+        orders failed. I checked the logs and saw that errors started right after a deploy.
+        I rolled back, and the errors stopped. Then I reproduced the problem on staging with
+        production-sized data. The root cause was a new query that had no index, so MySQL
+        scanned the whole orders table. Under load it used all database connections. I added
+        a composite index and deployed again. To prevent this, we now run EXPLAIN on new
+        queries in code review."
+      explanation: Six parts in about 60 seconds. The root cause is named with a phrase, and the prevention is a concrete team habit.
+    edge_cases:
+      - "If you do not know the root cause yet, say so: 'My best theory is X. I will confirm by Y.' Never present a guess as a fact."
+      - If a teammate caused the bug, describe the missing check, not the person.
+      - If the fix was only a workaround, say "this is a temporary fix" and name the real fix.
+    misconceptions:
+      - The root cause is the last error in the log. It is the earliest condition that made the failure possible.
+      - A bug story must be dramatic. A clear, calm story with evidence is stronger.
+- key: comm.explain_bug_root_cause.check
+  type: concept_check
+  title: "Concept check: bug explanations"
+  skills: [comm.explain_bug_root_cause]
+  minutes: 4
+  difficulty: MEDIUM
+  body:
+    intro: Judge each statement as a teammate reading an incident update.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "Which sentence states a root cause?"
+        options:
+          - "The page was very slow."
+          - "The database timed out."
+          - "The root cause was a missing index on orders.customer_id, so every lookup scanned the table."
+          - "I think something is wrong with the database."
+        answer: [2]
+        explanation: "The third option names a specific, checkable condition. 'Slow' and 'timed out' are symptoms, and 'something is wrong' is a guess."
+      - id: q2
+        kind: multi
+        prompt: "Which are good prevention steps?"
+        options:
+          - "We added a test that fails when the query has no index."
+          - "I will be more careful next time."
+          - "We added an alert on database connections above 80 percent."
+          - "Nobody should deploy on Fridays."
+        answer: [0, 2]
+        explanation: "Prevention should be a mechanism that works even when people are tired. 'Be more careful' and a broad rule with no link to the cause do not stop this bug."
+      - id: q3
+        kind: single
+        prompt: "In an incident channel, what should the first update contain?"
+        options:
+          - "The full history of the code."
+          - "A long apology."
+          - "The symptom, the impact, and the current status."
+          - "Who wrote the buggy code."
+        answer: [2]
+        explanation: "Readers need to decide fast: how bad is it, and what is happening now. History and blame can wait for the postmortem."
+      - id: q4
+        kind: short
+        prompt: "Why must you say 'I do not know yet' when you have only a theory?"
+        model_answer: "A guess presented as fact can send the team in the wrong direction. Saying 'My theory is X, I will confirm by Y' keeps trust and shows a method."
+        explanation: Honest uncertainty with a next step is a strong signal of good debugging.
+- key: comm.explain_bug_root_cause.practice
+  type: interview_question
+  title: "Practice: explain a production bug"
+  skills: [comm.explain_bug_root_cause]
+  minutes: 8
+  difficulty: MEDIUM
+  stages: [GUIDED, INDEPENDENT, DIAGNOSE]
+  observation: {kind: CONCEPT_EXPLAIN}
+  body:
+    prompt: |-
+      An interviewer says: "Tell me about a bug you found and fixed." Use this scenario, or your own.
+
+      Scenario: after a release, some users were charged twice. It happened when the user tapped the Pay button twice quickly. The server had no check for repeated requests. You found it in the payment logs, where two requests had the same cart id within 300 ms.
+
+      Explain it ALOUD in about 90 seconds, using the six parts.
+    key_points:
+      - States the symptom and the impact (duplicate charges, number of users) early.
+      - Says how they found it, with at least two concrete steps.
+      - Uses the words "root cause" and names one precise cause, not the symptom.
+      - States the fix, such as an idempotency key or a unique constraint.
+      - Ends with a prevention step.
+    follow_ups:
+      - prompt: "How did you confirm the root cause before you fixed it?"
+        look_for: "Reproduces it, for example two fast requests on staging, or finds the same pattern in logs."
+      - prompt: "Why is a button disable in the UI not enough?"
+        look_for: "Says the server must protect itself, because retries and network errors also send duplicates."
+    model_answer: |-
+      Some customers were charged twice after our last release. About 40 users were affected in two days. I found it in the payment logs. I saw two requests with the same cart id, 300 milliseconds apart. Then I reproduced it on staging by tapping Pay twice quickly. The root cause was that the payment endpoint had no protection against repeated requests. The server charged on every call. As the fix, I added an idempotency key. The server now saves the key and returns the first result for the same key. I also refunded the 40 users. To prevent this, we added a test that sends the same request twice and checks for one charge.
+    pitfalls:
+      - Saying "the bug was double charge" as the root cause. That is the symptom.
+      - Describing the fix only, with no evidence of how you found the cause.
+      - Using "we" for every step.
+    speaking:
+      target_seconds: 90
+      min_words: 100
+      max_words: 190
+      max_filler_per_100: 5
+      structure_markers_min: 3
+      vocabulary: [root cause, impact, reproduce, logs, fix, prevent, idempotency key]
+- key: comm.explain_bug_root_cause.timed
+  type: interview_question
+  title: "Timed: explain a bug in two minutes"
+  skills: [comm.explain_bug_root_cause]
+  minutes: 7
+  difficulty: MEDIUM
+  stages: [TIMED, EXPLAIN, THINK_ALOUD]
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 150}
+  body:
+    prompt: |-
+      You have 2 minutes. Scenario: a nightly report job started failing on one day each month. It crashed with "list index out of range". You found that the job read a CSV file, and on that day the file had an empty last line from a partner system. The code did row[2] without checking the length.
+
+      Explain the bug ALOUD to your manager: symptom, impact, how you found it, root cause, fix and prevention.
+    key_points:
+      - Opens with the symptom and the impact in plain words.
+      - Names how the cause was found, such as the stack trace and the input file.
+      - Says "the root cause was" and gives the input condition, not only the error message.
+      - Gives a fix that handles the cause, such as skipping empty lines and validating the row length.
+      - Gives one prevention, such as a test with a malformed file or an alert.
+    follow_ups:
+      - prompt: "Why did nobody see this earlier?"
+        look_for: "Says the bad input was rare and no test used a malformed file, without blaming a person."
+    model_answer: |-
+      Our nightly report failed on the first of the month. Finance did not get their report until noon. I looked at the stack trace. It said list index out of range in the CSV reader. I opened the input file. The last line was empty. The root cause was that our code expected three columns in every line, and the partner system added an empty line that day. The fix has two parts. I skip empty lines, and I check the column count and log a clear error for bad rows. To prevent it, I added a unit test with an empty last line, and an alert if the job fails.
+    pitfalls:
+      - Stopping at the error message and not the input that caused it.
+      - Blaming the partner system, with no fix on our side.
+    speaking:
+      target_seconds: 75
+      min_words: 80
+      max_words: 160
+      max_filler_per_100: 5
+      structure_markers_min: 3
+      vocabulary: [root cause, stack trace, input, fix, test, alert]
+- key: comm.explain_bug_root_cause.cards
+  type: revision_card
+  title: "Recall: explaining a bug"
+  skills: [comm.explain_bug_root_cause]
+  minutes: 4
+  body:
+    cards:
+      - front: The six parts of a bug explanation?
+        back: Symptom, impact, how found, root cause, fix, prevention.
+      - front: Phrase that introduces the cause?
+        back: "\"The root cause was ...\" followed by one precise condition."
+      - front: Symptom or root cause, "the request timed out"?
+        back: It is a symptom; ask why it timed out.
+      - front: What do you say when you only have a theory?
+        back: "\"My theory is X. I will confirm by Y.\""
+      - front: What is a good prevention?
+        back: A test, alert or review check, not "be more careful".
+# ---------------------------------------------------------------------------------------------- explain decisions and trade-offs
+- key: comm.explain_decisions_tradeoffs.lesson
+  type: lesson
+  title: Explain a decision and its trade-offs
+  skills: [comm.explain_decisions_tradeoffs]
+  minutes: 14
+  difficulty: MEDIUM
+  body:
+    summary: Explain a decision as options, criteria, decision, cost accepted and how you would revisit it, so the listener sees the reasoning and not only the result.
+    what: |-
+      A decision explanation answers "why did you choose this?" Every engineering choice gives something up. Saying what you gave up shows judgement.
+
+      Use five parts:
+
+      - **Options**: option A and option B (and C if real).
+      - **Criteria**: what mattered, such as speed, cost, team skill, risk.
+      - **Decision**: what you chose, in one sentence.
+      - **Cost accepted**: what you lose with this choice.
+      - **Revisit**: what would make you change your mind.
+    why: |-
+      Seniority is visible in trade-offs. A junior answer says "I used Redis because it is fast". A stronger answer says "I compared a local cache and Redis. We needed a shared cache for three servers, so I chose Redis, and I accepted one more service to run." The second answer shows the reasoning.
+    when: |-
+      In code reviews, design discussions, interview follow-ups ("why not option B?"), and when you present a project.
+    how: |-
+      1. **Name the problem first.** "We needed to store sessions for three web servers."
+      2. **Give two real options.** "I compared in-memory sessions on each server and a shared Redis."
+      3. **Say the criteria.** "The main criteria were: users must stay logged in on any server, and we have a small team."
+      4. **State the decision.** "I chose Redis."
+      5. **Say the cost.** "The cost is one more service to run and monitor. If Redis goes down, users are logged out."
+      6. **Say how to revisit.** "If our traffic stays small, a signed cookie may be simpler. I would review it after the next growth step."
+
+      Useful phrases: "On the one hand ... on the other hand ...", "The main reason was ...", "The downside is ...", "I would change this if ...".
+    mental_model: |-
+      A balance scale. You do not claim that one side is empty. You say what is on each side, and why one side is heavier for this problem.
+    tradeoffs: |-
+      A balanced answer can sound unsure. Avoid that: make the decision clear in one sentence, then give the cost. A confident answer states the cost without apologising.
+    mistakes:
+      - Presenting only one option, so there is no decision to explain.
+      - Saying "it is best practice" with no criteria.
+      - Claiming the choice has no downside.
+      - Defending the choice when the interviewer gives a good point, instead of saying "that is fair".
+      - Comparing technologies in general, not for this problem.
+    interview: |-
+      "Why did you choose X?" and "What would you do differently?" appear in project deep dives. Interviewers check that you know the alternatives and that your decision depends on the context, not on habit.
+    explain_it:
+      - The problem in one sentence.
+      - Two real options.
+      - Two or three criteria for this case.
+      - The decision, then the cost you accept.
+      - One condition that would change the decision.
+    example:
+      language: text
+      code: |-
+        "We needed to send emails after an order. I compared two options: send the email
+        inside the request, or put a job in a queue. The criteria were: checkout must stay
+        fast, and we must not lose emails. I chose the queue. The cost is one more
+        component, and emails can arrive a few seconds late. If our volume stays small, the
+        simple in-request call may be enough, so I would review this after six months."
+      explanation: Options, criteria, decision, cost and revisit condition in about 40 seconds.
+    edge_cases:
+      - "If you did not make the decision, say so: 'The team chose X. My understanding of the reason was ...'."
+      - If the decision was wrong in hindsight, say so and name what you learned.
+      - If the interviewer prefers the other option, ask "what is your concern?" and compare on that criterion.
+    misconceptions:
+      - A good engineer always has the right choice. A good engineer explains the choice clearly and accepts its cost.
+      - Mentioning the cost makes the decision look weak. It makes it look considered.
+- key: comm.explain_decisions_tradeoffs.check
+  type: concept_check
+  title: "Concept check: explaining trade-offs"
+  skills: [comm.explain_decisions_tradeoffs]
+  minutes: 4
+  difficulty: MEDIUM
+  body:
+    intro: Judge each answer to the question "Why did you choose this?"
+    questions:
+      - id: q1
+        kind: single
+        prompt: "Which answer explains a trade-off best?"
+        options:
+          - "I chose PostgreSQL because it is the best database."
+          - "I chose PostgreSQL over MongoDB because our data is relational and we need transactions. The cost is that schema changes need migrations."
+          - "Everyone in the team knows it."
+          - "I always use PostgreSQL."
+        answer: [1]
+        explanation: "The second option has an alternative, criteria and a cost. 'Best database' is a general claim, and habit or team popularity gives no reason for this problem."
+      - id: q2
+        kind: multi
+        prompt: "Which phrases help you state a cost clearly?"
+        options:
+          - "The downside is that ..."
+          - "The cost we accept is ..."
+          - "There is no downside."
+          - "I would change this if ..."
+        answer: [0, 1, 3]
+        explanation: "These phrases name a cost or a condition for revisiting. 'No downside' is almost never true and weakens trust."
+      - id: q3
+        kind: single
+        prompt: "The interviewer says: 'A queue sounds like too much for this.' What is the best reply?"
+        options:
+          - "No, you are wrong."
+          - "You are right, I have no answer."
+          - "That is fair. A queue adds complexity. I chose it because email delays must not slow checkout. If volume is low, an in-request call is a good start."
+          - "Everyone uses queues."
+        answer: [2]
+        explanation: "Acknowledge the valid point, restate your criterion, and say when the other option wins. Arguing or giving up are both weaker."
+      - id: q4
+        kind: short
+        prompt: "What are the five parts of a decision explanation?"
+        model_answer: "Options, criteria, decision, cost accepted, and how or when you would revisit it."
+        explanation: The last two parts are what many answers miss.
+- key: comm.explain_decisions_tradeoffs.practice
+  type: interview_question
+  title: "Practice: defend a design decision"
+  skills: [comm.explain_decisions_tradeoffs]
+  minutes: 8
+  difficulty: MEDIUM
+  stages: [GUIDED, INDEPENDENT, DIAGNOSE]
+  observation: {kind: CONCEPT_EXPLAIN}
+  body:
+    prompt: |-
+      An interviewer asks: "Why did you add a cache in front of the product API?"
+
+      Scenario: the product list endpoint took 600 ms and was called 300 times per minute. The data changes a few times per hour. You compared no cache, a cache in each server, and a shared Redis cache with a 5-minute expiry. You chose Redis.
+
+      Explain the decision ALOUD in about 90 seconds.
+    key_points:
+      - States the problem with a number in the first sentence.
+      - Names at least two options.
+      - Gives criteria that fit this case, such as how fast the data changes and the number of servers.
+      - States the cost, such as stale data for up to 5 minutes and one more service.
+      - Says what would change the decision.
+    follow_ups:
+      - prompt: "What if a price changes and the customer sees the old price?"
+        look_for: "Proposes a short expiry, or deleting the cache key on update, and explains the trade-off."
+      - prompt: "Why not a cache in each server?"
+        look_for: "Says that each server would have its own copy, so users could see different data and the hit rate is lower."
+    model_answer: |-
+      The product list endpoint was slow, about 600 milliseconds, and it was called 300 times a minute. The data changes only a few times an hour. I compared three options. No cache, a cache inside each server, and a shared Redis cache. I chose Redis, with a five-minute expiry. The main reasons were that we have three servers, and I wanted one consistent copy, and a high hit rate. The cost is that data can be up to five minutes old, and we run one more service. I accepted that because product data changes slowly. If prices need to be exact, I would delete the cache key when the price changes.
+    pitfalls:
+      - Saying "cache makes it faster" with no number or criteria.
+      - Hiding the stale data problem.
+      - Listing options without choosing.
+    speaking:
+      target_seconds: 90
+      min_words: 100
+      max_words: 190
+      max_filler_per_100: 5
+      structure_markers_min: 3
+      vocabulary: [option, trade-off, cost, because, criteria, cache, stale]
+- key: comm.explain_decisions_tradeoffs.timed
+  type: interview_question
+  title: "Timed: justify a decision in two minutes"
+  skills: [comm.explain_decisions_tradeoffs]
+  minutes: 7
+  difficulty: MEDIUM
+  stages: [TIMED, EXPLAIN, THINK_ALOUD]
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 150}
+  body:
+    prompt: |-
+      You have 2 minutes. In a code review, a teammate asks: "Why did you use a background job for the PDF invoice instead of generating it in the request?"
+
+      Facts: generating a PDF takes 3 to 8 seconds. Users should not wait. If the job fails, you want to retry. You accept that the invoice arrives a little later.
+
+      Answer ALOUD in the voice of a code review comment.
+    key_points:
+      - Starts with the decision and the main reason in one sentence.
+      - Compares at least one alternative.
+      - Gives the criteria, such as response time and retry on failure.
+      - States the cost, such as the delay and extra complexity.
+      - Stays polite and invites the teammate to disagree.
+    follow_ups:
+      - prompt: "Could we generate it in the request and use a timeout?"
+        look_for: "Considers it fairly, explains why 3 to 8 seconds is too long for a request, and says when it would be fine."
+    model_answer: |-
+      I used a background job because generating the PDF takes three to eight seconds, and the user should not wait that long. I compared two options. Generate in the request, or run a job. The criteria were response time and retry on failure. A job gives both. If the generation fails, the job runs again, and the user does not see an error. The cost is that the invoice arrives a few seconds later, and we need to show a "preparing" message. If you see a risk I did not consider, please tell me. I am happy to change it.
+    pitfalls:
+      - Sounding defensive in a review.
+      - Giving only the benefit and not the cost.
+    speaking:
+      target_seconds: 75
+      min_words: 80
+      max_words: 160
+      max_filler_per_100: 5
+      structure_markers_min: 2
+      vocabulary: [background job, criteria, retry, cost, compared, alternative]
+- key: comm.explain_decisions_tradeoffs.cards
+  type: revision_card
+  title: "Recall: explaining trade-offs"
+  skills: [comm.explain_decisions_tradeoffs]
+  minutes: 4
+  body:
+    cards:
+      - front: The five parts of a decision explanation?
+        back: Options, criteria, decision, cost accepted, revisit.
+      - front: Phrase for a cost?
+        back: "\"The downside is ...\" or \"The cost we accept is ...\"."
+      - front: Phrase for a condition to change the decision?
+        back: "\"I would change this if ...\"."
+      - front: Interviewer disagrees with a good point. What do you say?
+        back: "\"That is fair.\" Then restate your criterion."
+      - front: Why is "it is best practice" weak?
+        back: It gives no criteria for this problem.
+# ---------------------------------------------------------------------------------------------- explain query optimization
+- key: comm.explain_query_optimization.lesson
+  type: lesson
+  title: Explain why a query is slow and how you fixed it
+  skills: [comm.explain_query_optimization]
+  minutes: 15
+  difficulty: MEDIUM
+  body:
+    summary: Explain a slow MySQL query as symptom, how you looked (EXPLAIN), what the plan showed (scan vs index), what you changed and the before and after numbers.
+    what: |-
+      A query optimization story explains four things: why the query was slow, the evidence, the change, and the result. It is a common story in backend interviews, and a good one proves you can use evidence instead of guessing.
+
+      Facts used in this lesson are for MySQL 8 with InnoDB:
+
+      - `EXPLAIN` shows the plan MySQL chooses. Column `type` of `ALL` means a full table scan. `ref`, `range` and `const` mean an index is used.
+      - Column `rows` is the optimizer's estimate of rows it will examine. It is an estimate, not an exact count.
+      - Column `key` shows which index is used. `Using filesort` means MySQL sorts rows without using an index order.
+      - In InnoDB the table data is stored in the primary key index (the clustered index). A secondary index stores the primary key value for each row.
+      - `EXPLAIN ANALYZE` (MySQL 8.0.18 and later) runs the query and shows real time and rows.
+    why: |-
+      "My query was slow, so I added an index" is weak. It does not say which query, why it was slow, or how you know the index helped. Interviewers want to hear the evidence: the plan before, the plan after, and a measured result.
+    when: |-
+      In a performance story, in a code review of a migration, in a database round ("how do you debug a slow query?"), and in a postmortem about a slow endpoint.
+    how: |-
+      1. **Symptom and scale.** "The orders list endpoint took 4 seconds. The orders table has about 20 million rows."
+      2. **How you found the query.** "I used the slow query log and found one query that ran on every request."
+      3. **What EXPLAIN showed.** "EXPLAIN showed type ALL. MySQL scanned the whole table, about 20 million rows, and then sorted the result with filesort."
+      4. **The reason.** "The query filtered by customer_id and sorted by created_at, but there was no index on customer_id."
+      5. **The change.** "I added a composite index on (customer_id, created_at). Equality column first, then the sort column."
+      6. **The result.** "EXPLAIN now shows type ref, about 50 rows, and no filesort. The query went from 3.8 seconds to 12 milliseconds."
+      7. **A side effect.** "Every index slows writes a little and uses disk, so I checked that the write path stayed fast."
+
+      Careful wording: say "the optimizer estimates", not "MySQL reads exactly". Say "scans the table", not "scans the index" when type is ALL.
+    mental_model: |-
+      A book without an index at the back. To find one word, you read every page (full scan). With an index, you look up the word and jump to the page. A composite index is like an index sorted by chapter, then by page: very good for "chapter 5, in page order".
+    tradeoffs: |-
+      An index makes reads faster and writes slower, and it uses disk and memory. An index that the query cannot use, for example because of a function on the column, only costs. Always show the plan after the change, because the optimizer may choose a different index than you expect.
+    mistakes:
+      - Saying "I added an index" with no plan and no numbers.
+      - "Saying 'a full table scan is always bad'. For a small table, or a query that returns most rows, a scan can be correct."
+      - Wrong column order in a composite index, with the range column before the equality column.
+      - "Wrapping the column in a function, such as WHERE DATE(created_at) = '2025-01-01', which prevents normal index use. Use a range instead."
+      - Presenting a time before and after without saying how it was measured.
+    interview: |-
+      The question is often "A query is slow. What do you do?" The strong answer is a method: reproduce, EXPLAIN, read type, key, rows and Extra, change one thing, measure again. A story with real numbers is stronger than a perfect list of rules.
+    explain_it:
+      - Symptom, table size and the slow time.
+      - How you found the query, and what EXPLAIN showed.
+      - The reason in one sentence, scan or no usable index.
+      - The change, with the column order and why.
+      - Before and after numbers, and one side effect.
+    example:
+      language: sql
+      code: |-
+        -- slow: about 3.8 s on 20 million rows
+        SELECT id, total, created_at
+        FROM orders
+        WHERE customer_id = 4217
+        ORDER BY created_at DESC
+        LIMIT 20;
+
+        -- before: EXPLAIN shows type = ALL, key = NULL, Extra = Using filesort
+        ALTER TABLE orders ADD INDEX idx_customer_created (customer_id, created_at);
+        -- after: type = ref, key = idx_customer_created, no filesort
+      explanation: 'Spoken: "The query filters by customer and sorts by date. Without an index, MySQL scanned the whole table and sorted the rows. With the composite index, it jumps to one customer and reads rows already in date order. The time went from 3.8 seconds to 12 milliseconds."'
+    edge_cases:
+      - "If the table is small, say so: a scan may be fine, and an index adds write cost."
+      - "If the numbers are from a test database, say 'on staging with production-sized data'."
+      - If the optimizer ignores your index, say you checked the plan and found out why, for example a data type mismatch or low selectivity.
+    misconceptions:
+      - More indexes always means faster queries. Each index slows inserts and updates.
+      - EXPLAIN shows exact row counts. It shows estimates.
+- key: comm.explain_query_optimization.check
+  type: concept_check
+  title: "Concept check: explaining a slow query"
+  skills: [comm.explain_query_optimization]
+  minutes: 5
+  difficulty: MEDIUM
+  body:
+    intro: "Questions are about MySQL 8 with InnoDB. Judge the wording as an interviewer who knows MySQL."
+    questions:
+      - id: q1
+        kind: single
+        prompt: "EXPLAIN shows type = ALL for your query. How do you say this correctly?"
+        options:
+          - "MySQL is using the primary key."
+          - "MySQL scans the whole table, so there is no useful index for this query."
+          - "The query is using a covering index."
+          - "MySQL is reading exactly one row."
+        answer: [1]
+        explanation: "type ALL is a full table scan. Primary key use shows as const, eq_ref or range. A covering index shows 'Using index' in Extra, and ALL does not read one row."
+      - id: q2
+        kind: single
+        prompt: "The query is WHERE customer_id = ? ORDER BY created_at DESC LIMIT 20. Which index is the best match?"
+        options:
+          - "(created_at, customer_id)"
+          - "(customer_id, created_at)"
+          - "Two separate indexes, one on each column"
+          - "(created_at) only"
+        answer: [1]
+        explanation: "Equality column first, then the sort column. MySQL jumps to one customer and reads rows already sorted by date. With (created_at, customer_id) it cannot jump to one customer. Separate indexes usually let MySQL use only one, and it still needs a sort."
+      - id: q3
+        kind: multi
+        prompt: "Which sentences are correct and safe to say about EXPLAIN in MySQL 8?"
+        options:
+          - "The rows column is an estimate."
+          - "Using filesort in Extra means MySQL sorts rows without using an index order."
+          - "EXPLAIN always shows the exact time of the query."
+          - "EXPLAIN ANALYZE runs the query and shows measured time (MySQL 8.0.18 and later)."
+        answer: [0, 1, 3]
+        explanation: "Plain EXPLAIN does not run the query and gives no time. EXPLAIN ANALYZE does run it and measures real time and rows."
+      - id: q4
+        kind: single
+        prompt: "Why can WHERE DATE(created_at) = '2025-01-01' be slow even with an index on created_at?"
+        options:
+          - "Because DATE is a slow function."
+          - "Because the function on the column stops MySQL from using the index for a range lookup."
+          - "Because dates cannot be indexed."
+          - "Because the index is too big."
+        answer: [1]
+        explanation: "With a function on the column, MySQL cannot search the index by the original value. Use created_at >= '2025-01-01' AND created_at < '2025-01-02' instead."
+      - id: q5
+        kind: short
+        prompt: "Give one honest side effect of adding an index, in one sentence."
+        model_answer: "Every insert, update and delete must also maintain the index, so writes get slower and the index uses disk and memory."
+        explanation: Naming the cost shows you consider trade-offs, not only the read speed.
+- key: comm.explain_query_optimization.practice
+  type: interview_question
+  title: "Practice: explain a slow query and its fix"
+  skills: [comm.explain_query_optimization]
+  minutes: 9
+  difficulty: MEDIUM
+  stages: [GUIDED, INDEPENDENT, DIAGNOSE]
+  observation: {kind: CONCEPT_EXPLAIN}
+  body:
+    prompt: |-
+      An interviewer says: "Tell me about a slow query you optimized." Use this scenario, or your own.
+
+      Scenario: an orders list page took about 4 seconds. The table has 20 million rows in MySQL 8 (InnoDB). The query filters by customer_id and sorts by created_at. EXPLAIN showed type ALL, about 20 million estimated rows, and Using filesort. You added an index on (customer_id, created_at). After that, EXPLAIN showed type ref, about 40 rows, no filesort, and the query took 15 ms.
+
+      Explain it ALOUD in about 2 minutes.
+    key_points:
+      - States the symptom and table size first.
+      - Says what EXPLAIN showed, including type ALL or a full scan, and the filesort.
+      - Gives the reason, no usable index for the filter and the sort.
+      - Names the index with column order and says why that order.
+      - Gives before and after numbers and mentions one write cost.
+    follow_ups:
+      - prompt: "Why customer_id first and created_at second?"
+        look_for: "Equality column first, then the sort column, so rows for one customer are already in date order."
+      - prompt: "How did you know the 15 ms was real and not a cache effect?"
+        look_for: "Ran it several times, compared cold and warm runs, or used EXPLAIN ANALYZE or the slow log."
+    model_answer: |-
+      The orders page took about four seconds. The orders table has twenty million rows. I found the query in the slow query log. It filters by customer id and sorts by created at. I ran EXPLAIN. The type was ALL, so MySQL scanned the whole table, and the extra column said Using filesort. The reason was that there was no index for the filter. I added a composite index on customer id and created at. I put the equality column first, and the sort column second. Now EXPLAIN shows type ref, about forty rows, and no filesort. The query went from about four seconds to fifteen milliseconds. The cost is that writes to this table are a little slower, and the index uses disk space.
+    pitfalls:
+      - Saying "I added an index" without the plan.
+      - Calling rows an exact number.
+      - Giving a time with no baseline.
+    speaking:
+      target_seconds: 120
+      min_words: 130
+      max_words: 240
+      max_filler_per_100: 5
+      structure_markers_min: 3
+      vocabulary: [explain, full scan, index, composite index, filesort, before, after]
+- key: comm.explain_query_optimization.timed
+  type: interview_question
+  title: "Timed: explain a query fix in two minutes"
+  skills: [comm.explain_query_optimization]
+  minutes: 7
+  difficulty: MEDIUM
+  stages: [TIMED, EXPLAIN, THINK_ALOUD]
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 180}
+  body:
+    prompt: |-
+      You have 2 minutes. Your teammate asks in a meeting: "Why was the daily sales report query slow, and what did you change?"
+
+      Scenario: the query used WHERE DATE(created_at) = '2025-03-01' on a table with 50 million rows. An index on created_at existed, but EXPLAIN showed type ALL. You changed the condition to created_at >= '2025-03-01' AND created_at < '2025-03-02'. EXPLAIN then showed type range. The time went from 30 seconds to 0.4 seconds.
+
+      Explain it ALOUD to a teammate.
+    key_points:
+      - States why the query was slow, the function on the column.
+      - Says that the index existed but could not be used for this condition.
+      - Describes the change, a range on the plain column.
+      - Gives EXPLAIN before and after (ALL and range).
+      - Gives before and after times.
+    follow_ups:
+      - prompt: "Why is the range version equivalent?"
+        look_for: "Says it covers every value from midnight to just before the next midnight, so the same rows match."
+    model_answer: |-
+      The report query was slow because it used the DATE function on the created at column. We had an index on created at. But with a function on the column, MySQL could not use the index to find rows. EXPLAIN showed type ALL, so it scanned all fifty million rows. I changed the condition to a range. Created at is greater than or equal to the day, and less than the next day. This matches the same rows. EXPLAIN now shows type range, and MySQL uses the index. The query went from thirty seconds to about four hundred milliseconds. I did not need a new index, so there is no extra write cost.
+    pitfalls:
+      - Saying "the index was broken".
+      - Adding a second index instead of fixing the condition.
+    speaking:
+      target_seconds: 90
+      min_words: 90
+      max_words: 180
+      max_filler_per_100: 5
+      structure_markers_min: 3
+      vocabulary: [function, index, range, explain, full scan, before, after]
+- key: comm.explain_query_optimization.cards
+  type: revision_card
+  title: "Recall: explaining a query fix"
+  skills: [comm.explain_query_optimization]
+  minutes: 4
+  body:
+    cards:
+      - front: Parts of a query optimization story?
+        back: Symptom, EXPLAIN evidence, reason, change, before and after.
+      - front: What does type ALL in EXPLAIN mean?
+        back: A full table scan.
+      - front: Is the rows column in EXPLAIN exact?
+        back: No, it is the optimizer's estimate.
+      - front: Composite index for equality filter plus sort?
+        back: Equality column first, then the sort column.
+      - front: One honest cost of an index?
+        back: Slower writes and more disk and memory.
+# ---------------------------------------------------------------------------------------------- explain simply
+- key: comm.explain_simply.lesson
+  type: lesson
+  title: Explain a technical idea to a non-technical person
+  skills: [comm.explain_simply]
+  minutes: 13
+  difficulty: EASY
+  body:
+    summary: Explain one idea with an everyday analogy, plain words and no jargon, then check that the listener understood.
+    what: |-
+      Explaining simply means telling a technical idea to someone who is not an engineer, such as a product manager, a support agent or a customer. The goal is that they understand enough to make a decision or answer a question.
+
+      Use four steps:
+
+      - **One idea**: choose the single thing they need to understand.
+      - **Analogy**: compare it to something from daily life.
+      - **Plain words**: replace jargon with simple words, and explain any term you must keep.
+      - **Check**: ask them to say it back or ask a question.
+    why: |-
+      Engineers work with product, support and business teams every day. If you cannot explain a risk or a delay in plain words, people make decisions without the facts. In interviews, "explain X to a non-technical person" tests whether you really understand X.
+    when: |-
+      When you explain a delay to a product manager, an outage to support, a limit to a customer, or when an interviewer says "explain it like I am not an engineer".
+    how: |-
+      1. **Start with what it means for them.** "This affects when the feature can launch."
+      2. **Give the analogy.** "A cache is like a notebook on your desk. You write the answers you use often, so you do not walk to the library each time."
+      3. **Use short sentences and everyday words.** Say "saved copy" and not "cached replica". Say "the system is busy" and not "high latency under load".
+      4. **Use one number if it helps.** "A page that took 4 seconds now takes under 1."
+      5. **Say what it means for the decision.** "So we can launch next week, but the saved copy may be up to 5 minutes old."
+      6. **Check.** "Does that make sense? How would you explain it to the sales team?"
+
+      Do not say "it is simple" or "you just need to understand". Do not hide the limits of the analogy: say "It is not exactly the same, but it helps."
+    mental_model: |-
+      A bridge. The listener stands on one side with daily-life knowledge. You build a short bridge from there to your idea. Long bridges with many jargon words break.
+    tradeoffs: |-
+      Every simplification loses some truth. Choose what to lose carefully: lose detail, not the point that affects their decision. For example, you can skip how a cache is stored, but you must say that the data can be a few minutes old.
+    mistakes:
+      - Using acronyms such as API, DNS or latency without explaining them.
+      - Starting with how it works and not what it means for them.
+      - Using an analogy that is wrong or too long.
+      - Saying "it is easy" and making the listener feel slow.
+      - Never checking if the listener understood.
+    interview: |-
+      The question "Explain an API / cache / database index to a non-technical person" tests clarity and empathy. Interviewers listen for an analogy that is correct, one main idea, and a check at the end. Speaking slowly with short sentences helps you and the listener.
+    explain_it:
+      - Start with why it matters to the listener.
+      - One analogy from daily life.
+      - Plain words, no acronyms.
+      - One number or example.
+      - Ask them to say it back.
+    example:
+      language: text
+      code: |-
+        Idea: what is an API?
+
+        "An API is like a waiter in a restaurant. You do not go into the kitchen. You tell the
+        waiter what you want. The waiter takes your order to the kitchen and brings back the
+        food. In software, one program asks another program for something through an API,
+        and it gets an answer back. For our app, it means the mobile app can ask our server
+        for the order list without knowing how the server works inside. Does that make sense?
+        Where do you see the waiter in our product?"
+      explanation: The analogy is short and correct, there are no acronyms except the term being explained, and it ends with a check.
+    edge_cases:
+      - If the listener looks lost, stop and ask "which part is unclear?" and use a different analogy.
+      - If the listener is partly technical, ask "how much detail do you want?" at the start.
+      - "If the analogy breaks, say so: 'This is not exactly the same, but ...'."
+    misconceptions:
+      - Simple means childish. Simple means clear and respectful.
+      - Using more technical words shows more skill. Explaining without jargon shows more skill.
+- key: comm.explain_simply.check
+  type: concept_check
+  title: "Concept check: explaining simply"
+  skills: [comm.explain_simply]
+  minutes: 4
+  difficulty: EASY
+  body:
+    intro: Imagine your listener is a product manager with no engineering background.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "Which sentence is best for explaining a cache?"
+        options:
+          - "A cache is an in-memory key-value store with TTL-based eviction."
+          - "A cache is a saved copy of an answer, so the system does not need to ask the slow source each time. The copy can be a few minutes old."
+          - "It is a performance optimization layer."
+          - "It is simple, you just need to know how Redis works."
+        answer: [1]
+        explanation: "The second option uses plain words and includes the one fact that matters for a decision: the copy can be old. The others use jargon or say 'it is simple'."
+      - id: q2
+        kind: multi
+        prompt: "Which habits help you explain simply?"
+        options:
+          - "Start with what it means for the listener."
+          - "Use an analogy from daily life."
+          - "Use acronyms to save time."
+          - "Ask the listener to say it back."
+        answer: [0, 1, 3]
+        explanation: "Acronyms save your time but cost the listener's understanding. The other habits build the bridge and check it."
+      - id: q3
+        kind: single
+        prompt: "The listener says: 'I am lost.' What should you do?"
+        options:
+          - "Say the same thing again, slower."
+          - "Say 'It is easy'."
+          - "Ask which part is unclear, and try a different analogy."
+          - "Send a technical document."
+        answer: [2]
+        explanation: "The same words will fail the same way. Find the unclear part and change the analogy. 'It is easy' makes the listener feel bad."
+      - id: q4
+        kind: short
+        prompt: "Why must you say when an analogy is not perfect?"
+        model_answer: "Every analogy hides some truth. Saying 'it is not exactly the same, but it helps' avoids a wrong belief, and it keeps trust."
+        explanation: A short honest limit is better than a false certainty.
+- key: comm.explain_simply.practice
+  type: interview_question
+  title: "Practice: explain a database index to a non-engineer"
+  skills: [comm.explain_simply]
+  minutes: 7
+  difficulty: EASY
+  stages: [GUIDED, INDEPENDENT, DIAGNOSE]
+  observation: {kind: CONCEPT_EXPLAIN}
+  body:
+    prompt: |-
+      Your product manager asks: "Why does the engineer say we need an index? It sounds like extra work." Explain what a database index is, and why it matters for the search page, in plain words.
+
+      Answer ALOUD in about 60 seconds, as if you talk to her in a meeting. Do not use words such as B-tree, query plan or latency.
+    key_points:
+      - Starts with what it means for the search page, for example speed for users.
+      - Uses one analogy that is correct, such as the index at the back of a book.
+      - Uses no unexplained jargon.
+      - Mentions a real cost, such as extra space or slower saving.
+      - Ends with a check question.
+    follow_ups:
+      - prompt: "So why not put an index on everything?"
+        look_for: "Explains that each index must be updated on every change, so it costs time and space."
+      - prompt: "Can you explain it in one sentence for the sales team?"
+        look_for: "Gives one short sentence with the analogy and the benefit."
+    model_answer: |-
+      The search page is slow because the database reads every row to find a match. An index fixes that. Think about a book. If you want one word, you do not read every page. You look in the index at the back, and it tells you the page. A database index works in the same way. It helps the database jump to the right rows. The page can go from several seconds to a fraction of a second. The cost is small. The index uses some space, and saving new data takes a little longer. So we add indexes only where search is slow. Does that make sense? Do you want me to show the numbers?
+    pitfalls:
+      - Saying "it is a data structure that..." in the first sentence.
+      - Skipping the cost.
+      - Not checking understanding.
+    speaking:
+      target_seconds: 60
+      min_words: 70
+      max_words: 160
+      max_filler_per_100: 5
+      structure_markers_min: 2
+      vocabulary: [like, for example, think of, the cost, in other words]
+- key: comm.explain_simply.timed
+  type: interview_question
+  title: "Timed: explain it to the sales team"
+  skills: [comm.explain_simply]
+  minutes: 6
+  difficulty: EASY
+  stages: [TIMED, EXPLAIN, THINK_ALOUD]
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 120}
+  body:
+    prompt: |-
+      You have 90 seconds. A sales manager asks: "A customer asks why our app was down for 20 minutes yesterday. The engineer said 'database failover'. What does that mean?"
+
+      Explain failover ALOUD in plain words. Give an analogy, say what it means for the customer, and check understanding.
+    key_points:
+      - Explains failover as switching to a backup when the main one stops.
+      - Uses one correct analogy, such as a spare generator or a backup driver.
+      - Says what the customer experienced, such as a short wait or errors.
+      - Does not blame anyone and does not promise it will never happen.
+      - Ends with a check or an offer to help with the customer message.
+    follow_ups:
+      - prompt: "Why did it take 20 minutes? A backup should be instant."
+        look_for: "Honest, simple reason, such as the system needed time to detect the problem and switch safely, without jargon."
+    model_answer: |-
+      Failover means switching to a backup when the main system stops. Think of a power cut in a hospital. A spare generator starts, and the lights come back. In our case, the main database stopped working. Our system needed some time to notice the problem and switch to the backup database. During that time, customers could not place orders. After the switch, everything worked again and no data was lost. We are now working to make the switch faster. For the customer, you can say that the app had a short outage, the backup took over, and their data is safe. Does that help? I can help you write the message.
+    pitfalls:
+      - Saying "high availability replica promotion".
+      - Promising "it will never happen again".
+    speaking:
+      target_seconds: 70
+      min_words: 80
+      max_words: 160
+      max_filler_per_100: 5
+      structure_markers_min: 2
+      vocabulary: [backup, switch, like, customer, for example]
+- key: comm.explain_simply.cards
+  type: revision_card
+  title: "Recall: explaining simply"
+  skills: [comm.explain_simply]
+  minutes: 4
+  body:
+    cards:
+      - front: Four steps to explain simply?
+        back: One idea, an analogy, plain words, a check.
+      - front: Where do you start?
+        back: With what it means for the listener.
+      - front: Cache in plain words?
+        back: A saved copy of an answer, so we do not ask the slow source each time.
+      - front: Your analogy is not perfect. What do you say?
+        back: "\"It is not exactly the same, but it helps.\""
+      - front: How do you check understanding?
+        back: "\"Can you say it back to me?\" or \"Which part is unclear?\""
+# ---------------------------------------------------------------------------------------------- explain an API change (non-core)
+- key: comm.explain_api_change.concept
+  type: concept
+  title: Explain an API change and its impact
+  skills: [comm.explain_api_change]
+  minutes: 7
+  difficulty: MEDIUM
+  body:
+    summary: Explain an API change as what changed, who is affected, whether it is backward compatible, how to migrate and by when.
+    explanation: |-
+      An API change message is for the people who use your API, for example mobile developers or partner teams. They do not want history. They want to know if their code will break and what to do.
+
+      Use five parts in this order:
+
+      1. **What changed.** One sentence. "The field `price` in `GET /orders` is now an object with `amount` and `currency`."
+      2. **Who is affected.** "Mobile app versions below 5.2, and partners that read `price`."
+      3. **Backward compatible?** Say yes or no clearly. "This is a breaking change." Or "Old clients still work because we keep the old field until June."
+      4. **How to migrate.** Steps, with an example if possible. "Read `price.amount` instead of `price`."
+      5. **Deadline and contact.** "The old field is removed on 30 June. Ask in the API channel if you need help."
+
+      Say the most important fact first: if it is breaking, say it in the first sentence.
+    points:
+      - A change is breaking if existing clients can fail without any change on their side, for example a removed field, a renamed field or a changed type.
+      - Adding an optional field or a new endpoint is usually backward compatible, but clients that reject unknown fields can still fail.
+      - Give a date and a version, not "soon".
+      - Offer an overlap period where old and new both work, when you can.
+      - Name one contact, such as a channel or a person.
+    misconceptions:
+      - "A small change needs no announcement. A renamed field is small for you and breaking for every client."
+      - Sending the full pull request is a good explanation. Readers need the impact and the steps.
+- key: comm.explain_api_change.practice
+  type: interview_question
+  title: "Practice: announce a breaking API change"
+  skills: [comm.explain_api_change]
+  minutes: 7
+  difficulty: MEDIUM
+  stages: [GUIDED, INDEPENDENT, DIAGNOSE, TIMED]
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 150}
+  body:
+    prompt: |-
+      Scenario: you will rename the field `userName` to `username` in the `GET /users/{id}` response. The old field will work for 30 days and then be removed. The mobile app and two partner teams use it.
+
+      Explain the change ALOUD in about 75 seconds, as if you speak in the weekly API meeting.
+    key_points:
+      - States what changed in the first sentence.
+      - Says clearly that it is a breaking change after the deadline.
+      - Names who is affected.
+      - Gives the migration step and the overlap period.
+      - Gives a date or period and a contact.
+    follow_ups:
+      - prompt: "Can we keep both fields forever?"
+        look_for: "Explains the cost of two fields, such as confusion and maintenance, and proposes a clear removal date."
+      - prompt: "How will you know that everyone has moved?"
+        look_for: "Mentions logs or metrics on use of the old field, and contacting the remaining clients."
+    model_answer: |-
+      I want to tell you about a change in the user API. We are renaming the field userName to username in the response of get user. It is a breaking change after the overlap period. Both fields will be in the response for 30 days. After that, userName is removed. The mobile app and two partner teams use it, so they are affected. To migrate, read username instead of userName. It is the same value. I will log the use of the old field, so I can see who has not moved yet. The removal date is the first of the month after next. Please ask in the API channel if you need help.
+    pitfalls:
+      - Starting with the history of the decision.
+      - Saying "soon" with no date.
+    speaking:
+      target_seconds: 75
+      min_words: 80
+      max_words: 170
+      max_filler_per_100: 5
+      structure_markers_min: 3
+      vocabulary: [breaking change, affected, migrate, deadline, backward compatible]
+- key: comm.explain_api_change.cards
+  type: revision_card
+  title: "Recall: explaining an API change"
+  skills: [comm.explain_api_change]
+  minutes: 4
+  body:
+    cards:
+      - front: Five parts of an API change message?
+        back: What changed, who is affected, compatibility, migration, deadline.
+      - front: What goes in the first sentence?
+        back: What changed, and whether it is breaking.
+      - front: Example of a breaking change?
+        back: Removing or renaming a field, or changing its type.
+      - front: How can you make migration easier?
+        back: Keep old and new working together for a stated period.
+# ---------------------------------------------------------------------------------------------- explain architecture (non-core)
+- key: comm.explain_architecture.concept
+  type: concept
+  title: Explain an architecture and its design decisions
+  skills: [comm.explain_architecture]
+  minutes: 7
+  difficulty: MEDIUM
+  body:
+    summary: Explain an architecture from the outside in, components, data flow, scaling and failure points, trade-offs, using a diagram in words.
+    explanation: |-
+      An architecture explanation helps a listener build a picture in their head. They cannot see your whiteboard. Describe it in a clear order.
+
+      1. **One-sentence overview.** "This is a web app where users upload photos, and we make thumbnails."
+      2. **Components.** Name three to six boxes. "A load balancer, two API servers, a MySQL database, a queue and a worker."
+      3. **Data flow.** Follow one request. "The user uploads a photo. The API saves it to storage and puts a job in the queue. A worker makes the thumbnail and updates the database."
+      4. **Scaling and failure points.** "The API servers are stateless, so we add more. The database is the single point of failure, so we use a replica and a backup."
+      5. **Trade-offs.** "A queue makes uploads fast, but thumbnails appear a few seconds later."
+
+      Use direction words: "first", "then", "next", "on the left", "downstream". Say each component name the same way every time.
+    points:
+      - Follow one request from start to end, not all paths at once.
+      - Say what each component is responsible for in one phrase.
+      - Name the single point of failure and the bottleneck honestly.
+      - Give one trade-off per important decision.
+      - Pause after the overview and ask "should I go deeper into any part?"
+    misconceptions:
+      - More components sound more senior. Simple architectures with clear reasons are stronger.
+      - You must describe every box with the same detail. Go deep where the risk or the decision is.
+- key: comm.explain_architecture.practice
+  type: interview_question
+  title: "Practice: walk through an architecture"
+  skills: [comm.explain_architecture]
+  minutes: 9
+  difficulty: MEDIUM
+  stages: [GUIDED, INDEPENDENT, DIAGNOSE, TIMED]
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 240}
+  body:
+    prompt: |-
+      Scenario: a photo upload service. A load balancer sends requests to three stateless API servers. The API saves the file in object storage, writes metadata to MySQL, and puts a thumbnail job in a queue. Workers read the queue, create thumbnails and update MySQL. MySQL has one primary and one replica.
+
+      Explain this architecture ALOUD in about 2 minutes. Draw nothing: speak so a listener can picture it.
+    key_points:
+      - Starts with a one-sentence overview.
+      - Names the components in a clear order.
+      - Follows one upload from start to end.
+      - Names a scaling point and a failure point.
+      - States one trade-off.
+    follow_ups:
+      - prompt: "What happens if the worker crashes in the middle of a job?"
+        look_for: "Says the job returns to the queue or is retried, and the job must be safe to run twice."
+      - prompt: "Where is the first bottleneck when traffic grows 10 times?"
+        look_for: "Names a specific place, such as the MySQL primary for writes, and a first step to relieve it."
+    model_answer: |-
+      This is a photo upload service. It saves photos and creates thumbnails. The parts are a load balancer, three API servers, object storage, a MySQL database, a queue and workers. Let me follow one upload. First, the load balancer sends the request to one API server. The server saves the file in object storage and writes the details to MySQL. Then it puts a thumbnail job in the queue and answers the user. Next, a worker takes the job, makes the thumbnail and updates MySQL. For scaling, the API servers are stateless, so we add more. The queue lets workers scale separately. The main failure point is the MySQL primary. We have a replica for reads and failover. The trade-off is that thumbnails appear a few seconds later.
+    pitfalls:
+      - Listing components with no flow.
+      - Saying "it scales" with no point or reason.
+    speaking:
+      target_seconds: 120
+      min_words: 130
+      max_words: 240
+      max_filler_per_100: 5
+      structure_markers_min: 4
+      vocabulary: [component, flow, first, then, bottleneck, failure point, trade-off]
+- key: comm.explain_architecture.cards
+  type: revision_card
+  title: "Recall: explaining an architecture"
+  skills: [comm.explain_architecture]
+  minutes: 4
+  body:
+    cards:
+      - front: Order of an architecture explanation?
+        back: Overview, components, data flow, scaling and failure, trade-offs.
+      - front: How do you describe data flow?
+        back: Follow one request from start to end with first, then, next.
+      - front: What do you name honestly?
+        back: The single point of failure and the first bottleneck.
+      - front: How many boxes in the first pass?
+        back: Three to six, then offer to go deeper.
+# ---------------------------------------------------------------------------------------------- cross-track explain-aloud prompts
+- key: comm.explain_code.explain_approach
+  type: interview_question
+  title: "Explain aloud: your coding approach"
+  skills: [comm.explain_code]
+  minutes: 4
+  difficulty: EASY
+  stages: [EXPLAIN, INDEPENDENT]
+  observation: {kind: CONCEPT_EXPLAIN}
+  body:
+    explains: [dsa, coding]
+    prompt: "You just solved a coding problem. Explain your approach ALOUD as in an interview, in about 90 seconds. Say the idea, the steps, the complexity and the edge cases."
+    key_points:
+      - States the idea of the solution in the first one or two sentences.
+      - Describes the steps in order, using first, then, finally.
+      - States time and space complexity, each with a reason.
+      - Names at least one edge case and how the solution handles it.
+    follow_ups:
+      - prompt: "What is a simpler solution, and why is yours better?"
+        look_for: "Names a brute-force version, states its complexity, and explains the improvement."
+    model_answer: |-
+      The idea is to avoid checking every pair. First, I read the input and decide what I need to remember. Then I go through the data once and keep that information in a map. For each item, I check if the answer is already there. If yes, I return it. If not, I store the item and continue. Time is O(n) because I visit each item once. Space is O(n) for the map. For edge cases, I thought about an empty input, duplicates and a single item. Each one works because of the check before the store. A simpler solution is to compare every pair, which is O(n squared), so this version is better for large inputs.
+    pitfalls:
+      - Reading the code line by line.
+      - Giving complexity with no reason.
+    speaking:
+      target_seconds: 90
+      min_words: 90
+      max_words: 190
+      max_filler_per_100: 5
+      structure_markers_min: 3
+      vocabulary: [idea, first, then, time, space, edge case]
+- key: comm.explain_code.explain_complexity
+  type: interview_question
+  title: "Explain aloud: time and space complexity"
+  skills: [comm.explain_code]
+  minutes: 3
+  difficulty: EASY
+  stages: [EXPLAIN, INDEPENDENT]
+  observation: {kind: CONCEPT_EXPLAIN}
+  body:
+    explains: [dsa.complexity_analysis]
+    prompt: "You just analysed the complexity of a solution. Explain its time and space complexity ALOUD in about 60 seconds, as if to an interviewer. Give the reason for each, name the input size, and say the worst case."
+    key_points:
+      - Names the input size, for example n is the length of the array.
+      - Gives the time complexity and the reason, such as the loop or the sort that dominates.
+      - Gives the space complexity and the reason, including extra structures.
+      - States the worst case or says it is the same for all inputs.
+    follow_ups:
+      - prompt: "Can you reduce the space, and what would it cost?"
+        look_for: "Names a concrete change and the trade-off, such as sorting first or using two pointers."
+    model_answer: |-
+      Let n be the number of items in the input. For time, I go through the items once, and each step takes constant time on average. So time is O(n). If I sort first, the sort is O(n log n) and it dominates. For space, I keep a map with at most n entries, so space is O(n). The worst case is when all items are different, because then the map holds all of them. I could reduce space to O(1) by sorting and using two pointers, but then time becomes O(n log n). So it is a trade of time for space.
+    pitfalls:
+      - Saying O(n) with no reason.
+      - Forgetting the extra space for a map or a recursion stack.
+    speaking:
+      target_seconds: 60
+      min_words: 70
+      max_words: 160
+      max_filler_per_100: 5
+      structure_markers_min: 2
+      vocabulary: [time, space, worst case, because, dominates, n]
+- key: comm.explain_query_optimization.explain_fix
+  type: interview_question
+  title: "Explain aloud: why the query was slow"
+  skills: [comm.explain_query_optimization]
+  minutes: 5
+  difficulty: MEDIUM
+  stages: [EXPLAIN, INDEPENDENT]
+  observation: {kind: CONCEPT_EXPLAIN}
+  body:
+    explains: [db.query_optimization, db.indexing, db.sql_querying]
+    prompt: "You just worked on a slow SQL query. Explain ALOUD, in about 2 minutes, why it was slow and how you fixed it. Mention what EXPLAIN showed, what you changed, and the before and after result."
+    key_points:
+      - Starts with the symptom and the table size.
+      - Says what EXPLAIN showed, for example a full scan or the index used.
+      - Gives the reason the query was slow in one sentence.
+      - Describes the change and why it helps.
+      - Gives before and after numbers and one cost.
+    follow_ups:
+      - prompt: "How do you know the new index is actually used?"
+        look_for: "Runs EXPLAIN again and checks the key and type, and compares measured time."
+    model_answer: |-
+      The query was slow because MySQL had no useful index for it. The table has millions of rows. I ran EXPLAIN. It showed type ALL, so MySQL scanned the whole table, and the extra column showed a filesort. The query filters on one column and sorts on another. So I added a composite index. The filter column is first, and the sort column is second. Now EXPLAIN shows the new index, a small number of rows and no filesort. The time went from several seconds to a few milliseconds. The cost is that writes are a little slower, and the index uses more disk space.
+    pitfalls:
+      - Giving only the fix, with no EXPLAIN evidence.
+      - Not saying a before and after number.
+    speaking:
+      target_seconds: 100
+      min_words: 100
+      max_words: 200
+      max_filler_per_100: 5
+      structure_markers_min: 3
+      vocabulary: [explain, full scan, index, filesort, before, after]
+- key: comm.explain_bug_root_cause.explain_cause
+  type: interview_question
+  title: "Explain aloud: the root cause of the bug"
+  skills: [comm.explain_bug_root_cause]
+  minutes: 4
+  difficulty: MEDIUM
+  stages: [EXPLAIN, INDEPENDENT]
+  observation: {kind: CONCEPT_EXPLAIN}
+  body:
+    explains: [engineering.debugging, engineering.performance_profiling, testing.unit_integration, testing.test_design]
+    prompt: "You just worked on a bug. Explain its root cause ALOUD in about 90 seconds, as to a teammate. Say the symptom, the impact, how you found it, the root cause, the fix and how to prevent it."
+    key_points:
+      - States the symptom and the impact in the first two sentences.
+      - Describes how the cause was found, with evidence such as logs or a failing test.
+      - Uses "the root cause was" with one precise condition.
+      - States the fix and one prevention.
+    follow_ups:
+      - prompt: "Which test would have caught this bug?"
+        look_for: "Names a specific test, with the input or condition that triggers the bug."
+    model_answer: |-
+      The symptom was that the function returned the wrong result for some inputs. It affected a small group of users, and we saw it in a support ticket. I found it by writing a failing test with the same input. Then I used a debugger to see the values. The root cause was that the code did not handle an empty value, so a later step used an old value. The fix was to check for an empty value and return early. I also added the failing test to the test suite. To prevent similar bugs, I now test empty and boundary inputs for every new function.
+    pitfalls:
+      - Describing the symptom twice and never the cause.
+      - Saying "it was a small mistake" with no detail.
+    speaking:
+      target_seconds: 90
+      min_words: 90
+      max_words: 190
+      max_filler_per_100: 5
+      structure_markers_min: 3
+      vocabulary: [root cause, symptom, reproduce, fix, test, prevent]
+- key: comm.explain_architecture.explain_design
+  type: interview_question
+  title: "Explain aloud: your design and its trade-offs"
+  skills: [comm.explain_architecture]
+  minutes: 5
+  difficulty: MEDIUM
+  stages: [EXPLAIN, INDEPENDENT]
+  observation: {kind: CONCEPT_EXPLAIN}
+  body:
+    explains: [system_design, lld]
+    prompt: "You just worked on a design. Explain your architecture ALOUD in about 2 minutes. Give a one-sentence overview, name the components, follow one request, and say the bottleneck, the failure point and one trade-off."
+    key_points:
+      - Opens with a one-sentence overview.
+      - Names the components in a clear order.
+      - Follows one request or one use case from start to end.
+      - Names one bottleneck or failure point honestly.
+      - States one trade-off and the reason.
+    follow_ups:
+      - prompt: "What would you change if traffic grows 10 times?"
+        look_for: "Names the first component to hit a limit and a concrete first step, with its cost."
+    model_answer: |-
+      This design lets users do the main action in one request and handles the slow work later. The parts are a client, an API layer, a database, a queue and workers. Let me follow one request. First, the client calls the API. The API checks the input and writes to the database. Then it puts a job in the queue and answers. Next, a worker does the slow work and updates the database. The API layer is stateless, so I can add servers. The database is the first bottleneck and the main failure point, so I would add a replica and backups. The trade-off is that the slow work finishes a little later. I accept that because the user does not need the result at once.
+    pitfalls:
+      - Listing boxes with no flow.
+      - Saying everything scales without naming the first limit.
+    speaking:
+      target_seconds: 120
+      min_words: 120
+      max_words: 230
+      max_filler_per_100: 5
+      structure_markers_min: 4
+      vocabulary: [component, request, first, then, bottleneck, trade-off, failure point]
+- key: comm.explain_decisions_tradeoffs.explain_choice
+  type: interview_question
+  title: "Explain aloud: why you chose this implementation"
+  skills: [comm.explain_decisions_tradeoffs]
+  minutes: 4
+  difficulty: MEDIUM
+  stages: [EXPLAIN, INDEPENDENT]
+  observation: {kind: CONCEPT_EXPLAIN}
+  body:
+    explains: [project]
+    prompt: "You just worked on a part of your project. Explain ALOUD why you chose this implementation, in about 90 seconds, in the voice of a code review reply. Name the options, the criteria, your decision, the cost and when you would change it."
+    key_points:
+      - States the decision and the main reason in the first sentence.
+      - Names at least one alternative that you considered.
+      - Gives criteria that fit this project.
+      - States the cost you accept.
+      - Says what would make you change the decision.
+    follow_ups:
+      - prompt: "Would you do the same in a team of ten people?"
+        look_for: "Says how the criteria change with team size or scale, and gives the new choice with a reason."
+    model_answer: |-
+      I chose this implementation because it is the simplest one that meets our needs. I considered two options. A simple version, and a more flexible one with more code. The criteria were how fast I could finish, how easy it is to test, and how likely the requirements are to change. The simple version is easier to test and fits the current requirements. The cost is that if requirements grow, I will need to refactor this part. I accept that because I do not know yet what will change. I would switch to the flexible version if a second use case appears. I am open to feedback if you see a risk I did not consider.
+    pitfalls:
+      - Defending the choice as "best practice".
+      - Hiding the cost.
+    speaking:
+      target_seconds: 90
+      min_words: 90
+      max_words: 190
+      max_filler_per_100: 5
+      structure_markers_min: 3
+      vocabulary: [option, criteria, cost, because, decision, alternative]
+- key: comm.explain_api_change.explain_change
+  type: interview_question
+  title: "Explain aloud: the API change and its impact"
+  skills: [comm.explain_api_change]
+  minutes: 4
+  difficulty: MEDIUM
+  stages: [EXPLAIN, INDEPENDENT]
+  observation: {kind: CONCEPT_EXPLAIN}
+  body:
+    explains: [engineering.api_engineering]
+    prompt: "You just worked on an API. Imagine you change one endpoint. Explain the change ALOUD in about 75 seconds to the teams that use it: what changed, who is affected, whether it is backward compatible, how to migrate and the deadline."
+    key_points:
+      - States what changed in the first sentence.
+      - Says clearly whether it is a breaking change.
+      - Names who is affected.
+      - Gives the migration steps and a date.
+    follow_ups:
+      - prompt: "How could you make this change without breaking old clients?"
+        look_for: "Suggests adding the new field next to the old one, or a new version, with a removal date."
+    model_answer: |-
+      I am changing the response of one endpoint. The field price becomes an object with amount and currency. It is a breaking change for clients that read price as a number. The mobile app and two partner teams are affected. To keep things safe, both formats will work for 60 days. To migrate, read price dot amount instead of price. After 60 days, the old format is removed. I will log who still uses the old format, and contact them before the date. Please use the API channel for questions.
+    pitfalls:
+      - Saying "small change" for a breaking change.
+      - No date and no contact.
+    speaking:
+      target_seconds: 75
+      min_words: 80
+      max_words: 170
+      max_filler_per_100: 5
+      structure_markers_min: 3
+      vocabulary: [breaking change, affected, migrate, deadline, backward compatible]

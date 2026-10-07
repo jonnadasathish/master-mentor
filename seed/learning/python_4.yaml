@@ -1,5 +1,5 @@
 # Learning content, Python for interviews (4/4): Python-specific concurrency, testing with pytest, backend frameworks and HTTP clients, packaging and environments.
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- concurrency in Python
 - key: py.concurrency.lesson

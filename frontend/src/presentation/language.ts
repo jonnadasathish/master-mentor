@@ -151,12 +151,13 @@ export type PrepareCategory = (typeof PREPARE_CATEGORIES)[number]
  * Python, practical engineering and projects are curriculum pages (their skills score inside DSA/coding and project). */
 export const TRACK_OF_SLUG: Record<string, string> = {
   dsa: 'dsa', cs: 'cs', 'system-design': 'system_design', lld: 'lld', behavioral: 'behavioral',
-  python: 'python', engineering: 'engineering', projects: 'projects',
+  python: 'python', engineering: 'engineering', projects: 'projects', communication: 'communication',
 }
 export const CURRICULUM_PAGES = [
   { slug: 'python', label: 'Python', icon: 'code', track: 'python' },
   { slug: 'engineering', label: 'Practical engineering', icon: 'zap', track: 'engineering' },
   { slug: 'projects', label: 'Projects', icon: 'flag', track: 'projects' },
+  { slug: 'communication', label: 'Communication', icon: 'message', track: 'communication' },
 ] as const
 /** Prepare navigation order: the scored areas with the curriculum pages where a learner looks for them. */
 export const PREPARE_NAV = [
@@ -168,6 +169,7 @@ export const PREPARE_NAV = [
   { slug: 'engineering', label: 'Practical engineering', icon: 'zap', route: 'curriculum' },
   { slug: 'projects', label: 'Projects', icon: 'flag', route: 'curriculum' },
   { slug: 'behavioral', label: 'Behavioral', icon: 'message', route: 'track' },
+  { slug: 'communication', label: 'Communication', icon: 'mocks', route: 'curriculum' },
 ] as const
 
 export function prepareRoute(slug: string): { name: string; params?: Record<string, string> } {

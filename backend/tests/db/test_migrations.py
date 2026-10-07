@@ -60,6 +60,7 @@ LEARNING_TABLES = {
     "learning_sessions",
     "learning_session_steps",
 }
+SPEAKING_TABLES = {"speaking_practices"}
 ALL_TABLES = (
     BASELINE_TABLES
     | CATALOG_TABLES
@@ -73,6 +74,7 @@ ALL_TABLES = (
     | REVIEW_TABLES
     | PROFILE_TABLES
     | LEARNING_TABLES
+    | SPEAKING_TABLES
 )
 
 
@@ -167,11 +169,116 @@ def test_connection_session_time_zone_is_utc(migrated: Engine) -> None:
 
 def test_downgrade_one_then_upgrade_again(migrated: Engine, test_db_url: str) -> None:
     command.downgrade(alembic_config(test_db_url), "-1")
-    assert set(inspect(migrated).get_table_names()) == (ALL_TABLES - LEARNING_TABLES) | {"alembic_version"}
+    assert set(inspect(migrated).get_table_names()) == (ALL_TABLES - SPEAKING_TABLES) | {"alembic_version"}
     command.upgrade(alembic_config(test_db_url), "head")
     assert set(inspect(migrated).get_table_names()) == ALL_TABLES | {"alembic_version"}
+
+
+def test_downgrade_two_removes_speaking_and_learning_only(migrated: Engine, test_db_url: str) -> None:
+    command.downgrade(alembic_config(test_db_url), "-2")
+    assert set(inspect(migrated).get_table_names()) == (ALL_TABLES - LEARNING_TABLES - SPEAKING_TABLES) | {
+        "alembic_version"
+    }
 
 
 def test_downgrade_to_base_removes_everything(migrated: Engine, test_db_url: str) -> None:
     command.downgrade(alembic_config(test_db_url), "base")
     assert set(inspect(migrated).get_table_names()) == {"alembic_version"}
+
+
+# ------------------------------------------------------------------------------ speaking_practices (0013)
+ASSESSMENT_SQL = (
+    "INSERT INTO assessments (kind, observed_on, observed_at, mode, source_key, notes_used, "
+    "reference_used, hints_used, timed, peer_evaluated, applied, unseen_variant, difficulty, created_at) "
+    "VALUES ('CONCEPT_EXPLAIN', '2026-10-07', UTC_TIMESTAMP(6), 'PRACTICE', 'content:comm.test', "
+    "0, 0, 0, 0, 0, 0, 0, 'EASY', UTC_TIMESTAMP(6))"
+)
+
+
+def _insert_practice(connection: object, assessment_id: int, source: str, transcript: str | None) -> None:
+    connection.execute(  # type: ignore[attr-defined]
+        text(
+            "INSERT INTO speaking_practices (assessment_id, source, transcript, duration_seconds, "
+            "word_count, filler_count, metrics_json, metrics_version, created_at) VALUES "
+            "(:a, :s, :t, 42, 80, 2, :m, 'speak-v1', UTC_TIMESTAMP(6))"
+        ),
+        {"a": assessment_id, "s": source, "t": transcript, "m": '{"filler_per_100_words": 2}'},
+    )
+
+
+def _new_assessment(connection: object) -> int:
+    result = connection.execute(text(ASSESSMENT_SQL))  # type: ignore[attr-defined]
+    return int(result.lastrowid)
+
+
+def test_speaking_practices_columns_have_no_audio_field(migrated: Engine) -> None:
+    columns = {c["name"] for c in inspect(migrated).get_columns("speaking_practices")}
+    assert columns == {
+        "id",
+        "assessment_id",
+        "source",
+        "transcript",
+        "duration_seconds",
+        "word_count",
+        "filler_count",
+        "metrics_json",
+        "metrics_version",
+        "self_reflection",
+        "created_at",
+    }
+
+
+def test_speaking_practice_insert_read_and_one_per_assessment(migrated: Engine) -> None:
+    with migrated.begin() as connection:
+        a = _new_assessment(connection)
+        _insert_practice(connection, a, "BROWSER", "First, the root cause was an index.")
+        row = connection.execute(text("SELECT source, transcript, word_count FROM speaking_practices")).one()
+        assert (row.source, row.word_count) == ("BROWSER", 80) and "root cause" in row.transcript
+    with pytest.raises(DBAPIError), migrated.begin() as connection:
+        _insert_practice(connection, a, "MANUAL", None)  # a second practice for the same observation
+    with migrated.begin() as connection:
+        connection.execute(text("DELETE FROM speaking_practices"))
+        connection.execute(text("DELETE FROM assessments"))
+
+
+@pytest.mark.parametrize(
+    ("source", "transcript"),
+    [("BROWSER", None), ("MANUAL", "text that a manual review cannot have"), ("AUDIO", "x")],
+)
+def test_speaking_practice_constraints_reject_bad_rows(
+    migrated: Engine, source: str, transcript: str | None
+) -> None:
+    with migrated.begin() as connection:
+        a = _new_assessment(connection)
+    with pytest.raises(DBAPIError), migrated.begin() as connection:
+        connection.execute(text("SET SESSION sql_mode = 'STRICT_ALL_TABLES'"))
+        _insert_practice(connection, a, source, transcript)
+    with migrated.begin() as connection:
+        connection.execute(text("DELETE FROM assessments"))
+
+
+def test_speaking_practice_requires_an_existing_assessment(migrated: Engine) -> None:
+    with pytest.raises(DBAPIError), migrated.begin() as connection:
+        _insert_practice(connection, 999999, "MANUAL", None)
+
+
+def test_0013_is_additive_and_leaves_existing_rows_alone(test_engine: Engine, test_db_url: str) -> None:
+    drop_everything(test_engine)
+    config = alembic_config(test_db_url)
+    command.upgrade(config, "0012_learning")
+    with test_engine.begin() as connection:
+        assessment_id = _new_assessment(connection)
+        before = connection.execute(text("SELECT * FROM assessments")).all()
+    command.upgrade(config, "head")
+    with test_engine.begin() as connection:
+        after = connection.execute(text("SELECT * FROM assessments")).all()
+        assert after == before  # existing evidence is byte-for-byte unchanged
+        assert connection.execute(text("SELECT COUNT(*) FROM speaking_practices")).scalar_one() == 0
+        _insert_practice(connection, assessment_id, "MANUAL", None)
+    with pytest.raises(DBAPIError), test_engine.begin() as connection:
+        connection.execute(text("DELETE FROM assessments"))  # still referenced: history cannot vanish
+    command.downgrade(config, "0012_learning")
+    with test_engine.begin() as connection:
+        assert connection.execute(text("SELECT * FROM assessments")).all() == before
+    drop_everything(test_engine)
+    command.upgrade(config, "head")

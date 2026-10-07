@@ -10,6 +10,7 @@ import CardsRunner from './CardsRunner.vue'
 import CheckRunner from './CheckRunner.vue'
 import LessonReader from './LessonReader.vue'
 import PracticeRunner from './PracticeRunner.vue'
+import SpeakingRunner from './SpeakingRunner.vue'
 import ProblemSet from './ProblemSet.vue'
 import ProjectRunner from './ProjectRunner.vue'
 import type { Submitter } from './submitter'
@@ -87,6 +88,13 @@ async function record(input: CompletionInput): Promise<void> {
       :busy="busy"
       @submit="record"
     />
+    <SpeakingRunner
+      v-else-if="content.type === 'interview_question' && content.body.speaking"
+      :content="content"
+      :result="result"
+      :busy="busy"
+      @submit="record"
+    />
     <PracticeRunner
       v-else
       :content="content"
@@ -143,7 +151,11 @@ async function record(input: CompletionInput): Promise<void> {
           :name="result.passed === false ? 'refresh' : 'check-circle'"
           :size="18"
         />
-        <template v-if="result.points === null">
+        <template v-if="result.speaking">
+          Speaking practice completed.
+          <span class="muted small">{{ result.passed ? 'It met the practice bar.' : 'Not yet at the practice bar: the mentor will bring this back.' }}</span>
+        </template>
+        <template v-else-if="result.points === null">
           Recorded as study time.
         </template>
         <template v-else>
@@ -152,7 +164,7 @@ async function record(input: CompletionInput): Promise<void> {
         </template>
       </p>
       <p
-        v-if="result.followup_points !== null"
+        v-if="result.followup_points !== null && !result.speaking"
         class="small"
       >
         Follow-ups: <strong class="tabular">{{ result.followup_points }} / 100</strong>

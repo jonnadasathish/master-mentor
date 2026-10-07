@@ -84,3 +84,11 @@ All are deterministic: the same inputs always give the same outputs.
 Report: files changed; migrations added; tests added; tests run (with results); known limitations; next logical task.
 
 Never claim a test passed unless it was actually run.
+
+## Communication track (D-087)
+
+- `comm.*` skills are optional (T4) and carry component `coding` only as a data slot. Use `is_optional_communication_skill` (`domain/communication/vocabulary.py`) wherever a component-based aggregation could leak them into technical readiness, track minutes, the stop list or the UI. `communication.*` (STAR, follow-ups) is required and behavioral: do not confuse the prefixes.
+- Never store audio. Browser speech recognition is optional, disclosed ("provided by your browser's speech service") and never claimed to be local. Transcripts and counts only.
+- Speaking metrics are signals computed on the server (`domain/communication/metrics.py`); the client never sends scores, and no metric is ever presented as a grade of English.
+- Communication Readiness is display-only. Required skills stay 123; the calibration battery stays unchanged.
+- `AGENTS.md` was merged into this file (D-020); there is no separate agents file to update.

@@ -1,5 +1,5 @@
 # Learning content: thread-safe object designs and timed machine coding; case studies Inventory, Ride Booking, rate limiter and Splitwise ledger.
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- concurrency safety
 - key: lld.concurrency_safety.lesson

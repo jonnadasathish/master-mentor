@@ -32,7 +32,7 @@ export const routes: RouteRecordRaw[] = [
     meta: { title: 'Prepare' },
   },
   {
-    path: '/prepare/:slug(python|engineering|projects)',
+    path: '/prepare/:slug(python|engineering|projects|communication)',
     name: 'curriculum',
     component: () => import('../views/CurriculumView.vue'),
     meta: { title: 'Prepare' },

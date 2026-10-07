@@ -1,5 +1,5 @@
 # Practical engineering 2: measuring and fixing performance, and Redis/caching in practice.
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- performance and profiling
 - key: eng.performance_profiling.lesson

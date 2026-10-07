@@ -1,5 +1,5 @@
 # Learning content: scaling building blocks — queues and async processing, idempotency and retries, rate limiting.
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- queues and async processing
 - key: sd.queues_async.lesson

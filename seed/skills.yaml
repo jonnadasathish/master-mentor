@@ -2,7 +2,7 @@
 # Targets/importance live in seed/role_profiles/*.yaml (skill_tiers). Validated by the seed validator:
 #   unique keys, known parents/prereqs, acyclic prerequisites, min_score in {30,45,60},
 #   min_score <= prerequisite target, no required (T1-T3) skill depending on an optional (T4) skill.
-seed_version: seed-v2
+seed_version: seed-v3
 groups:
 - key: lang.python
   name: Python (interview language)
@@ -70,6 +70,21 @@ groups:
 - key: pdd.testing
   name: Engineering testing
   component: project
+- key: comm.spoken_foundation
+  name: Spoken English foundation
+  component: coding
+- key: comm.fluency
+  name: Fluency and confidence
+  component: coding
+- key: comm.workplace
+  name: Workplace communication
+  component: coding
+- key: comm.technical_explanation
+  name: Technical explanation
+  component: coding
+- key: comm.writing
+  name: Professional writing
+  component: coding
 skills:
 - key: python.core_syntax
   name: Core syntax, functions, scope, exceptions
@@ -1939,3 +1954,337 @@ skills:
   - followup
   - applied
   - mock_round
+- key: comm.sentence_formation
+  name: Form clear, complete sentences
+  parent: comm.spoken_foundation
+  component: coding
+  is_pattern: false
+  prerequisites: []
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+- key: comm.question_formation
+  name: Form correct questions
+  parent: comm.spoken_foundation
+  component: coding
+  is_pattern: false
+  prerequisites:
+  - skill: comm.sentence_formation
+    min_score: 30
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+- key: comm.tense_consistency
+  name: Keep tenses consistent when narrating work
+  parent: comm.spoken_foundation
+  component: coding
+  is_pattern: false
+  prerequisites:
+  - skill: comm.sentence_formation
+    min_score: 30
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+- key: comm.articles_prepositions
+  name: Use articles and prepositions accurately
+  parent: comm.spoken_foundation
+  component: coding
+  is_pattern: false
+  prerequisites:
+  - skill: comm.sentence_formation
+    min_score: 30
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+- key: comm.think_in_english
+  name: Think directly in English
+  parent: comm.fluency
+  component: coding
+  is_pattern: false
+  prerequisites:
+  - skill: comm.sentence_formation
+    min_score: 30
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+- key: comm.speak_30s
+  name: Speak for 30 seconds without stalling
+  parent: comm.fluency
+  component: coding
+  is_pattern: false
+  prerequisites:
+  - skill: comm.sentence_formation
+    min_score: 30
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+- key: comm.speak_1m
+  name: Speak for 1 minute with a clear structure
+  parent: comm.fluency
+  component: coding
+  is_pattern: false
+  prerequisites:
+  - skill: comm.speak_30s
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+- key: comm.speak_2m
+  name: Speak for 2 minutes and stay organised
+  parent: comm.fluency
+  component: coding
+  is_pattern: false
+  prerequisites:
+  - skill: comm.speak_1m
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+- key: comm.word_recovery
+  name: Recover smoothly when a word is forgotten
+  parent: comm.fluency
+  component: coding
+  is_pattern: false
+  prerequisites:
+  - skill: comm.speak_30s
+    min_score: 30
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+- key: comm.filler_reduction
+  name: Reduce filler words
+  parent: comm.fluency
+  component: coding
+  is_pattern: false
+  prerequisites:
+  - skill: comm.speak_30s
+    min_score: 30
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+- key: comm.delivery_confidence
+  name: Deliver with a steady, confident pace
+  parent: comm.fluency
+  component: coding
+  is_pattern: false
+  prerequisites:
+  - skill: comm.speak_1m
+    min_score: 30
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+- key: comm.status_update
+  name: Give a concise status or standup update
+  parent: comm.workplace
+  component: coding
+  is_pattern: false
+  prerequisites:
+  - skill: comm.speak_30s
+    min_score: 30
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+- key: comm.clarification_request
+  name: Ask for clarification on an unclear requirement
+  parent: comm.workplace
+  component: coding
+  is_pattern: false
+  prerequisites:
+  - skill: comm.question_formation
+    min_score: 30
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+- key: comm.help_and_blockers
+  name: Ask for help and report blockers and delays
+  parent: comm.workplace
+  component: coding
+  is_pattern: false
+  prerequisites:
+  - skill: comm.sentence_formation
+    min_score: 30
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+- key: comm.feedback_and_disagreement
+  name: Give feedback and disagree professionally
+  parent: comm.workplace
+  component: coding
+  is_pattern: false
+  prerequisites:
+  - skill: comm.help_and_blockers
+    min_score: 30
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+- key: comm.senior_engineer_comms
+  name: Communicate with senior engineers
+  parent: comm.workplace
+  component: coding
+  is_pattern: false
+  prerequisites:
+  - skill: comm.status_update
+    min_score: 30
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+- key: comm.meeting_participation
+  name: Participate and contribute in meetings
+  parent: comm.workplace
+  component: coding
+  is_pattern: false
+  prerequisites:
+  - skill: comm.status_update
+    min_score: 30
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+- key: comm.explain_code
+  name: Explain code and your approach aloud
+  parent: comm.technical_explanation
+  component: coding
+  is_pattern: false
+  prerequisites:
+  - skill: comm.speak_30s
+    min_score: 30
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+- key: comm.explain_bug_root_cause
+  name: Explain a bug and its root cause
+  parent: comm.technical_explanation
+  component: coding
+  is_pattern: false
+  prerequisites:
+  - skill: comm.explain_code
+    min_score: 30
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+- key: comm.explain_decisions_tradeoffs
+  name: Explain implementation decisions and trade-offs
+  parent: comm.technical_explanation
+  component: coding
+  is_pattern: false
+  prerequisites:
+  - skill: comm.explain_code
+    min_score: 30
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+- key: comm.explain_query_optimization
+  name: Explain why a query is slow and how it was optimised
+  parent: comm.technical_explanation
+  component: coding
+  is_pattern: false
+  prerequisites:
+  - skill: comm.explain_code
+    min_score: 30
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+- key: comm.explain_api_change
+  name: Explain an API change and its impact
+  parent: comm.technical_explanation
+  component: coding
+  is_pattern: false
+  prerequisites:
+  - skill: comm.explain_code
+    min_score: 30
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+- key: comm.explain_architecture
+  name: Explain an architecture and design decisions
+  parent: comm.technical_explanation
+  component: coding
+  is_pattern: false
+  prerequisites:
+  - skill: comm.explain_decisions_tradeoffs
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+- key: comm.explain_simply
+  name: Explain a technical concept simply
+  parent: comm.technical_explanation
+  component: coding
+  is_pattern: false
+  prerequisites:
+  - skill: comm.explain_code
+    min_score: 30
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+- key: comm.chat_message
+  name: Write clear Slack or Teams messages
+  parent: comm.writing
+  component: coding
+  is_pattern: false
+  prerequisites:
+  - skill: comm.sentence_formation
+    min_score: 30
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+- key: comm.ticket_comment
+  name: Write useful Jira comments
+  parent: comm.writing
+  component: coding
+  is_pattern: false
+  prerequisites:
+  - skill: comm.chat_message
+    min_score: 30
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+- key: comm.email
+  name: Write professional emails
+  parent: comm.writing
+  component: coding
+  is_pattern: false
+  prerequisites:
+  - skill: comm.chat_message
+    min_score: 30
+  evidence_kinds:
+  - recall
+  - practice
+  - timed
+- key: comm.tech_doc_incident
+  name: Write technical docs and incident or bug explanations
+  parent: comm.writing
+  component: coding
+  is_pattern: false
+  prerequisites:
+  - skill: comm.ticket_comment
+    min_score: 45
+  evidence_kinds:
+  - recall
+  - practice
+  - timed

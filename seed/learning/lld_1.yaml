@@ -1,5 +1,5 @@
 # Learning content: OOP foundations — the four principles, cohesion and coupling, composition, SOLID and dependency injection.
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- OOP principles
 - key: lld.oop_principles.lesson

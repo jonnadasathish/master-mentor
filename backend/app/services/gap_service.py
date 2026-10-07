@@ -9,6 +9,7 @@ from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
 from app.domain.clock import Clock
+from app.domain.communication.vocabulary import is_optional_communication_skill
 from app.errors import AppError
 from app.models import Evidence, GapState, Goal, MentorRun, RoleSkillTarget, Skill, SkillState
 from app.repositories.evidence_repository import EvidenceRepository
@@ -95,7 +96,11 @@ class GapService:
         gaps = [
             self._out(g, s, t)
             for g, s, t in self._rows()
-            if (status is None or g.status == status) and (component is None or s.component == component)
+            if (status is None or g.status == status)
+            and (
+                component is None
+                or (s.component == component and not is_optional_communication_skill(s.skill_key))
+            )
         ]
         return GapReportOut(
             phase=run.phase.value if run.phase is not None else "BUILD",

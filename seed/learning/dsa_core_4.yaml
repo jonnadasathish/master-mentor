@@ -1,5 +1,5 @@
 # Learning content: problem-solving method — clarifying the problem, and going from brute force to optimal by naming the bottleneck.
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- clarification
 - key: dsa.clarification.lesson

@@ -2,7 +2,7 @@
 # expected_minutes null => DEFAULT_EXPECTED_MINUTES (EASY 15, MEDIUM 30, HARD 45). is_canonical => PROBLEM revision items always created.
 # Validator: unique (platform, platform_key); every skill key exists and is_pattern or allowed; exactly one primary (10000) mapping.
 # guide: paraphrased summary (never the platform statement), pattern, optimal time/space, hint ladder (weakest first), mistakes, relevance.
-seed_version: seed-v2
+seed_version: seed-v3
 problems:
 - id: 1
   platform: LEETCODE

@@ -216,3 +216,7 @@ All required mission categories are present:
 | `mock.round` | SIMULATE | any | round minutes + 15 review (DSA 60, CS 45, LLD 105, SD 60, BEHAVIORAL 45, PROJECT_DEEP_DIVE 45) | — | `MOCK` — records round_score, rubric, per-skill outcome_points, is_weakness | round_score >= 70 | L7 | — / — |
 | `mock.prep` | SIMULATE | any | 20 | — | `STUDY_SESSION + RECALL_QUIZ` — used when the mock does not fit today's budget: review last 2 mocks' weaknesses + rubric card + 5-question warm-up; the MOCK candidate is offered again on the next day it fits | n/a | L1 | — / — |
 | `mock.final_simulation` | SIMULATE | any | 160 | — | `MOCK` — is_final_simulation | every round >= 70 and mean >= 75 | L7 | — / — |
+
+## 6. Communication templates (D-087)
+
+Ten templates `coding.comm_*` (component `coding`, `applies_to: [comm.]`, observation kinds `CONCEPT_EXPLAIN` / `RECALL_QUIZ` / `STUDY_SESSION`) cover DIAGNOSE, LEARN, RECALL, GUIDED, INDEPENDENT, TIMED, EXPLAIN, THINK_ALOUD, TRANSFER and SIMULATE for every `comm.*` skill, so communication skills never receive a problem-solving mission. Template keys carry the `coding.` prefix only because the validator requires the component prefix.

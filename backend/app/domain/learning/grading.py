@@ -52,7 +52,7 @@ def grade_questions(
     for q in questions:
         qid, kind = str(q["id"]), str(q["kind"])
         if kind == "short":
-            earned = _rating(self_grades.get(qid))
+            earned = rating_of(self_grades.get(qid))
             results.append(
                 QuestionResult(qid, kind, earned, (), (), str(q["explanation"]), str(q["model_answer"]))
             )
@@ -66,16 +66,16 @@ def grade_questions(
 
 def grade_cards(cards: Sequence[Mapping[str, Any]], grades: Mapping[str, int]) -> int:
     """Recall cards are keyed by position ("0", "1", ...)."""
-    return share_points([(_rating(grades.get(str(i))), 1) for i in range(len(cards))])
+    return share_points([(rating_of(grades.get(str(i))), 1) for i in range(len(cards))])
 
 
 def rubric_points(rubric: Sequence[Mapping[str, Any]], ratings: Mapping[str, int]) -> int:
-    return share_points([(_rating(ratings.get(str(r["key"]))), int(r["points"])) for r in rubric])
+    return share_points([(rating_of(ratings.get(str(r["key"]))), int(r["points"])) for r in rubric])
 
 
 def followup_points(follow_ups: Sequence[Mapping[str, Any]], ratings: Mapping[str, int]) -> int:
     """Follow-ups are keyed by position ("0", "1", ...)."""
-    return share_points([(_rating(ratings.get(str(i))), 1) for i in range(len(follow_ups))])
+    return share_points([(rating_of(ratings.get(str(i))), 1) for i in range(len(follow_ups))])
 
 
 def checklist_rubric(points: Sequence[str]) -> tuple[dict[str, Any], ...]:
@@ -84,5 +84,5 @@ def checklist_rubric(points: Sequence[str]) -> tuple[dict[str, Any], ...]:
     return tuple({"key": f"p{i}", "label": text, "points": 1} for i, text in enumerate(points))
 
 
-def _rating(value: int | None) -> int:
+def rating_of(value: int | None) -> int:
     return value if value in (0, 1, 2) else 0

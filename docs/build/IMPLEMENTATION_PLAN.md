@@ -177,3 +177,12 @@ This is the single build order. It absorbs the former `BUILD_ORDER.md`. Update t
 - [x] Phase I/J — plan learning previews and "Start the session" on Today's missions; sessions close their plan item.
 - [x] Phase K — coverage report (API + Developer page) and the no-required-gap test.
 - [x] Phase L/M — UX hardening, browser validation, final audit (`FINAL_AUDIT.md`).
+
+## 7. Communication & professional English track (D-087)
+
+- [x] Seed-v3: 28 optional skills in 5 groups, T4 tiers, `COMM-1` milestone, `coding.comm_*` templates, curriculum track, 128 content items.
+- [x] Migration `0013_speaking_practice` (additive), model, export/import registration.
+- [x] Pure `domain/communication` (metrics, lexicon, cross-track picker, readiness view); speaking completion through the existing assessment path.
+- [x] Optional cross-track step with plan closure independent of it; revision for `comm.*`; planner packing and stop-list rules; isolation from G8 and technical track minutes.
+- [x] Communication Readiness, history, speaking runner with manual fallback, UI isolation.
+- [x] Tests (backend, frontend), docs, browser validation, final audit (`FINAL_AUDIT.md` Part IV).

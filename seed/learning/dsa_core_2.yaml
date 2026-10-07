@@ -1,5 +1,5 @@
 # Learning content: DSA foundations — two pointers and sliding window.
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- two pointers
 - key: dsa.two_pointers.lesson

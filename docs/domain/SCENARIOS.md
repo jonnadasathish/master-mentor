@@ -45,11 +45,11 @@ All numbers were computed with the formulas in `EVIDENCE_MODEL`, `GAP_ENGINE`, `
 ## S01 — Cold-start developer
 
 - **Given:** F0. Goal created today. No observations. Calibration mode (battery incomplete).
-- **State:** all 133 skills unassessed (`score = null`, confidence NONE).
+- **State:** all 161 skills unassessed (`score = null`, confidence NONE).
 - **Input evidence:** none.
 - **Expected skill state:** all UNASSESSED. Assessed required = 0/123.
 - **Expected gaps:**
-  - 31 root skills have status UNASSESSED; the other 102 are BLOCKED by unassessed prerequisites.
+  - 32 root skills have status UNASSESSED; the other 129 are BLOCKED by unassessed prerequisites. (D-087: seed-v3 added 28 optional T4 communication skills, one of them a root; the blocking logic is unchanged. Before seed-v3: 31 and 102 of 133.)
   - Assessment priorities: `dsa.complexity_analysis` 100 (5 downstream), `python.core_syntax` 100 (8), `db.sql_querying` 100 (3), `behavioral.ownership` 100 (0), `sd.capacity_estimation` 75 (0), `bit_manipulation.core` 20 (0).
   - Gap type UNASSESSED, focus DIAGNOSE.
 - **Expected priority:** ranking is actionable UNASSESSED roots by priority desc, importance desc, key asc. The first is `behavioral.impact` (100, T1).

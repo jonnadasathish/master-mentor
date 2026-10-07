@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 
+from app.domain.communication.vocabulary import is_optional_communication_skill
 from app.domain.mentor.model import PracticeSummary
 from app.domain.profile.model import ProfileSpec, SkillGraph
 
@@ -63,8 +64,10 @@ def summarize_practice(
                     study7[skill] = study7.get(skill, 0) + minutes
                 spec = graph.skills.get(skill)
                 track = track_of.get(spec.component) if spec else None
-                if track is not None:
-                    tracks[track] = tracks.get(track, 0) + minutes
+                if track is not None and not is_optional_communication_skill(skill):
+                    tracks[track] = (
+                        tracks.get(track, 0) + minutes
+                    )  # D-087: comm.* is not technical track time
     return PracticeSummary(
         track_minutes_7d=tracks,
         skill_minutes_7d=s7,
@@ -108,6 +111,6 @@ def summarize_week(
         for skill, share in split_minutes(o).items():
             spec = graph.skills.get(skill)
             track = track_of.get(spec.component) if spec else None
-            if track is not None:
-                tracks[track] = tracks.get(track, 0) + share
+            if track is not None and not is_optional_communication_skill(skill):
+                tracks[track] = tracks.get(track, 0) + share  # D-087: comm.* is not technical track time
     return WeekSummary(total_minutes=total, track_minutes=tracks, active_days=len(days))

@@ -1,5 +1,5 @@
 # Learning content: LLD requirements to entities, class design and relationships; case studies Parking Lot, Library, Chess, Splitwise.
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- requirements to entities
 - key: lld.requirements_entities.lesson

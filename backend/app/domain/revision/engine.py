@@ -26,7 +26,7 @@ from app.domain.revision.model import (
 
 NOT_REVISED_PREFIXES = ("execution.", "behavioral.", "communication.", "project.")
 NOT_REVISED_SKILLS = ("dsa.pattern_recognition", "lld.machine_coding")
-CONCEPT_PREFIXES = ("python.", "lld.", "engineering.", "testing.")
+CONCEPT_PREFIXES = ("python.", "lld.", "engineering.", "testing.", "comm.")  # comm.*: D-087
 
 
 # ------------------------------------------------------------------------------------------- helpers

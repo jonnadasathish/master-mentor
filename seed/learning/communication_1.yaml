@@ -1,0 +1,442 @@
+# Learning content: communication track, spoken English foundation — sentences, questions, tenses, articles and prepositions.
+seed_version: seed-v3
+content:
+# ---------------------------------------------------------------------------------------------- sentence formation
+- key: comm.sentence_formation.concept
+  type: concept
+  title: One idea, one complete sentence
+  skills: [comm.sentence_formation]
+  minutes: 7
+  difficulty: EASY
+  body:
+    summary: A complete spoken sentence has a subject, a verb and one idea. Short complete sentences are easier to say, easier to hear and sound more confident than long chains joined by "and", "so" and "but".
+    explanation: |-
+      Under pressure, many engineers keep one sentence going while they think, so they join ideas with "and", "so" or "but" and never stop. The listener hears a run-on sentence and cannot tell where the main point is. The opposite problem is a fragment: a group of words with no subject or no verb, such as "Because the cache was empty." or "Using Redis for caching."
+
+      A simple habit fixes both: say one idea, stop, breathe, then say the next idea. In speech, a pause is your full stop.
+
+      A complete sentence needs two things. First, a subject (who or what does the action): "the query", "I", "the deploy". Second, a verb that agrees with the subject: "the query takes", "I checked", "the deploys fail".
+    points:
+      - "Run-on, before: \"The API was slow so I checked the logs and I saw many timeouts and then I found the database was overloaded so I added an index.\""
+      - "Run-on, after: \"The API was slow. I checked the logs and saw many timeouts. The database was overloaded. So I added an index.\""
+      - "Fragment, before: \"Because the cache was empty.\" (this says why, but not what happened)"
+      - "Fragment, after: \"The request was slow because the cache was empty.\""
+      - "Fragment, before: \"Using Redis for sessions.\" (no subject, no verb)"
+      - "Fragment, after: \"We use Redis for sessions.\""
+      - "Missing subject, before: \"Is failing on staging.\" After: \"The deploy is failing on staging.\""
+      - "Subject and verb must agree. Before: \"The tests fails.\" After: \"The tests fail.\" Before: \"The server don't respond.\" After: \"The server does not respond.\""
+      - Do not drop the subject to save time. Say "It returns null", not "Returns null", when you speak to a colleague or an interviewer.
+      - "Practical rule: aim for 8 to 15 words per sentence. If you are past 20 words and still saying \"and\", stop and start a new sentence."
+    example:
+      language: text
+      code: |-
+        Before (one long sentence, 38 words):
+        "Yesterday the build failed so I looked at the pipeline and the test stage was failing because one test was using the old config and then I updated the config and ran it again and it passed."
+
+        After (five short sentences):
+        "Yesterday the build failed. The test stage was failing. One test used the old config. I updated the config. Then the build passed."
+      explanation: Every sentence has a subject and a verb, and each carries one fact. It is easy to say, and the listener can follow each step.
+    misconceptions:
+      - "Short sentences sound childish. In engineering conversations they sound clear and senior; most good incident updates are written and spoken this way."
+      - "Fillers such as \"so\" and \"basically\" fill the silence. A short pause is better than a filler; the listener hears a pause as thinking."
+- key: comm.sentence_formation.practice
+  type: interview_question
+  title: "Speak: explain a slow API in short sentences"
+  skills: [comm.sentence_formation]
+  minutes: 8
+  difficulty: EASY
+  stages: [GUIDED, INDEPENDENT, DIAGNOSE, TIMED]
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 120}
+  body:
+    prompt: |-
+      Your team lead asks in the daily stand-up: "Why was the orders API slow yesterday?"
+
+      The facts: the endpoint /orders took about 4 seconds. The query on the orders table scanned the whole table. There was no index on customer_id. You added the index in the afternoon. After that, the response time was under 200 milliseconds.
+
+      Answer ALOUD in about 60 seconds. Use only short, complete sentences, with one idea each. Pause at every full stop. Record yourself if you can, then review against the key points.
+    key_points:
+      - Every sentence has a clear subject and a verb (no "Is failing." or "Because of the index.").
+      - No sentence is longer than about 20 words, and none is a chain of "and ... and ... so ...".
+      - Starts with the answer in the first sentence (the cause), before the details.
+      - Gives at least one number (the 4 seconds and the 200 milliseconds).
+      - Uses a clear order word at least twice (first, then, after that, now).
+    follow_ups:
+      - prompt: "Why did you not add the index earlier?"
+        look_for: Answers in two or three short sentences, with a reason (for example, the query was new, or the table grew), without a long run-on.
+      - prompt: "Could this happen again on another table?"
+        look_for: A direct yes or no in the first sentence, then one short reason or one action.
+    model_answer: |-
+      The orders API was slow because of a missing index. The endpoint took about four seconds. The database scanned the whole orders table for every request. There was no index on customer ID. I found this in the query plan. In the afternoon, I added the index. After that, the response time was under 200 milliseconds. Now the query uses the index and does not scan the table. Next, I will check the other large tables for the same problem.
+    pitfalls:
+      - Joining everything with "and" and "so" until the sentence has no end.
+      - Starting with the background and saying the cause only at the end.
+      - Starting sentences with "Because" or "Using" and never finishing the idea.
+    speaking:
+      target_seconds: 60
+      min_words: 70
+      max_words: 160
+      max_filler_per_100: 5
+      structure_markers_min: 2
+      vocabulary: [missing index, query plan, response time, full table scan, customer id]
+- key: comm.sentence_formation.cards
+  type: revision_card
+  title: "Recall: complete sentences"
+  skills: [comm.sentence_formation]
+  minutes: 4
+  body:
+    cards:
+      - front: What does a complete sentence need?
+        back: A subject, a verb that agrees with it, and one idea.
+      - front: "Fix the run-on \"I checked the logs and I found the error and I fixed it\"."
+        back: "I checked the logs. I found the error. I fixed it."
+      - front: "Fix the fragment \"Because the cache was empty.\""
+        back: "The request was slow because the cache was empty."
+      - front: "Fix \"The tests fails\" and \"The server don't respond\"."
+        back: "\"The tests fail.\" and \"The server does not respond.\""
+      - front: What is a pause in speech?
+        back: Your full stop; stop after one idea instead of using "so" and "and".
+- key: comm.sentence_formation.check
+  type: concept_check
+  title: "Concept check: fix the sentence"
+  skills: [comm.sentence_formation]
+  minutes: 4
+  difficulty: EASY
+  body:
+    intro: Each question shows a sentence an engineer might say in a stand-up or an interview. Choose the best fix.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "Which is the best way to fix this run-on? \"The deploy failed so I checked the logs and the migration was failing and then I fixed the script and deployed again.\""
+        options:
+          - "The deploy failed, so I checked the logs, and the migration was failing, and then I fixed the script, and I deployed again."
+          - "The deploy failed. I checked the logs. The migration was failing. I fixed the script and deployed again."
+          - "The deploy failed so I checked the logs the migration was failing I fixed the script I deployed again."
+          - "The deploy failing and checking the logs, migration was failing."
+        answer: [1]
+        explanation: "The second option splits the story into short complete sentences. The first only adds commas and is still one long chain. The third removes the joining words but has no stops. The fourth has no subject or correct verb forms, so it is a fragment."
+      - id: q2
+        kind: single
+        prompt: "Which of these is a complete sentence?"
+        options:
+          - "Because the connection pool was full."
+          - "Using a queue for the email jobs."
+          - "The connection pool was full."
+          - "Which caused the timeouts."
+        answer: [2]
+        explanation: "\"The connection pool was full.\" has a subject and a verb and is one idea. The others start with \"because\", \"using\" or \"which\" and leave the idea unfinished. Spoken answers are full of these fragments, so listen for them."
+      - id: q3
+        kind: multi
+        prompt: "Which sentences have correct subject-verb agreement?"
+        options:
+          - "The tests fail on staging."
+          - "The server don't respond."
+          - "The logs show a timeout."
+          - "The API return a 500 error."
+        answer: [0, 2]
+        explanation: "With a plural subject (\"tests\"), the verb is \"fail\". With \"logs\", it is \"show\". \"The server\" is singular, so it is \"does not respond\", not \"don't\". \"The API\" is singular too, so the verb needs an s: \"returns\"."
+      - id: q4
+        kind: short
+        prompt: "Fix this fragment so it is a complete sentence and keep the meaning: \"Is not working on production since morning.\""
+        model_answer: "The login page has not been working on production since the morning. (Or: The deploy is not working on production.) A complete sentence needs a subject such as \"the login page\", \"the job\" or \"it\"."
+        explanation: "The original has no subject, so the listener does not know what is not working. Any version with a clear subject and a correct verb is a full answer. Note that \"since morning\" is usually said \"since this morning\" or \"since the morning\", and the verb is \"has not been working\" because the problem started in the past and continues now."
+
+# ---------------------------------------------------------------------------------------------- question formation
+- key: comm.question_formation.concept
+  type: concept
+  title: Clear questions for requirements, bugs and meetings
+  skills: [comm.question_formation]
+  minutes: 7
+  difficulty: EASY
+  body:
+    summary: A clarifying question has a fixed word order. In a direct question the helper verb comes before the subject; in a polite indirect question the order returns to normal, as in a statement.
+    explanation: |-
+      In engineering work, good questions save days. Most mistakes in spoken questions are about word order and about the helper verb.
+
+      A direct question puts the helper verb (do, does, did, is, are, can, will) before the subject: "Does the API return an error?" An indirect question starts with a polite phrase ("Could you tell me", "Could you clarify", "I want to check") and then uses statement order, so there is no helper verb before the subject, and usually no question mark in speech: "Could you clarify whether the API returns an error?"
+
+      With "whether" or "if", the word means "yes or no". With "what", "why", "how" or "when", the word asks for information.
+    points:
+      - "Direct, before: \"What the error is?\" After: \"What is the error?\" (helper verb is before the subject)"
+      - "Indirect, before: \"Could you tell me what is the error?\" After: \"Could you tell me what the error is?\" (statement order after the question word)"
+      - "Indirect, before: \"Can you clarify whether does the API need authentication?\" After: \"Could you clarify whether the API needs authentication?\""
+      - "Do not use both \"do\" and a polite phrase. Before: \"Could you tell me, does it retry?\" After: \"Could you tell me whether it retries?\" or \"Does it retry?\""
+      - "Use \"did\" for past questions and then the base verb. Before: \"Did you deployed it?\" After: \"Did you deploy it?\""
+      - "Use \"What happens if...\" to ask about edge cases: \"What happens if the payment service is down?\""
+      - "Use \"Could you clarify whether...\" to check a requirement: \"Could you clarify whether the report should include deleted users?\""
+      - "Use \"Do you mean ...?\" to check your understanding: \"Do you mean the p95 latency, not the average?\""
+      - "After a question, wait. Do not answer your own question or add a second question in the same breath."
+      - "Common non-standard patterns to avoid: \"Can you explain me?\" (say \"Can you explain it to me?\"), \"Why you did this?\" (say \"Why did you do this?\")."
+    example:
+      language: text
+      code: |-
+        Ticket: "Add export to the report page."
+
+        Weak (word order and too vague):
+          "What is the format of export, it should be CSV or what?"
+
+        Clear:
+          "Could you clarify which format you need? CSV or Excel?"
+          "What happens if the report has more than 100,000 rows?"
+          "Do you mean the filtered rows, or all the rows?"
+          "Who needs this export, and how often?"
+      explanation: Each question asks for one piece of information. The word order is correct, and the questions are short enough to answer in one sentence.
+    misconceptions:
+      - "More words are more polite. A short direct question such as \"Is the API synchronous?\" is fully polite at work. Use the long form when you ask a senior person for something, or when you are unsure."
+      - "A question must be asked quickly before the person leaves. Pause, think of the one question that matters most, and ask it clearly."
+- key: comm.question_formation.practice
+  type: interview_question
+  title: "Speak: ask clarifying questions on a vague ticket"
+  skills: [comm.question_formation]
+  minutes: 8
+  difficulty: EASY
+  stages: [GUIDED, INDEPENDENT, DIAGNOSE, TIMED]
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 120}
+  body:
+    prompt: |-
+      A product manager gives you this ticket in a meeting: "Users should get a notification when their payment fails."
+
+      You are not sure what to build. Ask the manager your clarifying questions ALOUD, as you would in the meeting. Ask at least four questions, and use these patterns at least once each: "Could you clarify whether...", "What happens if...", and "Do you mean...?". Take about 60 seconds. Pause after each question as if you were waiting for the answer.
+    key_points:
+      - Asks at least four different clarifying questions.
+      - Uses "Could you clarify whether ..." with statement word order (no "does" or "is" after "whether").
+      - Uses "What happens if ..." for at least one edge case (retry, timeout, user offline).
+      - Uses "Do you mean ...?" to check one interpretation.
+      - Each question is one idea, and at least one question is about the user effect or priority, not only the technology.
+    follow_ups:
+      - prompt: "The manager says: \"Just do the email, we will decide later about the rest.\" What is your next question?"
+        look_for: A short question that confirms the scope or the deadline, such as "Is email enough for the first release?", with correct word order.
+      - prompt: "Ask one question that checks you understood the answer."
+        look_for: Repeats the answer in own words, then asks "Is that right?" or "Do you mean ...?"
+    model_answer: |-
+      Thank you. I have a few questions before I start. First, could you clarify which channels you need? Do you mean email only, or also SMS and push? Second, could you clarify whether the notification should go out immediately, or after the final retry fails? Third, what happens if the user has no email address? Fourth, what happens if the payment fails twice in one day? Should we send two messages? Finally, who writes the message text, the product team or the engineering team? That is all for now.
+    pitfalls:
+      - "Putting the helper verb in the wrong place: \"Could you clarify whether does it retry?\""
+      - Asking five questions in one long sentence, so the manager answers only the last one.
+      - Asking only technology questions and never asking about user effect or priority.
+      - Using "what is the" patterns only. Use the three patterns from the task and vary your questions.
+    speaking:
+      target_seconds: 60
+      min_words: 70
+      max_words: 150
+      max_filler_per_100: 5
+      structure_markers_min: 2
+      vocabulary: [could you clarify whether, what happens if, do you mean, first, retry]
+- key: comm.question_formation.cards
+  type: revision_card
+  title: "Recall: question patterns"
+  skills: [comm.question_formation]
+  minutes: 4
+  body:
+    cards:
+      - front: Direct question word order?
+        back: Question word, helper verb, subject, main verb ("What is the error?").
+      - front: Indirect question word order?
+        back: Polite phrase, then statement order ("Could you tell me what the error is?").
+      - front: Ask a yes/no requirement politely.
+        back: "Could you clarify whether the report should include deleted users?"
+      - front: Ask about an edge case.
+        back: "What happens if the payment service is down?"
+      - front: Check your own understanding.
+        back: "Do you mean the p95 latency, not the average?"
+      - front: "Fix \"Did you deployed it?\""
+        back: "\"Did you deploy it?\" After did, use the base verb."
+
+# ---------------------------------------------------------------------------------------------- tense consistency
+- key: comm.tense_consistency.concept
+  type: concept
+  title: Tenses for status updates and incident stories
+  skills: [comm.tense_consistency]
+  minutes: 8
+  difficulty: EASY
+  body:
+    summary: Choose the tense by the time of the action, then keep it. Use the past for finished work, the present continuous for work in progress, "will" or "going to" for plans, and do not mix them inside one story without a reason.
+    explanation: |-
+      A stand-up update has three time zones: what you finished (past), what you are doing now (present continuous), and what you will do next (future). A good update moves through them in order, and each zone has its own tense.
+
+      An incident story is about the past, so it should stay in the past from start to finish: "The alert fired. I checked the dashboard. The error rate was high. I rolled back the release." A common problem is switching to the present in the middle: "I checked the logs and then I see the error and I fix it." For a story that already finished, keep all verbs in the past.
+
+      Use the present perfect ("I have fixed", "I have been working on") for results that matter now, without saying when. If you say when (yesterday, last week, at 3 pm), use the simple past.
+    points:
+      - "Finished action with a time, before: \"I have fixed it yesterday.\" After: \"I fixed it yesterday.\""
+      - "Work in progress, before: \"I am working on the ticket since Monday.\" After: \"I have been working on the ticket since Monday.\" (with since or for, use the perfect form)"
+      - "State verbs are not used in the continuous. Before: \"I am having five years of experience.\" After: \"I have five years of experience.\" Before: \"I am knowing the code.\" After: \"I know the code.\""
+      - "Future plan, before: \"Tomorrow I deployed the fix.\" After: \"Tomorrow I will deploy the fix.\" (or \"I am going to deploy\")"
+      - "After \"if\", use the present for a future condition. Before: \"If the test will fail, I will roll back.\" After: \"If the test fails, I will roll back.\""
+      - "Mixed story, before: \"The job failed, then I check the logs, and I found a bug.\" After: \"The job failed, then I checked the logs, and I found a bug.\""
+      - "Use a regular past ending -ed, or the correct irregular form: \"I found\" (not \"I finded\"), \"I wrote\", \"I ran\", \"I built\"."
+      - "Time words help you pick the tense: yesterday and last week (past), right now and currently (continuous), tomorrow and next sprint (future)."
+      - "Status update structure: \"Yesterday I finished ..., today I am working on ..., and I will ... next.\""
+      - "Describing how a system works (not a story) uses the present: \"The service retries three times.\" Use the past only for what happened."
+    example:
+      language: text
+      code: |-
+        Stand-up update:
+        "Yesterday I fixed the null pointer bug in the payment service and I merged the pull request.
+        Today I am working on the retry logic for failed payments.
+        I have been testing it since this morning, and one test is still failing.
+        Tomorrow I will deploy it to staging if the tests pass."
+
+        Incident story (all past):
+        "The alert fired at 2 pm. I checked the dashboard and saw a spike in errors. I rolled back the release. The errors stopped within ten minutes. Then I found the cause: a missing config value."
+      explanation: Each sentence has one tense that matches its time. The story stays in the past from the first sentence to the last.
+    misconceptions:
+      - "A story is more lively in the present tense. In an incident review, mixed tenses make the order of events unclear."
+      - "\"Have you ... ?\" is always the polite form. Use it only when the time is not important; with a time word, use the simple past."
+- key: comm.tense_consistency.practice
+  type: interview_question
+  title: "Speak: a stand-up update and an incident story"
+  skills: [comm.tense_consistency]
+  minutes: 8
+  difficulty: EASY
+  stages: [GUIDED, INDEPENDENT, DIAGNOSE, TIMED]
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 120}
+  body:
+    prompt: |-
+      Part one: give a stand-up update ALOUD (about 30 seconds). Use the facts: yesterday you fixed a bug in the login API and merged the pull request. Today you are writing tests for the password reset flow. Tomorrow you will deploy the reset flow to staging.
+
+      Part two: tell the story of a deploy that failed (about 30 seconds). The facts: the pipeline failed at 5 pm, the database migration timed out, you checked the logs, you split the migration into two smaller steps, and the second deploy worked.
+
+      Say both parts ALOUD in one take, about 60 seconds in total. Keep the story in the past tense from the first word to the last.
+    key_points:
+      - Uses the simple past for finished work in the update ("I fixed", "I merged").
+      - Uses the present continuous for work in progress ("I am writing tests").
+      - Uses "will" or "going to" for the plan ("I will deploy").
+      - Keeps every verb of the failed-deploy story in the past tense (failed, checked, split, worked).
+      - Uses a time or order word to move between the time zones (yesterday, today, tomorrow, then, after that).
+    follow_ups:
+      - prompt: "What are you going to do if the staging deploy fails?"
+        look_for: Uses "if" with the present tense ("If the deploy fails, I will check the logs") and a clear future plan.
+      - prompt: "How long have you been working on the password reset flow?"
+        look_for: Uses the present perfect continuous with for or since ("I have been working on it for three days").
+    model_answer: |-
+      Here is my update. Yesterday I fixed a bug in the login API and merged the pull request. Today I am writing tests for the password reset flow. Tomorrow I will deploy the reset flow to staging. Now, the failed deploy. The pipeline failed at 5 pm. The database migration timed out. I checked the logs and found that one step was too big. Then I split the migration into two smaller steps. After that, I ran the deploy again, and it worked. Since then, the pipeline has been green.
+    pitfalls:
+      - "Switching to the present inside the story: \"I checked the logs and then I see the error.\""
+      - "Saying \"I have fixed it yesterday\" instead of \"I fixed it yesterday\"."
+      - "Using \"I am working since morning\" instead of \"I have been working since this morning\"."
+      - Forgetting "will" when talking about tomorrow.
+    speaking:
+      target_seconds: 60
+      min_words: 80
+      max_words: 160
+      max_filler_per_100: 5
+      structure_markers_min: 3
+      vocabulary: [yesterday, today, tomorrow, pull request, migration, staging]
+- key: comm.tense_consistency.cards
+  type: revision_card
+  title: "Recall: tenses for work updates"
+  skills: [comm.tense_consistency]
+  minutes: 4
+  body:
+    cards:
+      - front: Stand-up update tense order?
+        back: "Past (\"I fixed\"), present continuous (\"I am working on\"), future (\"I will deploy\")."
+      - front: "Fix \"I have fixed it yesterday\"."
+        back: "I fixed it yesterday. (a time word needs the simple past)"
+      - front: "Fix \"I am working on it since Monday\"."
+        back: "I have been working on it since Monday."
+      - front: "Fix \"I am having five years of experience\"."
+        back: "I have five years of experience. (have is a state verb)"
+      - front: "Fix \"If the test will fail, I roll back\"."
+        back: "If the test fails, I will roll back."
+      - front: Which tense does an incident story use?
+        back: The simple past, from the first sentence to the last.
+
+# ---------------------------------------------------------------------------------------------- articles and prepositions
+- key: comm.articles_prepositions.concept
+  type: concept
+  title: Articles and prepositions with technical nouns
+  skills: [comm.articles_prepositions]
+  minutes: 8
+  difficulty: EASY
+  body:
+    summary: Use "a" or "an" for something new or one of many, "the" for something both people already know, and no article for general ideas or plural nouns. Learn a small set of fixed prepositions for technical places.
+    explanation: |-
+      Articles tell the listener whether the thing is known. If you say "the cache", the listener knows which cache. If you say "a cache", it is one of many, or a new one. The rule for engineers: use "the" when you and the listener both can point to one specific thing (the database of this project, the server we talk about), and "a" when you introduce something new ("I added a cache").
+
+      Use no article for uncountable ideas and for plural nouns in general: "Caching improves performance." "Indexes make reads faster." "We need monitoring."
+
+      Prepositions are best learned in fixed phrases. Learn the phrase with its noun, not the preposition alone.
+    points:
+      - "New thing, before: \"I added cache to the service.\" After: \"I added a cache to the service.\""
+      - "Known thing, before: \"The query is slow, so I checked a database.\" After: \"The query is slow, so I checked the database.\""
+      - "Use \"an\" before a vowel sound: \"an index\", \"an API\", \"an error\", \"an HTTP request\". Use \"a\" before a consonant sound: \"a user\", \"a unit test\"."
+      - "Before: \"We store data in database.\" After: \"We store data in the database.\" or \"We store data in a database.\""
+      - "Before: \"I deployed the code in server.\" After: \"I deployed the code to the server.\" (movement toward uses to; the app runs on the server)"
+      - "Fixed phrases: \"in the database\", \"in the cache\", \"in the logs\", \"in the code\"."
+      - "Fixed phrases: \"on the server\", \"on staging\", \"on production\", \"on the dashboard\", \"on the call\"."
+      - "Fixed phrases: \"at the moment\", \"at 5 pm\", \"at the application layer\"; \"for two hours\" (a period); \"since Monday\" (a start point)."
+      - "Before: \"I am working on this since morning.\" After: \"I have been working on this since this morning.\" Before: \"I am waiting since two hours.\" After: \"I have been waiting for two hours.\""
+      - "Common verb patterns: \"discuss the design\" (not \"discuss about\"), \"return a value\" (not \"return back\"), \"explain it to me\" (not \"explain me\"), \"depend on\", \"responsible for\", \"different from\"."
+      - "Role names with a unique meaning use \"the\": \"the main branch\", \"the production database\", \"the load balancer\" (of this system)."
+    example:
+      language: text
+      code: |-
+        Weak:
+          "I deployed new version in server and checked logs in dashboard. There is error in database connection."
+
+        Clear:
+          "I deployed the new version to the staging server and checked the logs on the dashboard. There is an error in the database connection."
+      explanation: "\"The new version\", \"the staging server\", \"the logs\" and \"the dashboard\" are known things. \"An error\" is new information. \"To\" shows where the code went, \"in\" shows where the error is, and \"on\" is the usual choice for dashboards and servers."
+    misconceptions:
+      - "Articles do not matter because the listener understands anyway. Listeners often understand, but wrong or missing articles make speech sound unsure and sometimes change the meaning: \"I fixed the bug\" and \"I fixed a bug\" are different claims."
+      - "There is one correct preposition for each noun in all cases. Some nouns accept two (\"in the cloud\", \"on the cloud\" are both heard), so learn the most common phrase and use it every time."
+- key: comm.articles_prepositions.practice
+  type: interview_question
+  title: "Speak: describe where a request goes in your system"
+  skills: [comm.articles_prepositions]
+  minutes: 8
+  difficulty: EASY
+  stages: [GUIDED, INDEPENDENT, DIAGNOSE, TIMED]
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 150}
+  body:
+    prompt: |-
+      A new teammate asks: "What happens when a user opens the product page?"
+
+      Describe, ALOUD and in about 75 seconds, the path of one request through a web application. Include these parts: a load balancer, an application server, a cache, a database and the logs. Say where each thing is and where the data goes, for example "The request goes to the load balancer" and "The data is in the database".
+
+      Focus on a, an and the, and on in, on, to and at.
+    key_points:
+      - Uses "the" for known parts and "a" or "an" when a part is first introduced (for example "a cache", "an application server").
+      - Uses "in the database", "in the cache" and "in the logs" for where data lives.
+      - Uses "on the server" or "on production" for where code runs.
+      - Uses "to" for movement ("goes to the load balancer") and does not use "in" for it.
+      - Describes the path in order, with an order word (first, then, next, finally).
+    follow_ups:
+      - prompt: "Where would you look first if the page is slow?"
+        look_for: Uses correct phrases such as "in the logs", "on the dashboard" and "in the database", in a short, ordered answer.
+      - prompt: "What is stored in the cache, and for how long?"
+        look_for: Uses "in the cache", an article for each noun, and "for" with a time period ("for five minutes").
+    model_answer: |-
+      First, the request goes to the load balancer. The load balancer sends it to an application server. The application server first looks in the cache. If the product is in the cache, the server returns it right away. If it is not there, the server queries the database. Then it stores the result in the cache for five minutes. Finally, the response goes back to the user. Every request is written to the logs on the server. If the page is slow, I look at the dashboard first, and then I check the logs.
+    pitfalls:
+      - Dropping the article before singular nouns ("goes to load balancer", "checks database").
+      - "Using \"in\" for movement or deploy targets: \"I deployed in the server.\""
+      - Using "a" for something both people already know ("I check a database" when the whole team uses one database).
+      - "Using \"discuss about\", \"return back\" or \"explain me\" while describing the flow."
+    speaking:
+      target_seconds: 75
+      min_words: 80
+      max_words: 180
+      max_filler_per_100: 5
+      structure_markers_min: 3
+      vocabulary: [load balancer, application server, in the cache, in the database, in the logs, on the server]
+- key: comm.articles_prepositions.cards
+  type: revision_card
+  title: "Recall: articles and prepositions"
+  skills: [comm.articles_prepositions]
+  minutes: 4
+  body:
+    cards:
+      - front: "When do you use \"a\" or \"an\" and when \"the\"?"
+        back: "A or an for something new or one of many; the for something both people know."
+      - front: Where does data live?
+        back: "In the database, in the cache, in the logs."
+      - front: Where does code run, or where do you look?
+        back: "On the server, on staging, on production, on the dashboard."
+      - front: Where does code go?
+        back: "I deployed it to the server. (to shows movement)"
+      - front: "Fix \"I am waiting since two hours\"."
+        back: "I have been waiting for two hours. (for plus a period, since plus a start)"
+      - front: "Fix \"discuss about\", \"return back\", \"explain me\"."
+        back: "Discuss the design, return a value, explain it to me."

@@ -33,14 +33,14 @@ def test_real_seed_is_valid_with_expected_counts() -> None:
     assert result.errors == ()
     catalog = result.catalog
     assert catalog is not None
-    assert catalog.seed_version == "seed-v2"
-    assert (len(catalog.groups), len(catalog.skills)) == (22, 133)
-    assert sum(len(s.prerequisites) for s in catalog.skills) == 134
-    assert len(catalog.profiles) == 1 and len(catalog.profiles[0].targets) == 133
+    assert catalog.seed_version == "seed-v3"
+    assert (len(catalog.groups), len(catalog.skills)) == (27, 161)
+    assert sum(len(s.prerequisites) for s in catalog.skills) == 161
+    assert len(catalog.profiles) == 1 and len(catalog.profiles[0].targets) == 161
     assert sum(1 for t in catalog.profiles[0].targets if t.required) == 123
     assert (len(catalog.problems), sum(len(p.skills) for p in catalog.problems)) == (137, 242)
-    assert (len(catalog.milestones), len(catalog.baseline)) == (18, 12)
-    assert len(catalog.templates) == 86
+    assert (len(catalog.milestones), len(catalog.baseline)) == (19, 12)
+    assert len(catalog.templates) == 96
     assert catalog.max_depth == 6
 
 
@@ -274,20 +274,20 @@ def test_unknown_template_component_and_lost_coverage() -> None:
 
 def test_seed_versions_must_match_across_files() -> None:
     assert "seed.version_mismatch" in error_codes(
-        mutated(lambda r: r["roadmap"].update(seed_version="seed-v3"))
+        mutated(lambda r: r["roadmap"].update(seed_version="seed-v4"))
     )
 
 
 def test_content_change_without_version_bump_fails() -> None:
     result = mutated(lambda r: r["problem_catalog"]["problems"][0].update(title="Two Sum (edited)"))
     lock_errors = [i for i in result.errors if i.code == "lock.changed_without_version_bump"]
-    assert [i.where for i in lock_errors] == ["seed.lock.yaml: seed-v2.files.problem_catalog"]
+    assert [i.where for i in lock_errors] == ["seed.lock.yaml: seed-v3.files.problem_catalog"]
 
 
 def test_new_version_must_be_locked() -> None:
     def mutate(r: dict[str, Any]) -> None:
         for data in r.values():
-            data["seed_version"] = "seed-v3"
+            data["seed_version"] = "seed-v4"
 
     assert error_codes(mutated(mutate)) == {"lock.unlocked_version"}
 

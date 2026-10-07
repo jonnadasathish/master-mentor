@@ -314,3 +314,11 @@ Read models carry what the UI needs to explain the current state, the recommenda
 | GET | `/learning/mock-kits` | per loop round: `{round, round_type, minutes, components, focus_skills[], items[]}` |
 
 Additions to existing read models: `GET /problems` and `/problems/{ref}` add `practice_state` (derived) and `guide` (seed coaching metadata), and a LeetCode URL when none is stored; `GET /today` / `GET /plan/{date}` add `plan.learning{item_id: {stage, minutes, steps[], session_id}}` for pending skill missions (derived, never part of the frozen items).
+
+## 12. Communication (D-087)
+
+- `POST /learning/content/{key}/complete` and the session step `complete` accept `completion.speech`: `{source: "BROWSER"|"MANUAL", transcript?: string (<= 8000), duration_seconds: 0..3600, reflection?: string}`. Unknown fields (for example client-sent metrics) are rejected with 422. BROWSER needs a transcript of at least 5 words and a plausible duration; MANUAL must not send one. The response adds `speaking` (server-computed signals, `criteria`, `metrics_version`, `evidence_note`). A repeated `client_request_id` returns 409 and records nothing.
+- `POST /communication/preview` `{content_key, transcript, duration_seconds}` measures a transcript without storing anything.
+- `GET /communication/readiness` returns six areas (status, summary sentence, evidence counts split measured / manual / other, per-skill rows) and a note that it is not part of Overall Readiness.
+- `GET /communication/history?limit=` returns recent speaking practices (counts only, no transcript).
+- Session and plan-preview steps carry `optional: boolean` (the cross-track prompt).

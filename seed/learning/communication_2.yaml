@@ -1,0 +1,871 @@
+# Learning content: communication, fluency and confidence — speaking with structure, fewer fillers, recovering words, steady delivery.
+seed_version: seed-v3
+content:
+# ---------------------------------------------------------------------------------------------- speak for one minute (CORE)
+- key: comm.speak_1m.lesson
+  type: lesson
+  title: Speak for one minute with a clear structure
+  skills: [comm.speak_1m]
+  minutes: 14
+  difficulty: EASY
+  body:
+    summary: A one-minute spoken answer has four parts, point, reason, example and close, so you always know what to say next and the listener always knows where you are.
+    what: |-
+      A one-minute answer is about 120 to 140 spoken words. That is short, so it needs a fixed shape. Use four parts:
+
+      - **Point**: your answer in one sentence. "I would use an index here."
+      - **Reason**: why, in one or two sentences. "The query filters on one column and the table is large."
+      - **Example**: one real or realistic case. "Last month a report on the orders table took 20 seconds. After an index on `customer_id` it took 200 milliseconds."
+      - **Close**: one sentence that repeats the point or says the next step. "So an index is the first thing I would try."
+    why: |-
+      When you speak a second language, your mind is busy with words and grammar. If you also have to invent the structure while speaking, you stop, repeat yourself or go in circles. A fixed structure removes one big decision. You only fill in four small boxes. The listener also follows you more easily, because the point comes first and the close tells them you are finished.
+    when: |-
+      Interview questions like "Explain how a hash map works", "Why did you choose this design?" or "Tell me about your project". Also at work: a standup update, a short answer in a design meeting, or a reply to a manager's question. If you have more time, use the same four parts but make each part longer.
+    how: |-
+      1. **Take two seconds before you speak.** Say "Good question" or breathe in. Decide the point. Do not start until you know the first sentence.
+      2. **Say the point first.** One short sentence. Do not start with background.
+      3. **Give the reason with "because".** "I would use an index because the table has millions of rows."
+      4. **Give one example.** Use a real case from your work if you can. Name the thing: the service, the query, the ticket. Details make you sound sure.
+      5. **Close.** "So, in short, ..." or "That is why I would start with an index." Then stop. Silence after the close is fine.
+      6. **Practise with a timer.** Say it aloud. Aim for 50 to 70 seconds. If you run short, add detail to the example. If you run long, cut the background.
+    mental_model: |-
+      Think of a short email. The first line is the answer, the next lines give the reason and one example, and the last line says what happens next. A spoken answer is the same email, said aloud. You do not need to write it first; you only need the four labels in your head.
+    tradeoffs: |-
+      A fixed structure can sound like a script if you repeat the same words every time. Keep the shape, but change the words to fit the question. A very short answer (20 seconds) is clear but may skip the reason. A very long answer (three minutes) may hide your point. For one minute, one point and one example is enough. Offer more: "I can give another example if you want."
+    mistakes:
+      - Starting with background and saying the point after 40 seconds.
+      - Giving three points in one minute, so none has a reason or an example.
+      - Using no example, so the answer sounds like a definition from a book.
+      - Not closing, so the answer fades away with "yeah, so, that's it".
+      - Starting to speak before you know your first sentence, then repeating "so, so, so".
+      - Speaking faster and faster to finish, so the listener cannot follow.
+    interview: |-
+      Interviewers listen for a clear answer more than for perfect English. A clear structure shows that you think in an organised way. Many follow-up questions come from your example, so choose an example you know well and can explain in more detail.
+    explain_it:
+      - Say the point in the first sentence.
+      - Give one reason with "because".
+      - Give one concrete example from real work.
+      - Close with one sentence and stop.
+      - Practise aloud with a timer, about 50 to 70 seconds.
+    example:
+      language: text
+      code: |-
+        Question: "Why do we use a cache in front of a database?"
+
+        Point:   We use a cache to make reads faster and to protect the database.
+        Reason:  Reading from memory is much faster than reading from disk, and the cache
+                 takes repeated requests away from the database.
+        Example: In one of my projects, the product page called the database on every
+                 request. The same 200 products were read thousands of times a minute.
+                 We added Redis with a five-minute expiry. The page became faster, and the
+                 database load dropped a lot.
+        Close:   So a cache is useful when the same data is read often and can be a few
+                 minutes old.
+      explanation: Four short parts, about 100 words, about 45 seconds at a calm pace. Each part has one idea.
+    edge_cases:
+      - "You do not know the answer: use the same shape. Point: 'I am not fully sure.' Reason: 'Here is what I do know.' Example: 'Something similar I have done.' Close: 'I would check the documentation to confirm.'"
+      - "The question has two parts: say 'There are two parts' and answer them one by one, each with a short point and reason."
+      - "You have no work example: use a small imaginary one and say so. 'For example, imagine an orders table with ten million rows.'"
+    misconceptions:
+      - Good speakers do not plan. They plan the first sentence and the structure, and they pause to do it.
+      - A longer answer is a better answer. A clear one-minute answer with follow-up questions is stronger than a three-minute answer with no shape.
+- key: comm.speak_1m.check
+  type: concept_check
+  title: "Concept check: the one-minute structure"
+  skills: [comm.speak_1m]
+  minutes: 5
+  difficulty: EASY
+  body:
+    intro: Each question shows part of a spoken answer. Judge it by the four parts, point, reason, example and close.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "The question is 'What does a load balancer do?' Which is the best first sentence?"
+        options:
+          - "So, a long time ago, when websites started to get many users, people had a problem."
+          - "A load balancer shares incoming requests between several servers."
+          - "That is a very interesting question and I think it is important."
+          - "I worked with a load balancer on my last project, Nginx, and it was nice."
+        answer: [1]
+        explanation: "The second option is the point: it answers the question in one short sentence. The first delays the answer with history. The third is filler. The fourth mentions experience but never answers the question."
+      - id: q2
+        kind: multi
+        prompt: Which sentences work well as the reason part?
+        options:
+          - "This is better because one slow server no longer blocks all users."
+          - "I also know about Kubernetes and Docker."
+          - "We chose this since the traffic was growing and one server could not handle it."
+          - "Yes, that is all."
+        answer: [0, 2]
+        explanation: "A reason says why, usually with 'because' or 'since'. A list of other tools is not a reason, and 'Yes, that is all' is a close without any content."
+      - id: q3
+        kind: single
+        prompt: "A candidate gives a point and a reason, then says: 'And, yeah, so, that is it, I think.' What is the best fix?"
+        options:
+          - Add three more reasons.
+          - Add one example, then close with one clear sentence such as "So that is why I would start with a cache."
+          - Speak faster so the answer feels full.
+          - Say sorry for the short answer.
+        answer: [1]
+        explanation: "An example makes the answer concrete, and a clear close tells the listener you are finished. More reasons make the answer longer but not clearer. Speaking faster hurts clarity, and an apology makes the answer sound weaker."
+      - id: q4
+        kind: single
+        prompt: "Roughly how many spoken words fit in one minute at a calm pace?"
+        options: ["About 30 to 50", "About 100 to 140", "About 250 to 300", "About 400"]
+        answer: [1]
+        explanation: "A calm speaking pace is about 110 to 150 words a minute. Thirty to fifty words is only 20 seconds. Above 250 words per minute is too fast to follow, especially for a listener hearing technical terms."
+      - id: q5
+        kind: single
+        prompt: "The question is 'Tell me about a bug you fixed.' A candidate speaks for 50 seconds about the company and the team before saying which bug. What is the main problem?"
+        options:
+          - The candidate used too many technical words.
+          - The point came too late, so the listener waited 50 seconds for the answer.
+          - The candidate was too confident.
+          - The candidate did not use a joke.
+        answer: [1]
+        explanation: "The point must come first. Background can be one short clause inside the example. Technical words are fine in an engineering interview, and confidence is not the problem."
+- key: comm.speak_1m.practice
+  type: interview_question
+  title: "Practice: explain what your service does"
+  skills: [comm.speak_1m]
+  minutes: 8
+  difficulty: EASY
+  stages: [GUIDED, INDEPENDENT, DIAGNOSE]
+  observation: {kind: CONCEPT_EXPLAIN}
+  body:
+    prompt: |-
+      Imagine a new teammate asks you: "What does the main service you work on do?" Answer ALOUD in about one minute. Use four parts: point, reason, example and close. If you want, record yourself on your phone, then listen and check the key points.
+    key_points:
+      - The first sentence says what the service does, with no background before it.
+      - Gives one reason why the service matters, using because or so that.
+      - Gives one concrete example with a real name or number (an endpoint, a table, a daily request count).
+      - Ends with a close sentence, then stops without trailing off.
+      - Stays between about 45 and 75 seconds.
+    follow_ups:
+      - prompt: Which part of the service is the hardest to run or change, and why?
+        look_for: A direct first sentence naming one part, then a reason and a small example, in the same four-part shape.
+      - prompt: Say the same answer again in 30 seconds.
+        look_for: Keeps the point and one reason, drops the background, still ends with a close.
+    model_answer: |-
+      Our service handles order payments for an online shop. It receives a payment request, calls the payment provider, and saves the result. We need it to be reliable because every failed payment is a lost sale. For example, in Python, with PostgreSQL, we process about 20,000 payments on a normal day. If the provider is slow, our service retries safely, so the customer is not charged twice. So, in short, it turns a customer's click into a confirmed payment, and it must never lose or repeat one.
+    pitfalls:
+      - Listing technology names (Python, Docker, AWS) without saying what the service does.
+      - Giving the company history before the point.
+      - Stopping with "yeah, that's all" or a laugh instead of a clear close.
+    speaking:
+      target_seconds: 60
+      min_words: 70
+      max_words: 170
+      max_filler_per_100: 5
+      structure_markers_min: 2
+      vocabulary: [service, request, because, for example, in short]
+- key: comm.speak_1m.timed
+  type: interview_question
+  title: "Timed practice: describe yesterday's work in one minute"
+  skills: [comm.speak_1m]
+  minutes: 7
+  difficulty: MEDIUM
+  stages: [TIMED, EXPLAIN, THINK_ALOUD]
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 120}
+  body:
+    prompt: |-
+      Your manager asks: "What did you work on yesterday, and why did it matter?" Think for five seconds, then answer ALOUD in about one minute. You have a two-minute limit. Start the timer when you start speaking.
+    key_points:
+      - Starts with what you did, in one sentence, with no warm-up.
+      - Gives a reason why it mattered (a customer, a deadline, a risk).
+      - Gives one concrete detail, such as a ticket, a service, a query or a result.
+      - Closes with the next step or the status.
+      - Finishes within the time limit without reading.
+    follow_ups:
+      - prompt: What is blocking you right now?
+        look_for: Answers the blocker directly in the first sentence, then says what help is needed and from whom.
+      - prompt: What will you do first tomorrow?
+        look_for: One clear action with a reason, in one or two sentences.
+    model_answer: |-
+      Yesterday I fixed a slow search page in our admin tool. It mattered because the support team was waiting up to 15 seconds for each search, and they handle many calls every day. I found that the query scanned the whole customers table. So I added an index on the email column and tested it on a copy of production data. The search now takes under one second. Today the change is in code review. So the next step is to deploy it after approval, and I will tell the support team when it is live.
+    pitfalls:
+      - Describing meetings and waiting time instead of the work and its result.
+      - Giving a long list of small tasks with no reason for any of them.
+      - Using "we" for everything, so the manager cannot tell what you did.
+    speaking:
+      target_seconds: 60
+      min_words: 70
+      max_words: 170
+      max_filler_per_100: 5
+      structure_markers_min: 2
+      vocabulary: [yesterday, because, so, next step, ticket]
+- key: comm.speak_1m.cards
+  type: revision_card
+  title: "Recall: the one-minute structure"
+  skills: [comm.speak_1m]
+  minutes: 4
+  body:
+    cards:
+      - front: The four parts of a one-minute answer?
+        back: Point, reason, example, close.
+      - front: What goes in the first sentence?
+        back: The answer itself, with no background first.
+      - front: Phrase to start the reason?
+        back: '"I say this because..." or "The reason is..."'
+      - front: Phrase to start the close?
+        back: 'Say "So, in short..." then stop speaking.'
+      - front: How many words fit in one minute?
+        back: About 110 to 140 at a calm pace.
+
+# ---------------------------------------------------------------------------------------------- reduce filler words (CORE)
+- key: comm.filler_reduction.lesson
+  type: lesson
+  title: Reduce um, uh, you know and basically
+  skills: [comm.filler_reduction]
+  minutes: 13
+  difficulty: EASY
+  body:
+    summary: Fillers appear when your mouth is working but your mind has not decided the next sentence, so replace the filler with a short silent pause, use shorter sentences and rehearse the parts that matter.
+    what: |-
+      Fillers are small sounds or words that fill silence: "um", "uh", "like", "you know", "basically", "actually", "so, so", "I mean". Everyone uses some. A few are normal. The problem is a high number, for example more than five in every hundred words, because the listener starts to notice the fillers instead of your ideas.
+
+      Three techniques help most:
+
+      - **Pause instead of filling.** A silent pause of one or two seconds sounds thoughtful. A filler sounds nervous.
+      - **Shorter sentences.** A long sentence has many places to get lost. A short sentence ends before you need to think.
+      - **Rehearsal.** Say your common answers aloud several times, so the words come without searching.
+    why: |-
+      Fillers usually come from two causes. First, you are planning while speaking, so the filler keeps the floor while your mind works. Second, you are afraid of silence. Silence feels long to the speaker but short to the listener. A two-second pause feels like ten seconds to you and almost nothing to them. When you learn to stay quiet for two seconds, the fillers disappear without any special effort.
+    when: |-
+      Use it in every spoken answer, but practise it where pressure is highest: the start of an answer, the moment after a follow-up question, and when you move to a new idea. These are the places where fillers appear most.
+    how: |-
+      1. **Find your fillers.** Record yourself for one minute and listen. Write down your top two fillers. Work on those two only.
+      2. **Replace the filler with a pause.** When you feel "um" coming, close your mouth, breathe in through your nose and stay silent for one or two seconds. Then speak.
+      3. **Use a bridge phrase when you need more time.** "Let me think for a moment." or "That is a good question." These are planned, so they do not count as fillers.
+      4. **Shorten your sentences.** Say one idea, stop, then say the next. "The query was slow. I checked the plan. It scanned the whole table." This is easier than one long sentence with "and... so... because...".
+      5. **Breathe at full stops.** Breathe in at the end of every sentence. A full breath gives you energy for the next sentence and a natural pause where a filler would go.
+      6. **Rehearse the first sentence.** Most fillers appear in the first five seconds. Prepare and repeat the opening sentence for your common questions (introduction, current project, a bug you fixed).
+      7. **Count again after one week.** Record a one-minute answer again and count the fillers. Compare. A drop from 10 to 5 in a week is good progress.
+    mental_model: |-
+      Think of speaking like driving. A filler is like keeping the engine loud while you are stopped. A pause is like stopping the car quietly at a red light. The listener is happy to wait, because they can see that you know where you are going.
+    tradeoffs: |-
+      Removing all fillers is not the goal, and trying too hard can make your speech stiff or make you stop in the middle of words. Aim for a low number, not zero. Long silent pauses (more than three or four seconds) can look like you are lost, so use the bridge phrase when you need longer. Rehearsing answers makes them smooth, but if you memorise word for word, you may panic when you forget one word. Rehearse the structure and the first sentence, not every word.
+    mistakes:
+      - Replacing "um" with another filler, such as "like" or "basically", instead of with silence.
+      - Speaking faster to avoid silence, which creates more fillers.
+      - Starting an answer before deciding the first sentence.
+      - Trying to remove every filler, and becoming tense or stopping in the middle of a sentence.
+      - Never recording yourself, so you do not know which fillers you use.
+      - Using one long sentence for a whole idea, with "and", "so" and "because" joining it.
+    interview: |-
+      Interviewers do not count fillers, but many fillers make an answer harder to follow and make you sound unsure. A calm pause before a hard question sounds confident. Candidates who say "Let me think for a moment" and then give a clear answer usually leave a better impression than candidates who start fast and stumble.
+    explain_it:
+      - Record yourself and find your top two fillers.
+      - Replace a filler with a one or two second silent pause.
+      - Use planned bridge phrases when you need time to think.
+      - Use short sentences, one idea each, and breathe at full stops.
+      - Rehearse the first sentence of your common answers.
+    example:
+      language: text
+      code: |-
+        Question: "What was the bug?"
+
+        Many fillers (about 12 per 100 words):
+          "So, um, basically the, you know, the problem was, uh, the service was, like,
+           basically sending, um, the same email two times, you know, because of the, uh, retry."
+
+        Pause and short sentences (about 1 per 100 words):
+          "The service sent the same email twice. [pause] The cause was a retry.
+           [pause] The first request succeeded, but the response was slow. So the retry
+           sent a second email."
+      explanation: The second version has the same facts. The pauses replace the fillers, and each sentence has one idea, so there is no place to get lost.
+    edge_cases:
+      - "You freeze completely: breathe, say 'Let me think for a moment', and wait. Restart with the first word of your point."
+      - "You notice a filler as you say it: do not apologise. Pause and continue. Listeners forget one filler very quickly."
+      - "A fast conversation, like a standup: keep sentences very short and use a planned phrase such as 'Quick update' as your starter."
+    misconceptions:
+      - Fillers show you are a poor speaker. Everyone uses them. A high number is the problem, and it can be reduced with practice.
+      - Silence is embarrassing. Short silence sounds thoughtful, and listeners usually do not notice two seconds.
+- key: comm.filler_reduction.check
+  type: concept_check
+  title: "Concept check: fillers, pauses and short sentences"
+  skills: [comm.filler_reduction]
+  minutes: 5
+  difficulty: EASY
+  body:
+    intro: Each question describes a common speaking moment. Choose the technique that works best.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "You feel an 'um' coming at the start of an answer. What should you do?"
+        options:
+          - Say "um" quietly so it is not noticed.
+          - Close your mouth, breathe in and stay silent for one or two seconds, then speak.
+          - Start talking faster so there is no gap.
+          - Say "basically" instead, because it sounds more professional.
+        answer: [1]
+        explanation: "A silent pause gives your mind time and sounds calm. A quiet 'um' and a replacement word like 'basically' are still fillers. Speaking faster makes you plan less and usually creates more fillers."
+      - id: q2
+        kind: multi
+        prompt: Which phrases are good planned bridges when you need time to think?
+        options:
+          - "Let me think for a moment."
+          - "That is a good question. Give me a second."
+          - "Um, so, like, you know..."
+          - "Let me think about the best example."
+        answer: [0, 1, 3]
+        explanation: "A bridge is a short, clear sentence that says you are thinking, so the listener waits calmly. 'Um, so, like, you know' is a string of fillers: it hides the silence but gives no information."
+      - id: q3
+        kind: single
+        prompt: "Which version is easier to say without fillers?"
+        options:
+          - "The query was slow and so I looked at the plan and I saw that it was scanning the full table and because of that I added an index and then it was fast."
+          - "The query was slow. I checked the plan. It scanned the full table. I added an index. Now it is fast."
+          - "Basically the query, you know, was slow."
+          - "It was slow and then it was not."
+        answer: [1]
+        explanation: "Five short sentences have five natural places to pause and breathe. The first version is one long chain, so you must plan far ahead and fillers appear. The other two are vague or contain fillers."
+      - id: q4
+        kind: single
+        prompt: "A learner removes every pause and speaks very fast to avoid 'um'. What is the likely result?"
+        options:
+          - Perfect, fluent speech.
+          - More mistakes and often other fillers, because there is no time to plan the next idea.
+          - The listener understands more.
+          - The learner sounds more confident to everyone.
+        answer: [1]
+        explanation: "Planning time does not disappear when you speak fast. It moves into fillers and mistakes. Pausing is the honest way to give your mind time."
+      - id: q5
+        kind: single
+        prompt: "After a recording, you count 9 fillers in 100 words. What is the best next step?"
+        options:
+          - Stop speaking English until you are better.
+          - Choose your top two fillers, practise pausing instead of them, and record again in a week.
+          - Learn 50 new vocabulary words.
+          - Decide that you are bad at speaking.
+        answer: [1]
+        explanation: "Counting gives you a clear baseline. Work on two fillers at a time and measure again. Vocabulary does not fix filler habits, and negative self-talk gives you no next action."
+- key: comm.filler_reduction.practice
+  type: interview_question
+  title: "Practice: describe a bug you fixed, with pauses and no fillers"
+  skills: [comm.filler_reduction]
+  minutes: 8
+  difficulty: EASY
+  stages: [GUIDED, INDEPENDENT, DIAGNOSE]
+  observation: {kind: CONCEPT_EXPLAIN}
+  body:
+    prompt: |-
+      Describe a bug you fixed recently. Answer ALOUD in about one minute, in short sentences. Use a pause of one or two seconds between sentences instead of "um", "uh", "you know" and "basically". Record yourself, listen once, and count your fillers. Then record again and try to count fewer.
+    key_points:
+      - Uses short sentences with one idea each.
+      - Pauses silently between sentences instead of using um or uh.
+      - Says the problem in the first sentence, then the cause, then the fix.
+      - Uses fewer than five fillers per 100 words (count them from your recording).
+      - Starts the answer without a filler word.
+    follow_ups:
+      - prompt: Say it again, but this time without any filler. Slow down at the start.
+        look_for: Slower first sentence, deliberate pauses, and a lower filler count than the first attempt.
+      - prompt: A listener asks "How did you find the cause?" Answer in 20 seconds.
+        look_for: Opens with a pause or a bridge phrase, then two or three short sentences, with no filler.
+    model_answer: |-
+      Last month I fixed a bug in our reports service. The report showed wrong totals. [pause] I checked the logs. The same order appeared twice. [pause] The cause was a join on the wrong column. It created duplicate rows. [pause] I changed the join to use the order id. I also added a test with two items in one order. [pause] After the fix, the totals matched the finance team's numbers. I now check row counts after every join in reports.
+    pitfalls:
+      - Replacing "um" with "so" or "basically" at the start of every sentence.
+      - Speaking so fast that there is no place to pause.
+      - Using a long sentence with "and... and... because..." that makes you lose your way.
+    speaking:
+      target_seconds: 60
+      min_words: 60
+      max_words: 160
+      max_filler_per_100: 4
+      structure_markers_min: 2
+      vocabulary: [the cause, I checked, the fix, the problem]
+- key: comm.filler_reduction.timed
+  type: interview_question
+  title: "Timed practice: explain what a cache is, with no fillers"
+  skills: [comm.filler_reduction]
+  minutes: 7
+  difficulty: MEDIUM
+  stages: [TIMED, EXPLAIN, THINK_ALOUD]
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 120}
+  body:
+    prompt: |-
+      An interviewer asks: "What is a cache and when would you use one?" Say "Let me think for a moment", pause for two seconds, then answer ALOUD in about one minute. You have a two-minute limit. Keep sentences short and replace every filler with a silent pause.
+    key_points:
+      - Uses a planned bridge phrase and a pause before the answer, not um or uh.
+      - Defines a cache in one short first sentence.
+      - Gives a use case and one condition when a cache is not a good idea.
+      - Keeps sentences short, with a pause or breath between them.
+      - Has fewer than four fillers per 100 words.
+    follow_ups:
+      - prompt: What happens when the cached data becomes old?
+        look_for: Pauses first, then names an expiry time or a way to clear the cache, in two or three short sentences.
+      - prompt: Explain it again for a person who is not an engineer, in 30 seconds.
+        look_for: Simple words, short sentences, a daily-life comparison, no fillers.
+    model_answer: |-
+      Let me think for a moment. [pause] A cache stores a copy of data in a fast place, so we do not need to fetch it again. [pause] For example, a product page reads the same product thousands of times. We keep the product in memory, with Redis. The page becomes faster, and the database has less work. [pause] A cache is not good for data that must always be exact, like an account balance. The copy can be old. [pause] So I use a cache for data that is read often and can be a little old.
+    pitfalls:
+      - Starting with "So basically, a cache is like..." and using the same opening for every answer.
+      - Using a bridge phrase and then still filling the pause with um.
+      - Giving a definition with no use case.
+    speaking:
+      target_seconds: 60
+      min_words: 60
+      max_words: 160
+      max_filler_per_100: 4
+      structure_markers_min: 2
+      vocabulary: [cache, memory, database, for example, expiry]
+- key: comm.filler_reduction.cards
+  type: revision_card
+  title: "Recall: fewer fillers"
+  skills: [comm.filler_reduction]
+  minutes: 4
+  body:
+    cards:
+      - front: What replaces a filler?
+        back: A silent pause of one or two seconds.
+      - front: A planned phrase when you need time?
+        back: "Let me think for a moment."
+      - front: Why use short sentences?
+        back: One idea each means fewer places to get lost.
+      - front: When do you breathe?
+        back: At the end of each sentence, through your nose.
+      - front: How do you find your fillers?
+        back: Record one minute, listen, count your top two.
+
+# ---------------------------------------------------------------------------------------------- think in English (non-core)
+- key: comm.think_in_english.concept
+  type: concept
+  title: Think directly in English
+  skills: [comm.think_in_english]
+  minutes: 7
+  difficulty: EASY
+  body:
+    summary: Translating every sentence from your first language is slow, so build the habit of choosing simple English words first and keeping your inner voice in English for work topics.
+    explanation: |-
+      When you translate in your head, you do three steps: think in your first language, translate, then speak. Each step takes time, and long sentences from your first language often do not fit English word order. That is a main reason for stops and fillers.
+
+      Thinking directly in English means your thought and your words arrive together. You do not need perfect English for this. You need simple, ready-made sentences for the topics you talk about every day: your project, your tools, your bugs, your team.
+
+      Build the habit in small steps:
+
+      - **Narrate your work in English.** While you debug, say quietly: "I am checking the logs. The error is on line 40."
+      - **Use simple words.** "Use" is better than "utilise". "Start" is better than "initiate". The simple word is the one you can say fast.
+      - **Learn phrases, not single words.** "Roll back a deploy", "run a query", "raise a pull request" are chunks. A chunk comes out as one unit.
+      - **Keep your notes in English.** Write tickets, comments and a daily log in English, so the words are ready when you speak.
+    points:
+      - Translating word by word adds a delay before every sentence.
+      - Short, simple English that you can say fast is better than complex English you must search for.
+      - Learn work phrases as chunks, for example "roll back a release" or "the root cause was".
+      - Narrate your own work aloud or silently in English for five minutes a day.
+      - Write ticket comments and notes in English to build ready-made sentences.
+    example:
+      language: text
+      code: |-
+        Translating (slow):  [thought in first language] -> [translate each word] -> "The... service... is... making... timeout"
+        Direct (fast):       "The service is timing out."
+
+        Narrating a debug session:
+          "I am opening the logs. There is an error at 10:42. The database connection is closed.
+           I will check the pool size."
+      explanation: Each sentence is short and uses a common chunk, so it can be said without translation.
+    misconceptions:
+      - You must know many advanced words first. Simple words and a few hundred work chunks are enough to start.
+      - Thinking in English means never using your first language. It only means that for work topics, your first thought is already in English.
+- key: comm.think_in_english.practice
+  type: interview_question
+  title: "Practice: narrate your work in English"
+  skills: [comm.think_in_english]
+  minutes: 7
+  difficulty: EASY
+  stages: [GUIDED, INDEPENDENT, DIAGNOSE, TIMED]
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 90}
+  body:
+    prompt: |-
+      Think of a task you did this week, such as fixing a bug, writing an endpoint or reviewing a pull request. Without writing anything first, describe it ALOUD for about 45 seconds, as if you are narrating your screen to a teammate. Use only simple words. Do not translate from your first language; if you do not know a word, use a simpler one.
+    key_points:
+      - Uses short sentences, each with one subject, one verb and one object.
+      - Chooses simple words (use, check, fix, send) instead of rare words.
+      - Includes at least two work chunks, such as "I ran the tests" or "I opened a pull request".
+      - Keeps going without long stops to find a word.
+      - Describes steps in order with words like first, then and finally.
+    follow_ups:
+      - prompt: Describe the same task again, but only with words from the simplest level you know.
+        look_for: Shorter sentences, fewer stops, and the same meaning with simpler vocabulary.
+    model_answer: |-
+      This week I fixed a bug in the login endpoint. First, I read the error in the logs. The token was expired, but the user was still logged in. Then I opened the code. I found that we did not check the expiry time. I added the check and wrote one test. I ran all the tests and they passed. Finally, I opened a pull request, and my teammate approved it today.
+    pitfalls:
+      - Starting a long sentence in your head and then trying to translate it.
+      - Stopping for ten seconds to find one exact word.
+    speaking:
+      target_seconds: 45
+      min_words: 45
+      max_words: 130
+      max_filler_per_100: 6
+      structure_markers_min: 2
+      vocabulary: [first, then, finally, I checked, I fixed]
+- key: comm.think_in_english.cards
+  type: revision_card
+  title: "Recall: thinking in English"
+  skills: [comm.think_in_english]
+  minutes: 4
+  body:
+    cards:
+      - front: Why is translating in your head slow?
+        back: It adds a step before every sentence.
+      - front: Which words are best under pressure?
+        back: Simple, common words you can say fast.
+      - front: Why learn chunks like "roll back a release"?
+        back: A chunk comes out as one unit, with no searching.
+      - front: One daily habit to think in English?
+        back: Narrate your work in English for five minutes.
+
+# ---------------------------------------------------------------------------------------------- speak for 30 seconds (non-core)
+- key: comm.speak_30s.concept
+  type: concept
+  title: Thirty-second answers with one point and one reason
+  skills: [comm.speak_30s]
+  minutes: 6
+  difficulty: EASY
+  body:
+    summary: A 30-second answer has one point and one reason, which is about 60 to 70 words, so it is short enough to say without stopping.
+    explanation: |-
+      Many spoken moments are short: a standup update, a quick reply in a meeting, an answer to "Do you know X?". For these you need a very small structure that you can use without thinking.
+
+      Use **point plus reason**:
+
+      - **Point**: your answer in one sentence.
+      - **Reason**: one sentence that starts with "because", "since" or "so".
+
+      You can add a short close if you have time. At a calm pace, 30 seconds is about 60 to 70 words, or four to six short sentences.
+
+      Short answers are good practice for longer ones. If you can speak for 30 seconds without stopping, you can later add an example and speak for one minute.
+    points:
+      - One point in the first sentence, one reason in the second.
+      - About 60 to 70 words, four to six short sentences.
+      - Start the reason with "because", "since" or "so that".
+      - Stop after the reason or one short close; do not add a third idea.
+      - Practise with simple everyday work questions so the habit becomes automatic.
+    example:
+      language: text
+      code: |-
+        Question: "Should we use a queue for sending emails?"
+
+        Point:  Yes, I think we should use a queue.
+        Reason: Sending an email can be slow, and a queue lets the user's request finish first.
+        Close:  So the page stays fast, and the emails go out a few seconds later.
+      explanation: Three short sentences, about 40 words, about 20 seconds. Add one more sentence to fill 30 seconds.
+    misconceptions:
+      - A short answer is a weak answer. A short answer with a clear reason is often the best one.
+      - You need many ideas. One idea with one reason is enough.
+- key: comm.speak_30s.practice
+  type: interview_question
+  title: "Practice: three 30-second answers"
+  skills: [comm.speak_30s]
+  minutes: 7
+  difficulty: EASY
+  stages: [GUIDED, INDEPENDENT, DIAGNOSE, TIMED]
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 60}
+  body:
+    prompt: |-
+      Answer this question ALOUD in about 30 seconds, with one point and one reason: "Why do you write tests for your code?" Then do the same for "Why do you use code review?" and "Why do you use a version control system like Git?" Do not stop to start again if you make a small mistake; keep going until you reach your reason.
+    key_points:
+      - The first sentence is the point, said directly.
+      - The second sentence is the reason and starts with because, since or so.
+      - Speaks for 25 to 40 seconds without stopping to restart.
+      - Adds no third idea after the reason.
+      - Ends clearly, without trailing off.
+    follow_ups:
+      - prompt: Give the same answer again, but add one short example in 15 more seconds.
+        look_for: Keeps the same point and reason, then adds a specific example, such as a bug a test caught.
+    model_answer: |-
+      I write tests because they catch bugs before users see them. When I change one function, the tests tell me quickly if I broke another part. Last week a test failed after I changed a date format, and I fixed it in five minutes. Without the test, the bug would have reached production. So tests save me time and protect our users.
+    pitfalls:
+      - Giving three reasons in 30 seconds, with no time to explain any.
+      - Starting with "Well, it depends..." and not answering.
+    speaking:
+      target_seconds: 30
+      min_words: 40
+      max_words: 100
+      max_filler_per_100: 5
+      structure_markers_min: 1
+      vocabulary: [because, so, for example]
+- key: comm.speak_30s.cards
+  type: revision_card
+  title: "Recall: 30-second answers"
+  skills: [comm.speak_30s]
+  minutes: 4
+  body:
+    cards:
+      - front: Structure of a 30-second answer?
+        back: One point, then one reason.
+      - front: How many words is 30 seconds?
+        back: About 60 to 70 words.
+      - front: Words to start the reason?
+        back: Because, since, so that.
+      - front: What do you avoid in a short answer?
+        back: A third idea with no time to explain it.
+
+# ---------------------------------------------------------------------------------------------- speak for 2 minutes (non-core)
+- key: comm.speak_2m.concept
+  type: concept
+  title: Two-minute structure and signposting
+  skills: [comm.speak_2m]
+  minutes: 8
+  difficulty: MEDIUM
+  body:
+    summary: A two-minute answer needs signposts, short phrases like "first", "the second thing" and "to finish", so the listener and you both know where you are.
+    explanation: |-
+      Two minutes is about 250 words. That is too long to keep in your head without a map. Signposts are the map. They are short phrases that tell the listener what is coming.
+
+      A simple shape for two minutes:
+
+      1. **Preview**: say the point and how many parts you will give. "I will explain this in three steps."
+      2. **Parts**: one part at a time, each with a signpost and a short example. "First... The second step... Finally..."
+      3. **Summary**: repeat the point in one sentence. "So, in short, ..."
+
+      Useful signposts: "first", "second", "after that", "the main reason is", "for example", "the other side is", "to finish". Three parts are a good number: easy to remember and enough for two minutes.
+
+      If you lose your place, use the signpost again: "Let me go back to the second step." This is a normal and professional way to recover.
+    points:
+      - Start with the point and the number of parts, for example "three steps".
+      - Use one signpost at the start of each part.
+      - Give each part a short example, about 30 seconds each.
+      - Finish with a one-sentence summary and stop.
+      - If you lose your place, say the signpost again and continue.
+    example:
+      language: text
+      code: |-
+        "Let me explain how I debug a slow API in three steps.
+         First, I measure. I check the logs and the monitoring to find which endpoint is slow.
+         Second, I find the cause. Most often it is a database query, so I run EXPLAIN on it.
+         Third, I fix and check. I add an index or change the query, and I measure again.
+         So, in short: measure, find the cause, fix and measure again."
+      explanation: The preview, three signposts and the summary give a clear map, about 85 words here; add one example per step to reach two minutes.
+    misconceptions:
+      - Signposts sound too formal for speaking. They are normal in meetings, presentations and interviews because they help listeners follow.
+      - You need many parts for two minutes. Three parts with one example each are enough.
+- key: comm.speak_2m.practice
+  type: interview_question
+  title: "Practice: explain how you would debug a slow endpoint"
+  skills: [comm.speak_2m]
+  minutes: 9
+  difficulty: MEDIUM
+  stages: [GUIDED, INDEPENDENT, DIAGNOSE, TIMED]
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 240}
+  body:
+    prompt: |-
+      A teammate asks: "One of our endpoints got slow this week. How would you find out why?" Answer ALOUD in about two minutes. Start with a preview ("I would do this in three steps"), use a signpost for each step, give one small example for each, and finish with a one-sentence summary.
+    key_points:
+      - Opens with a preview that says the number of steps.
+      - Uses a clear signpost at the start of each step (first, second, third or finally).
+      - Gives at least one concrete example, such as a log line, a query or a metric.
+      - Finishes with a one-sentence summary.
+      - Keeps a steady pace for about two minutes without long stops.
+    follow_ups:
+      - prompt: Which of the three steps would you do first if you had only five minutes?
+        look_for: Picks one step directly, gives a reason in one sentence, and keeps the answer short.
+      - prompt: Say the whole answer in 30 seconds.
+        look_for: Keeps the three signposts but drops the examples; still ends with a summary.
+    model_answer: |-
+      I would do this in three steps. First, I would measure. I would look at the monitoring dashboard and find when the slowdown started. For example, if the delay started after Tuesday's deploy, that gives me a strong clue. Second, I would find the slow part. I would check the logs and the traces to see where the time goes. Usually it is a database query or a call to another service. If it is a query, I run EXPLAIN to see if it scans the whole table. Third, I would fix it and measure again. I might add an index, cache a result or roll back the deploy. Then I check that the response time is back to normal. So, in short: measure, find the slow part, fix it and check again.
+    pitfalls:
+      - Starting to guess the cause before measuring anything.
+      - Using signposts but giving no example under them.
+      - Forgetting the summary, so the answer ends in the middle of the third step.
+    speaking:
+      target_seconds: 120
+      min_words: 150
+      max_words: 320
+      max_filler_per_100: 5
+      structure_markers_min: 4
+      vocabulary: [first, second, third, for example, in short, measure]
+- key: comm.speak_2m.cards
+  type: revision_card
+  title: "Recall: two-minute signposting"
+  skills: [comm.speak_2m]
+  minutes: 4
+  body:
+    cards:
+      - front: How do you begin a two-minute answer?
+        back: Point plus the number of parts, "in three steps".
+      - front: Signposts for the parts?
+        back: First, second, after that, finally.
+      - front: How do you end?
+        back: 'Say "So, in short..." and give one summary sentence.'
+      - front: You lose your place. What do you say?
+        back: "Let me go back to the second step."
+
+# ---------------------------------------------------------------------------------------------- word recovery (non-core)
+- key: comm.word_recovery.concept
+  type: concept
+  title: What to say when you forget a word
+  skills: [comm.word_recovery]
+  minutes: 6
+  difficulty: EASY
+  body:
+    summary: When a word disappears, stay calm and use a recovery move, describe the thing, use a simpler word, say "what I mean is...", or ask for the word, instead of stopping in silence.
+    explanation: |-
+      Every speaker forgets words, even in their first language. The listener does not mind. What worries the listener is a long silent stop or a panic. A recovery move shows control.
+
+      Four recovery moves:
+
+      - **Describe it.** "The tool that shows the history of changes", when you forget "version control".
+      - **Use a simpler word.** Say "fix" if "mitigate" is gone, or "slow" if "latency" is gone.
+      - **Use a bridge: "What I mean is..."** Then say the idea in simpler words. "What I mean is, the system does not stop when one part fails."
+      - **Ask for the word.** "What is the word for when... ?" or "I forgot the word, it is the thing that... ." In a friendly team this is normal; in an interview, use it once, not many times.
+
+      Keep your voice calm and keep eye contact. Do not apologise again and again. One short "sorry, let me say it another way" is enough.
+    points:
+      - Forgetting words is normal and listeners accept it.
+      - "Describe the thing: what it does, what it looks like, where it is used."
+      - Replace the lost word with a simpler word that has the same meaning.
+      - Use "What I mean is..." to restart in simpler words.
+      - Ask for the word once if needed, then continue.
+    example:
+      language: text
+      code: |-
+        Forgot "idempotent":
+          "It is an operation that gives the same result if you do it twice. For example,
+           if the client retries the payment, we do not charge twice."
+
+        Forgot "throughput":
+          "How many requests the service can handle every second."
+
+        Forgot "deadlock":
+          "What I mean is, two processes wait for each other, so both stop."
+      explanation: Each recovery move keeps the idea and the sentence moving, and the listener understands the meaning without the exact word.
+    misconceptions:
+      - You must find the exact word before you continue. A clear description is usually as good, and faster.
+      - Asking for a word is a failure. In a normal conversation, it is a polite and efficient way to continue.
+- key: comm.word_recovery.practice
+  type: interview_question
+  title: "Practice: explain a concept without the key word"
+  skills: [comm.word_recovery]
+  minutes: 8
+  difficulty: MEDIUM
+  stages: [GUIDED, INDEPENDENT, DIAGNOSE, TIMED]
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 120}
+  body:
+    prompt: |-
+      Practise the recovery moves. Explain each of these ALOUD in 20 seconds each, without using the key word in brackets: first, what a database index does (do not say "index"). Second, why a service retries a failed request (do not say "retry"). Third, what a rollback is (do not say "rollback" or "revert"). Use a description, a simpler word, or "what I mean is".
+    key_points:
+      - Does not stop for more than two seconds when the key word is not allowed.
+      - Uses at least one description of what the thing does.
+      - Uses the phrase "what I mean is" or a similar bridge at least once.
+      - Gives a correct technical idea in simple words.
+      - Keeps a calm voice and does not apologise more than once.
+    follow_ups:
+      - prompt: Now do it in a meeting. A teammate asks you what the word is. Say "I forgot the word" and then describe it.
+        look_for: Says it plainly and without long apology, then gives a clear description.
+    model_answer: |-
+      An index is like the index at the back of a book. What I mean is, the database keeps a sorted list, so it can find a row without reading the whole table. A service tries again when a request fails, because the failure may be only for a short time. For example, the network may be slow for one second. And when we undo a bad release, we go back to the last working version. This is the fastest way to stop a problem for users.
+    pitfalls:
+      - Stopping in silence for five seconds to search for the word.
+      - Apologising three times in 20 seconds.
+      - Describing with a more difficult word than the one you lost.
+    speaking:
+      target_seconds: 60
+      min_words: 55
+      max_words: 150
+      max_filler_per_100: 6
+      structure_markers_min: 1
+      vocabulary: [what I mean is, for example, like, it is when]
+- key: comm.word_recovery.cards
+  type: revision_card
+  title: "Recall: forgotten-word moves"
+  skills: [comm.word_recovery]
+  minutes: 4
+  body:
+    cards:
+      - front: Four moves when you forget a word?
+        back: Describe, use a simpler word, "what I mean is", ask.
+      - front: Phrase to restart in simpler words?
+        back: "What I mean is..."
+      - front: Phrase to ask for a word?
+        back: "What is the word for the thing that...?"
+      - front: How many apologies are enough?
+        back: One short one, then continue.
+
+# ---------------------------------------------------------------------------------------------- delivery and confidence (non-core)
+- key: comm.delivery_confidence.concept
+  type: concept
+  title: Pace, volume and a steady voice
+  skills: [comm.delivery_confidence]
+  minutes: 7
+  difficulty: EASY
+  body:
+    summary: Confident delivery is mostly physical and simple, with a calm pace, enough volume, a steady voice, a strong first sentence and a quick recovery after a mistake.
+    explanation: |-
+      Confidence is not only a feeling. Listeners judge it from how you sound. Five simple controls change how you sound.
+
+      - **Pace.** Nervous speakers speak fast. Aim for about 120 words a minute, and slow down on numbers, names and technical terms.
+      - **Volume.** Speak a little louder than feels natural. A quiet voice sounds unsure and is hard to hear on a call.
+      - **Steady voice.** Breathe in before you start and at each full stop. Keep your voice going down at the end of a statement; a rising voice sounds like a question.
+      - **Strong start.** Say the first sentence slowly and clearly. The first ten seconds set the impression, and a calm start calms you too.
+      - **Recover without repeating apologies.** If you make a mistake, correct it in one short sentence and continue. "Sorry, I meant five milliseconds, not five seconds." Then go on. Do not say sorry again and again; it makes a small mistake feel big.
+
+      A small body habit helps: sit or stand with your feet flat and your shoulders down. On a video call, look at the camera for the important sentences.
+    points:
+      - Slow down on numbers, names and technical terms.
+      - Speak a little louder than feels natural.
+      - Breathe in before the first sentence and at each full stop.
+      - Say the opening sentence slowly and clearly.
+      - After a mistake, correct it once in one sentence and continue.
+    example:
+      language: text
+      code: |-
+        Mistake and recovery:
+          "The query takes five seconds... sorry, five milliseconds. Yes, five milliseconds,
+           so it is very fast. The next step is..."
+
+        Not this:
+          "Sorry, sorry, I am so sorry, I made a mistake, sorry, um, I think I said five
+           seconds, sorry about that..."
+      explanation: One short correction keeps the listener's attention on the idea, while repeated apologies move attention to the mistake.
+    misconceptions:
+      - Confident people never make mistakes. They make mistakes, correct them fast and continue.
+      - You must feel confident before you can sound confident. Slow pace, breath and volume often create the feeling.
+- key: comm.delivery_confidence.practice
+  type: interview_question
+  title: "Practice: a strong start and a clean recovery"
+  skills: [comm.delivery_confidence]
+  minutes: 8
+  difficulty: EASY
+  stages: [GUIDED, INDEPENDENT, DIAGNOSE, TIMED]
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 120}
+  body:
+    prompt: |-
+      Describe a feature you built, in about one minute, ALOUD. Before you start, breathe in and sit with your shoulders down. Say your first sentence slowly. In the middle of your answer, make a small planned correction, such as "sorry, I meant two weeks, not two days", and continue without more apologies. Record yourself and listen for pace and volume.
+    key_points:
+      - The first sentence is slower than the rest and clearly audible.
+      - Slows down for numbers, names and technical terms.
+      - Voice goes down at the end of statements instead of rising like a question.
+      - Corrects the planned mistake in one short sentence and continues at once.
+      - Says sorry at most once in the whole answer.
+    follow_ups:
+      - prompt: Do it again, one step louder, and breathe at every full stop.
+        look_for: Stronger volume, visible pauses for breath, and a steadier pace than the first attempt.
+    model_answer: |-
+      Last quarter I built a notification feature for our app. It sends a message when an order ships. [pause] I used a queue, so the message is sent in the background. It took two days... sorry, I meant two weeks, including tests. [pause] The most difficult part was avoiding duplicate messages. I solved it by saving a unique key for each message. After release, the support team received fewer questions about shipping. I am proud of this feature because customers now know their order status.
+    pitfalls:
+      - Starting the first sentence quickly and quietly.
+      - Saying "sorry, sorry" and losing the thread after a small mistake.
+      - Ending each statement with a rising voice, so every sentence sounds like a question.
+    speaking:
+      target_seconds: 60
+      min_words: 60
+      max_words: 150
+      max_filler_per_100: 5
+      structure_markers_min: 1
+      vocabulary: [I built, I meant, the result, because]
+- key: comm.delivery_confidence.cards
+  type: revision_card
+  title: "Recall: confident delivery"
+  skills: [comm.delivery_confidence]
+  minutes: 4
+  body:
+    cards:
+      - front: Target pace for calm speech?
+        back: About 120 words a minute; slower on numbers and terms.
+      - front: How to start strongly?
+        back: Breathe in, then say the first sentence slowly and clearly.
+      - front: Voice at the end of a statement?
+        back: Goes down; a rising voice sounds like a question.
+      - front: After a mistake?
+        back: Correct it once in one sentence and continue.

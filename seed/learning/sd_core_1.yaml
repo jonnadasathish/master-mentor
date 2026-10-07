@@ -1,5 +1,5 @@
 # Learning content: system design fundamentals — requirements and scoping, back-of-envelope estimation, API design.
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- requirements and scoping
 - key: sd.requirements_scoping.lesson

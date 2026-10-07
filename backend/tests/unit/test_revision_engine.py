@@ -131,6 +131,8 @@ def test_skill_item_types_follow_section_2() -> None:
     assert skill_item_type(spec("execution.think_aloud", "coding")) is None
     assert skill_item_type(spec("lld.machine_coding", "lld")) is None
     assert skill_item_type(spec("sd.caching", "system_design")) == "SD"
+    assert skill_item_type(spec("comm.speak_1m", "coding", tier="T4")) == "CONCEPT"  # D-087
+    assert skill_item_type(spec("communication.structured_answers", "behavioral")) is None  # stories: STAR
 
 
 def test_manual_suspend_and_resume_replay_and_unlinked_practice_does_not_review() -> None:
@@ -174,3 +176,23 @@ def test_manual_suspend_and_resume_replay_and_unlinked_practice_does_not_review(
 
 def test_cap() -> None:
     assert (revision_cap(90, v1), revision_cap(20, v1), revision_cap(180, v1)) == (36, 15, 72)
+
+
+def test_communication_revision_needs_real_practice_and_creates_one_item_per_skill() -> None:
+    """D-087: one CONCEPT item per communication skill, only from a scoring row of level >= 2."""
+    graph = SkillGraph.build([spec("comm.speak_1m", "coding", tier="T4")], ["comm.speak_1m"])
+
+    def project(rows: tuple[RowFact, ...], source_id: int = 1) -> dict[str, RevisionItem]:
+        observation = RevisionObservation(
+            "ASSESSMENT", source_id, D, datetime(2026, 10, 1, 6, tzinfo=UTC), rows
+        )
+        return dict(
+            project_revision_items(
+                observations=[observation], actions=[], graph=graph, as_of_date=D, ruleset=v1
+            ).items
+        )
+
+    assert project((RowFact("comm.speak_1m", 0, None, False),)) == {}  # lesson or self-report: no item
+    assert project((RowFact("comm.speak_1m", 1, 80, True),)) == {}  # closed-book recall only
+    items = project((RowFact("comm.speak_1m", 3, 80, True),))
+    assert list(items) == ["CONCEPT:comm.speak_1m"] and items["CONCEPT:comm.speak_1m"].item_type == "CONCEPT"

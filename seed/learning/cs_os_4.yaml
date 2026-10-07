@@ -1,5 +1,5 @@
 # Learning content: operating systems — practical concurrency (thread pools, producer-consumer, back-pressure, I/O-bound vs CPU-bound, event loops), language-neutral.
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- practical concurrency
 - key: os.concurrency_practical.lesson

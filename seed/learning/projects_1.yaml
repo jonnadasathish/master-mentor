@@ -1,5 +1,5 @@
 # Learning content: defending your own project (architecture walkthrough, decisions, impact, incident story).
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- architecture walkthrough
 - key: proj.walkthrough.lesson

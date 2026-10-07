@@ -1,5 +1,5 @@
 # Learning content: SQL vs NoSQL data models, replication and sharding basics, and Redis caching in practice (database angle).
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- SQL vs NoSQL
 - key: db.nosql_tradeoffs.lesson

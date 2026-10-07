@@ -1,5 +1,5 @@
 # Learning content: topological sort, union-find, Dijkstra and weighted shortest paths, minimum spanning trees.
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- topological sort
 - key: dsa.topo_sort.lesson

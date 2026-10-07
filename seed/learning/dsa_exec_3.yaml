@@ -1,5 +1,5 @@
 # Learning content: coding-round execution, part 1 (thinking aloud, bug-free first pass, testing and dry runs).
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- think aloud
 - key: dsa.think_aloud.lesson

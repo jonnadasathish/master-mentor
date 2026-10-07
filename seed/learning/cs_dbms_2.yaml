@@ -1,5 +1,5 @@
 # Learning content: B-tree indexes in InnoDB (clustered, secondary, composite, covering) and query optimisation (EXPLAIN, sargability, N+1). MySQL 8 / InnoDB.
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- indexing
 - key: db.indexing.lesson

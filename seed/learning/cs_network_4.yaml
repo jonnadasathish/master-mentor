@@ -1,5 +1,5 @@
 # Learning content: real-time protocols (polling, long polling, SSE, WebSockets) and web security basics (OWASP, CORS, passwords, secrets).
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- real-time protocols
 - key: net.realtime.lesson

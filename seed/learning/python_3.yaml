@@ -1,5 +1,5 @@
 # Learning content, Python for interviews (3/4): classes, dataclasses, type hints, composition and protocols; iterators, generators and itertools.
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- classes and dataclasses
 - key: py.oop.lesson

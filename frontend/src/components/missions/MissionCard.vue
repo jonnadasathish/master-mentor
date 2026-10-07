@@ -342,7 +342,10 @@ onBeforeUnmount(() => timer && clearInterval(timer))
             v-for="s in learning.steps"
             :key="s.position"
           >
-            {{ s.title }}
+            {{ s.title }}<span
+              v-if="s.optional"
+              class="muted"
+            > (optional)</span>
             <span class="muted">· {{ s.kind === 'REFLECTION' ? 'reflection' : s.kind === 'PROBLEM' ? 'problem' : CONTENT_TYPE_LABEL[s.content_type ?? 'lesson'].toLowerCase() }}, {{ formatMinutes(s.minutes) }}</span>
           </li>
         </ol>

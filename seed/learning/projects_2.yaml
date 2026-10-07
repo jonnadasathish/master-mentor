@@ -1,5 +1,5 @@
 # Learning content: flagship full-stack project, Inventory Management System (Vue, FastAPI, MySQL, Redis, Docker, AWS).
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 - key: proj.inventory.project
   type: project

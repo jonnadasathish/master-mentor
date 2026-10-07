@@ -1,5 +1,5 @@
 # Learning content: REST resource design, idempotency keys and pagination; cookies, sessions, JWT and OAuth 2.0 with PKCE.
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- REST semantics
 - key: net.rest.lesson

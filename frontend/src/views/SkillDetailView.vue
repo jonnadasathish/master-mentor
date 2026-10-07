@@ -13,6 +13,7 @@ import Skeleton from '../components/common/Skeleton.vue'
 import StatusPill from '../components/common/StatusPill.vue'
 import ContentList from '../components/learning/ContentList.vue'
 import { openSession } from '../learning/session'
+import { areaLabel, isCommunicationSkill } from '../presentation/communication'
 import { formatMinutes, shortDate } from '../presentation/format'
 import {
   CONTENT_TYPE_LABEL, COVERAGE_LABEL, COVERAGE_TONE, NEXT_REASON_TEXT, PRACTICE_CASE_TEXT, PRACTICE_STATE_LABEL,
@@ -50,8 +51,10 @@ const evidence = computed(() => {
   return showAllEvidence.value ? rows : rows.slice(0, 6)
 })
 const focus = computed(() => skill.value?.focus ?? null)
-const component = computed(() => COMPONENT_LABEL[skill.value?.component ?? ''] ?? '')
-const isCodingSkill = computed(() => ['dsa', 'coding'].includes(skill.value?.component ?? ''))
+const component = computed(() => areaLabel(key.value, skill.value?.component ?? '', COMPONENT_LABEL))
+const isCodingSkill = computed(
+  () => ['dsa', 'coding'].includes(skill.value?.component ?? '') && !isCommunicationSkill(key.value),
+)
 const hasDirectProblems = computed(() => learning.value === null || (learning.value.practice.direct.length ?? 0) > 0)
 /** Self-logging is always possible; a coding skill without its own problems is never sent to an empty list. */
 const startTo = computed(() =>
@@ -363,7 +366,10 @@ watch(key, load)
             :key="s.position"
           >
             <span class="tabular muted">{{ s.position }}.</span>
-            {{ s.title }}
+            {{ s.title }}<span
+              v-if="s.optional"
+              class="muted small"
+            > (optional)</span>
             <span class="muted small">{{ s.kind === 'REFLECTION' ? 'reflection' : s.kind === 'PROBLEM' ? 'problem' : CONTENT_TYPE_LABEL[s.content_type ?? 'lesson'].toLowerCase() }} · {{ formatMinutes(s.minutes) }}</span>
           </li>
         </ol>

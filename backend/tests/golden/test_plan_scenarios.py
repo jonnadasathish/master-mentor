@@ -415,6 +415,15 @@ def test_s14_consolidate_mock_and_stop_studying() -> None:
     )
 
 
+def test_s14_stop_list_never_names_communication_skills() -> None:
+    """D-087: parked T4 communication skills must not produce "stop studying comm.*" entries (S14 stays at 11)."""
+    w = background(target_date=date(2027, 1, 11), readiness=DEVELOPING)
+    w.mock_rounds = consolidate_mocks(date(2026, 10, 25), "SYSTEM_DESIGN", date(2026, 10, 20))
+    p = plan(w)
+    assert not any(s.skill.startswith("comm.") for s in p.stop_list)
+    assert any(s.skill == "bit_manipulation.core" for s in p.stop_list)  # other T4 skills are unchanged
+
+
 def test_s15_sharpen() -> None:
     w = background(target_date=date(2026, 11, 23), readiness=DEVELOPING)
     w.set(given("heap.two_heaps_merge_k", 2, 40, "LOW", effective=25))

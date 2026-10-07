@@ -77,7 +77,7 @@ def test_dev_reset_requires_confirmation_and_keeps_the_catalog(
     assert deleted["problem_attempts"] == 4 and deleted["skill_states"] > 0
     for model in (ProblemAttempt, Assessment, SkillState, MentorRun):
         assert populated.scalar(select(func.count()).select_from(model)) == 0
-    assert populated.scalar(select(func.count()).select_from(Skill)) == 133
+    assert populated.scalar(select(func.count()).select_from(Skill)) == 161
     assert populated.scalar(select(AuditLog.action).where(AuditLog.action == "DEV_RESET")) == "DEV_RESET"
 
 
@@ -101,12 +101,12 @@ def test_dev_reset_keeps_the_starting_profile_as_configuration(populated: Sessio
 
 
 def test_s01_cold_start_all_unassessed_and_calibrating(catalog_session: Session) -> None:
-    """S01 skill-state part: no observations -> 133 UNASSESSED, 0/123 required, battery at B01."""
+    """S01 skill-state part: no observations -> 161 UNASSESSED, 0/123 required, battery at B01."""
     from app.services.skill_service import SkillService
 
     SeedLoader(catalog_session, CLOCK).load(SEED_DIR)
     result = MentorService(catalog_session, CLOCK).recalculate(MentorRunTrigger.GOAL, as_of=date(2026, 11, 2))
-    assert len(result.states) == 133
+    assert len(result.states) == 161
     assert all(
         s.label == "UNASSESSED" and s.score is None and s.confidence == "NONE" for s in result.states.values()
     )

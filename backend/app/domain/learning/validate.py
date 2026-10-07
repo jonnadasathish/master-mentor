@@ -13,6 +13,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any, TypeGuard
 
 from app.domain.catalog.issues import Issue
+from app.domain.communication.cross_track import is_communication_skill
 from app.domain.learning import vocabulary as lv
 from app.domain.learning.model import ContentItem, LearningCatalog, Topic, Track
 
@@ -131,6 +132,8 @@ BODY: dict[str, dict[str, tuple[str, bool]]] = {
         "model_answer": (TEXT, False),
         "pitfalls": (TEXTS, False),
         "follow_ups": ("follow_ups", True),
+        "speaking": ("speaking", False),  # D-087: targets for the measurable criteria of a spoken answer
+        "explains": ("explains", False),  # D-087: technical skills/components this prompt can follow
     },
     "behavioral_question": {
         "prompt": (TEXT, True),
@@ -417,6 +420,12 @@ def _item(
         issues.error("learning.missing_body", where, "missing body mapping")
         return None
     _body(issues, where, ctype, body, skills)
+    if body.get("explains") and not is_communication_skill(item_skills[0] if item_skills else ""):
+        issues.error(
+            "learning.explains_not_communication",
+            where,
+            "only a communication skill's prompt can pair with others",
+        )
     return ContentItem(
         key=key,
         type=ctype,
@@ -520,6 +529,58 @@ def _shape(
             )
     elif shape == "milestones":
         _milestones(issues, where, value, skills)
+    elif shape == "speaking":
+        _speaking(issues, where, value)
+    elif shape == "explains":
+        _explains(issues, where, value, skills)
+
+
+SPEAKING_FIELDS = {
+    "target_seconds": (0, 600),
+    "min_words": (0, 1000),
+    "max_words": (0, 1000),
+    "max_filler_per_100": (0, 50),
+    "structure_markers_min": (0, 10),
+}
+MAX_SPEAKING_VOCABULARY = 12
+
+
+def _speaking(issues: _Issues, where: str, value: Any) -> None:
+    if not isinstance(value, Mapping) or set(value) - {*SPEAKING_FIELDS, "vocabulary"}:
+        issues.error(
+            "learning.invalid_speaking",
+            where,
+            f"speaking fields are {sorted([*SPEAKING_FIELDS, 'vocabulary'])}",
+        )
+        return
+    for name, (low, high) in SPEAKING_FIELDS.items():
+        v = value.get(name, 0)
+        if isinstance(v, bool) or not isinstance(v, int) or not low <= v <= high:
+            issues.error("learning.invalid_speaking", f"{where}.{name}", f"must be an integer {low}..{high}")
+    if value.get("max_words", 0) and value.get("min_words", 0) > value["max_words"]:
+        issues.error("learning.invalid_speaking", where, "min_words must not exceed max_words")
+    vocabulary = value.get("vocabulary", [])
+    if (
+        not isinstance(vocabulary, list)
+        or len(vocabulary) > MAX_SPEAKING_VOCABULARY
+        or not all(_text(v) for v in vocabulary)
+    ):
+        issues.error(
+            "learning.invalid_speaking",
+            f"{where}.vocabulary",
+            f"must be at most {MAX_SPEAKING_VOCABULARY} non-empty phrases",
+        )
+
+
+def _explains(issues: _Issues, where: str, value: Any, skills: Mapping[str, str]) -> None:
+    from app.domain.catalog.vocabulary import COMPONENTS
+
+    if not _texts(value):
+        issues.error("learning.invalid_explains", where, "must be a non-empty list of skills or components")
+        return
+    for entry in value:
+        if entry not in skills and entry not in COMPONENTS:
+            issues.error("learning.invalid_explains", where, f"{entry!r} is neither a skill nor a component")
 
 
 def _list_of(

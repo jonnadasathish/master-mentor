@@ -6,6 +6,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
+from app.domain.communication.vocabulary import is_optional_communication_skill
 from app.domain.learning import vocabulary as lv
 from app.domain.learning.model import ContentItem, LearningCatalog
 
@@ -90,7 +91,9 @@ def coverage_report(
                 practice,
                 timed,
                 revision,
-                tuple(rounds_by_component.get(s.component, ())),
+                ()
+                if is_optional_communication_skill(s.key)
+                else tuple(rounds_by_component.get(s.component, ())),
                 coverage_state(reading, checks, practice, timed, revision),
             )
         )

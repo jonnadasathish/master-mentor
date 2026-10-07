@@ -1,5 +1,5 @@
 # Learning content: greedy algorithms and exchange arguments, dynamic programming fundamentals, knapsack and subset-sum DP.
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- greedy
 - key: dsa.greedy.lesson

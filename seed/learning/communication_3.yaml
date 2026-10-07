@@ -1,0 +1,1024 @@
+# Learning content: workplace communication — status updates, clarification requests, help and blockers, feedback and disagreement, senior engineers, meetings.
+seed_version: seed-v3
+content:
+# ---------------------------------------------------------------------------------------------- status update (core)
+- key: comm.status_update.lesson
+  type: lesson
+  title: The 60-second status update
+  skills: [comm.status_update]
+  minutes: 13
+  difficulty: EASY
+  body:
+    summary: A good standup update has three short parts, yesterday, today and blockers, and each part says an outcome, not a list of activities.
+    what: |-
+      A status update tells your team what is happening with your work. In a daily standup it takes about 60 seconds. It has three parts:
+
+      - **Yesterday**: what you finished. Say the result, not the effort.
+      - **Today**: what you will do. Say one or two things you can really finish.
+      - **Blockers**: what stops you, and what you need from whom. If nothing stops you, say "No blockers."
+
+      A longer update (for example in a weekly meeting or to your manager) adds two parts: **risk** (what might go wrong) and **date** (when you expect to finish).
+    why: |-
+      Your team uses the update to decide who needs help and what is at risk. Teammates listen to many people in a few minutes. If your update is long or unclear, they stop listening, and a real blocker can be missed. A short, clear update also shows that you are in control of your work, which is the main thing a manager wants to hear.
+    when: |-
+      Daily standups, a message in the team channel when you are working remotely, a quick answer to "How is the ticket going?", and the start of a one-to-one with your manager.
+    how: |-
+      1. **Prepare three sentences before the meeting.** Write them in your notes: one for yesterday, one for today, one for blockers.
+      2. **Use the ticket name or number first.** "The refund API ticket" tells people what you mean in two seconds.
+      3. **Use simple past for yesterday and "I will" or "I am going to" for today.** "I finished the migration. Today I will write the tests."
+      4. **Say the result.** Not "I worked on the bug", but "I fixed the bug. The fix is in review."
+      5. **For blockers, name the person and the need.** "I am blocked on the staging database. Ravi, can you give me access today?"
+      6. **Stop.** After the blockers, say nothing more. Long detail goes to a separate conversation: "I can explain the details after standup."
+      7. **For a longer update, add the date and the risk.** "I expect to finish on Thursday. The risk is the payment sandbox, which is sometimes slow."
+    mental_model: |-
+      Think of the update as a commit message. The first line says what changed (yesterday), the next says what comes next (today), and a note says what is stopping the merge (blockers). Nobody wants the whole diff in the standup.
+    tradeoffs: |-
+      A very short update ("Same as yesterday") saves time but hides information and teammates cannot help you. A very long update uses everyone's time. The balance is one sentence per part, with more detail only when someone asks. If you have many small tasks, group them: "I closed three small bugs in the order service."
+    mistakes:
+      - Listing every small action ("I opened the file, then I read the logs, then I ...") instead of the result.
+      - "Saying 'I am working on the ticket' two days in a row without a result or a date."
+      - Hiding a blocker because you do not want to look slow.
+      - Explaining the technical detail of the bug for two minutes in the standup.
+      - Saying "No blockers" and then asking for help in the corridor one hour later. Say it in the standup.
+      - Using "I will try to" for everything. Say what you will do, and say it clearly.
+    interview: |-
+      In interviews you may hear "How do you keep your team updated?" or "Tell me how you report progress." A short answer with the three-part structure shows that you communicate in a predictable way. Some interviewers also ask you to give a status update on a project as a role-play.
+    explain_it:
+      - Yesterday is a result, today is one or two outcomes, blockers name a person and a need.
+      - Keep it near 60 seconds and one sentence per part.
+      - For a longer update, add the date and the risk.
+      - Details go to a separate conversation, not into the standup.
+    example:
+      language: text
+      code: |-
+        Standup, about 50 seconds:
+
+        "Yesterday I finished the refund API endpoint. It is merged and running on staging.
+        I also fixed two small bugs in the order service.
+        Today I will write the integration tests for refunds, and I will start the review
+        comments on Meena's pull request.
+        I have one blocker. I cannot test partial refunds because the payment sandbox returns
+        an error. Ravi, can you check the sandbox key with me after standup?"
+
+        Longer update to a manager (adds date and risk):
+
+        "The refund feature is about 80 percent done. I expect to finish on Thursday.
+        The risk is the payment sandbox. It has been unstable this week, so testing may take
+        one more day. I will tell you on Wednesday if the date changes."
+      explanation: Each part is one or two short sentences with a result. The blocker names a person and a clear request, and the long version adds a date and a risk.
+    edge_cases:
+      - "You did not finish anything yesterday: say it honestly and say why in one sentence. 'I spent the day finding the cause of a slow query. I found it, and today I will fix it.'"
+      - "The standup is in the chat, not spoken: use the same three lines, one per line."
+      - "Someone interrupts with a question: answer in one sentence, then offer to continue after standup."
+    misconceptions:
+      - "A long update shows that you worked hard. It only shows that you did not prepare."
+      - "A blocker means that you failed. A blocker that is reported early is normal and useful."
+- key: comm.status_update.check
+  type: concept_check
+  title: "Concept check: good standup updates"
+  skills: [comm.status_update]
+  minutes: 5
+  difficulty: EASY
+  body:
+    intro: Judge each update as a teammate who listens to ten updates in a row.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "Which sentence is the best 'yesterday' part of a standup update?"
+        options:
+          - "I worked on the login bug."
+          - "I fixed the login bug. The fix is in review."
+          - "I looked at some files and I read the logs and then I tried a few things."
+          - "Yesterday was a busy day."
+        answer: [1]
+        explanation: "The second option gives a result and the current state. 'I worked on' says only that time passed, and the other two give no result at all."
+      - id: q2
+        kind: multi
+        prompt: "Which parts belong in a 60-second standup update?"
+        options:
+          - What you finished.
+          - What you will do today.
+          - A blocker, with the person and the need.
+          - The full technical explanation of the bug you fixed.
+        answer: [0, 1, 2]
+        explanation: "The three parts give the team what it needs. A full technical explanation uses the time of the whole team; offer it after standup if someone is interested."
+      - id: q3
+        kind: single
+        prompt: "You cannot continue because you have no access to the staging database. What is the best way to say it?"
+        options:
+          - "Maybe somebody could think about the database sometime."
+          - "I am blocked on staging database access. Ravi, can you give me access today?"
+          - "No blockers."
+          - "The database is bad."
+        answer: [1]
+        explanation: "A good blocker names the thing, the person and the time. The first sentence is too vague for anyone to act on, the third hides the problem, and the fourth blames a thing without a request."
+      - id: q4
+        kind: single
+        prompt: "Your manager asks, 'When will the report feature be ready?' Which answer is best?"
+        options:
+          - "Soon."
+          - "I will try my best."
+          - "I expect to finish on Thursday. The risk is the slow test database, and I will tell you on Wednesday if the date changes."
+          - "It depends on many things."
+        answer: [2]
+        explanation: "A good answer gives a date, one risk and a time when you will update. 'Soon' and 'I will try' give no date, and 'It depends' gives no information the manager can use."
+      - id: q5
+        kind: short
+        prompt: "Say the update 'I was doing the payment thing and it was a bit difficult' in a better way. Invent simple details."
+        model_answer: "Yesterday I fixed the duplicate payment bug. The fix is in review. Today I will write the tests. I have no blockers."
+        explanation: "A good rewrite names the work, gives a result and the current state, and says what comes next. Any version with these parts is fine."
+- key: comm.status_update.practice
+  type: interview_question
+  title: "Practice: your standup update"
+  skills: [comm.status_update]
+  minutes: 8
+  difficulty: EASY
+  stages: [GUIDED, INDEPENDENT, DIAGNOSE]
+  observation: {kind: CONCEPT_EXPLAIN}
+  body:
+    prompt: |-
+      It is Tuesday morning and you are in the team standup. Here are your notes:
+
+      - Yesterday: you finished the search filter for the orders page and merged it. You also reviewed one pull request.
+      - Today: you plan to add pagination to the orders page and update the API documentation.
+      - Problem: the test environment is down, so you cannot test pagination. The platform engineer, Arjun, can restart it.
+
+      Give your standup update ALOUD in about 60 seconds. Then listen to your recording or check yourself against the key points.
+    key_points:
+      - States the finished work from yesterday as a result in the first sentence.
+      - Names one or two things planned for today, not a long list.
+      - Names the blocker and the person who can help, and makes a clear request.
+      - Uses simple past for yesterday and "I will" for today.
+      - Stops after the blocker, without extra detail.
+    follow_ups:
+      - prompt: "A teammate asks, 'Can you explain more about the pagination design?' Answer in 20 seconds."
+        look_for: Gives a one or two sentence summary of the approach, then offers to explain more after standup.
+      - prompt: "Your manager asks, 'Will the orders page be ready by Friday?' Answer."
+        look_for: Gives a date, names the risk (the test environment), and says when they will update.
+    model_answer: |-
+      Yesterday I finished the search filter for the orders page. It is merged. I also reviewed one pull request.
+      Today I will add pagination to the orders page, and I will update the API documentation.
+      I have one blocker. The test environment is down, so I cannot test pagination. Arjun, can you restart it this morning? That is all from me.
+    pitfalls:
+      - Starting with "So, basically, I was working on some things" and no result.
+      - Explaining the filter code for one minute.
+      - Saying the blocker without asking a person for a clear action.
+    speaking:
+      target_seconds: 60
+      min_words: 60
+      max_words: 150
+      max_filler_per_100: 5
+      structure_markers_min: 2
+      vocabulary: [merged, pull request, blocker, pagination, today, yesterday]
+- key: comm.status_update.timed
+  type: interview_question
+  title: "Timed: standup update and a longer progress report"
+  skills: [comm.status_update]
+  minutes: 7
+  difficulty: MEDIUM
+  stages: [TIMED, EXPLAIN, THINK_ALOUD]
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 150}
+  body:
+    prompt: |-
+      You are working on a ticket called "Send email receipts after payment". Your facts:
+
+      - Done: the email template and the sending function. Both are merged.
+      - In progress: retry logic for failed emails. About half done.
+      - Risk: the email provider limits you to 100 messages per minute, and you have not tested that limit yet.
+      - Your estimate: ready by Friday.
+
+      Your manager stops you in the corridor and says: "Quick update on the receipts ticket?" Answer ALOUD in about 90 seconds. Start with the main point.
+    key_points:
+      - Starts with the overall state in the first sentence, for example "On track for Friday".
+      - Says what is done and what is in progress, using simple words.
+      - Names one risk clearly and says what will be done about it.
+      - Gives a date and says when the next update will come.
+      - Finishes inside the time limit without repeating itself.
+    follow_ups:
+      - prompt: "The manager asks, 'What happens if the limit is a problem?' Answer."
+        look_for: Gives a plan (queue and slow down sending) and the effect on the date, honestly.
+      - prompt: "The manager asks, 'Do you need anything from me?' Answer."
+        look_for: Makes one specific request or says clearly that nothing is needed.
+    model_answer: |-
+      The receipts ticket is on track for Friday.
+      The email template and the sending function are done, and both are merged. I am now working on the retry logic for failed emails. It is about half done.
+      There is one risk. The email provider allows only 100 messages per minute, and I have not tested that limit yet. I will test it tomorrow morning. If it is a problem, I will add a small queue, and that would add about one day.
+      I will send you a short message tomorrow afternoon with the result of the test.
+    pitfalls:
+      - Starting with the history of the ticket instead of the state.
+      - Saying "maybe Friday, maybe not" without naming the risk.
+      - Forgetting to say when the next update will come.
+    speaking:
+      target_seconds: 90
+      min_words: 90
+      max_words: 190
+      max_filler_per_100: 5
+      structure_markers_min: 2
+      vocabulary: [on track, merged, risk, retry logic, estimate, next update]
+- key: comm.status_update.cards
+  type: revision_card
+  title: "Recall: status update phrases"
+  skills: [comm.status_update]
+  minutes: 4
+  body:
+    cards:
+      - front: The three parts of a standup update?
+        back: Yesterday (a result), today (one or two outcomes), blockers (person and need).
+      - front: How do you start a longer update?
+        back: With the state in one sentence, for example "On track for Friday."
+      - front: How do you say a blocker clearly?
+        back: "I am blocked on X. [Name], can you help with Y today?"
+      - front: What two things does a longer update add?
+        back: A date and a risk.
+      - front: What do you say when someone asks for details in the standup?
+        back: "I can explain the details after standup."
+      - front: What replaces "I worked on the bug"?
+        back: "I fixed the bug. The fix is in review."
+
+# ---------------------------------------------------------------------------------------------- clarification request (core)
+- key: comm.clarification_request.lesson
+  type: lesson
+  title: Asking about an unclear requirement
+  skills: [comm.clarification_request]
+  minutes: 14
+  difficulty: EASY
+  body:
+    summary: When a ticket is unclear, restate what you understand, name the exact gap, propose a default, and ask one clear question.
+    what: |-
+      A clarification request is a message or a question that removes a doubt about a requirement. A good one has four parts:
+
+      - **Restate**: say what you understand in one sentence.
+      - **Name the gap**: say exactly what is missing or unclear.
+      - **Propose a default**: say what you will do if nobody answers.
+      - **Ask**: one clear question, with a person's name if possible.
+
+      Example: "I understand that the export should include all orders. The ticket does not say which date range. My default is the last 30 days. Is that correct, or do you want all dates?"
+    why: |-
+      Unclear tickets are common. If you guess wrong, you lose days and the team loses trust. If you ask in a vague way ("I do not understand the ticket"), the other person must do all the work to help you. A precise question shows that you read the ticket carefully and respect the time of the product owner. The default makes it easy to answer: they only need to say yes or no.
+    when: |-
+      When a Jira ticket has missing acceptance criteria, when two requirements conflict, when a word has two possible meanings ("active user"), or before you start a task that is expensive to redo. Ask early, before you write a lot of code.
+    how: |-
+      1. **Read the ticket twice and list the doubts.** Write each doubt as a question in your notes.
+      2. **Check the answer is not already available.** Look in the ticket comments, the design document and the code. Asking something that is written in the ticket looks careless.
+      3. **Group the doubts.** Ask the two or three that block your work. Do not send ten small questions.
+      4. **Restate first.** "My understanding is that ..." gives the other person a chance to correct you quickly.
+      5. **Name the gap in a plain sentence.** "The ticket does not say what happens when the user has no address."
+      6. **Propose a default.** "If I do not hear back by tomorrow noon, I will show an empty state with a message."
+      7. **Ask where everyone can see.** Write it in the ticket comment or the team channel, not in a private chat, so the answer is recorded.
+      8. **Confirm the answer.** "Thanks. So I will use 30 days, and the UI shows a date filter. I will update the ticket."
+    mental_model: |-
+      Treat the question like a pull request for the requirement. You show the change you plan to make (the default), and the reviewer can approve it with one word or correct it. It is much faster than asking someone to write the requirement from nothing.
+    tradeoffs: |-
+      Asking too early, before you read the code and the ticket, wastes the time of others. Asking too late means rework. A good rule is to ask when your doubt changes the design or the effort by more than about half a day. For a small detail, choose the default, write it in the pull request description, and move on.
+    mistakes:
+      - "Saying 'The ticket is not clear' without saying which part."
+      - Asking a question with no proposal, so the other person must design the answer.
+      - Sending many questions in separate messages over several hours.
+      - Starting to code with a silent guess and finding the difference in review.
+      - Asking in a private chat so the team never sees the decision.
+      - Using a very long message; the product owner may not read to the end.
+    interview: |-
+      Interviewers often give an incomplete problem on purpose to see if you ask questions. The same structure works there: "Let me check my understanding. ... One thing is not clear: ... I will assume ... unless you prefer something else." In behavioral rounds you may also be asked about a time when requirements were unclear.
+    explain_it:
+      - Restate what you understand in one sentence.
+      - Name the exact missing detail.
+      - Say your default and when you will use it.
+      - Ask one clear question, in a place where the team can see the answer.
+    example:
+      language: text
+      code: |-
+        Jira ticket: "Add export for customer orders."
+
+        Weak message:
+        "Hi, I did not understand the export ticket. Can you explain?"
+
+        Strong message:
+        "Hi Neha, quick question on the order export ticket.
+        My understanding: the user clicks Export and gets a CSV file with their orders.
+        The gap: the ticket does not say which orders. Only the last 30 days, or all orders?
+        My default: the last 30 days, with a date filter later.
+        Is that correct? I will start with the file format today, so there is no delay."
+
+        Spoken version in a meeting:
+        "Before I start, can I check one thing? I understand that the export includes the orders
+        of the logged-in user. The ticket does not say the date range. I plan to use 30 days.
+        Does that work for you?"
+      explanation: The strong version restates, names the gap, gives a default and asks one question. The other person can answer in one word.
+    edge_cases:
+      - "The product owner is not available: write your default in the ticket and tell your lead, so the decision is visible."
+      - "Two people give different answers: write both in one message and ask them to agree. 'Neha says 30 days, Karan says all dates. Which one should I use?'"
+      - "You are in an interview and the problem is unclear: restate and ask one question first, then state your assumption aloud."
+    misconceptions:
+      - "Asking questions shows that you are weak. Good engineers ask early and precisely, because it saves time."
+      - "You must wait for an answer before you do anything. Work on the parts that do not depend on the question."
+- key: comm.clarification_request.check
+  type: concept_check
+  title: "Concept check: asking about unclear tickets"
+  skills: [comm.clarification_request]
+  minutes: 5
+  difficulty: EASY
+  body:
+    intro: Each question shows a message about an unclear ticket. Judge it as the product owner who reads it.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "The ticket says 'Show active users on the dashboard.' Which message is best?"
+        options:
+          - "I do not understand the ticket."
+          - "What is an active user?"
+          - "I understand that the dashboard shows a count of users. The ticket does not say what active means. I plan to count users who logged in during the last 7 days. Is that correct?"
+          - "I will build something and you can tell me if it is wrong."
+        answer: [2]
+        explanation: "The third message restates, names the gap, gives a default and asks. The first two are too vague to answer quickly, and the last one risks rework and shows no thinking."
+      - id: q2
+        kind: multi
+        prompt: "Which are good parts of a clarification message?"
+        options:
+          - "A one-sentence restatement of what you understand."
+          - "A default that you will use if nobody answers."
+          - "A list of ten questions, in no order."
+          - "One clear question."
+        answer: [0, 1, 3]
+        explanation: "A short restatement, a default and one clear question make the answer easy. A long list of unordered questions makes the reader work hard, so group them and ask only what blocks you."
+      - id: q3
+        kind: single
+        prompt: "The answer to your question is already written in the ticket comments. What is the most likely result of asking it anyway?"
+        options:
+          - "The team sees you as careful."
+          - "It looks careless and wastes the time of the other person."
+          - "Nothing; it is always good to ask."
+          - "The ticket is automatically updated."
+        answer: [1]
+        explanation: "You should check the ticket, comments and design document first. If you are not sure, say what you found: 'The comment says X. Does that also cover Y?'"
+      - id: q4
+        kind: single
+        prompt: "Where is the best place to ask and to record the answer?"
+        options:
+          - "A private chat message that you delete later."
+          - "A comment on the Jira ticket or in the team channel."
+          - "Only in your head."
+          - "In a code comment, without telling anyone."
+        answer: [1]
+        explanation: "A visible place keeps the decision for the whole team. A private chat hides it, and a code comment is not read by the product owner."
+      - id: q5
+        kind: short
+        prompt: "Write one sentence that proposes a default for this gap: the ticket does not say what happens when a user has no orders."
+        model_answer: "If the user has no orders, I will show an empty page with the message 'No orders yet'. Is that correct?"
+        explanation: "A default is a concrete behaviour that you will implement, not a promise to think about it. The question after it makes a yes or no answer enough."
+- key: comm.clarification_request.practice
+  type: interview_question
+  title: "Practice: clarify an unclear Jira requirement"
+  skills: [comm.clarification_request]
+  minutes: 8
+  difficulty: EASY
+  stages: [GUIDED, INDEPENDENT, DIAGNOSE]
+  observation: {kind: CONCEPT_EXPLAIN}
+  body:
+    prompt: |-
+      You received this Jira ticket: "Send a notification when an order is delayed."
+
+      You have questions. Who gets the notification, the customer or the support team? What does "delayed" mean (one day late, or any delay)? Which channel, email or SMS? The product owner, Neha, is sitting next to you.
+
+      Ask Neha ALOUD, in about 45 seconds. Use the structure: restate, name the gap, propose a default, ask.
+    key_points:
+      - Restates the ticket in one sentence in the first part.
+      - Names the specific gaps (who, what delayed means, channel) and not just "it is unclear".
+      - Proposes a default for at least one gap.
+      - Asks at most two or three clear questions, not a long list.
+      - Ends with a question, or confirms what happens next.
+    follow_ups:
+      - prompt: "Neha says, 'Just use your best judgment.' What do you say?"
+        look_for: Does not accept a vague answer; repeats the default, says what will be built, and asks for a quick yes.
+      - prompt: "Neha says she does not know what delayed means and will ask the business team. What do you do?"
+        look_for: Asks when the answer will come, works on parts that do not depend on it, and writes the open point in the ticket.
+    model_answer: |-
+      Hi Neha, I have a quick question about the delayed order notification.
+      My understanding is that we send a message when an order is late. The ticket does not say three things. Who receives it, what "delayed" means, and which channel to use.
+      My plan is this. The customer gets an email when the order is more than one day late. Is that correct?
+      If support also needs an alert, I can add it later. I will start with the email template today, so we do not lose time.
+    pitfalls:
+      - Saying "I do not understand the ticket" and stopping.
+      - Asking five questions in one long sentence.
+      - Giving no default, so Neha must design the feature.
+    speaking:
+      target_seconds: 45
+      min_words: 55
+      max_words: 130
+      max_filler_per_100: 5
+      structure_markers_min: 2
+      vocabulary: [my understanding, the ticket does not say, my plan, default, delayed, is that correct]
+- key: comm.clarification_request.timed
+  type: interview_question
+  title: "Timed: clarify, then confirm the answer"
+  skills: [comm.clarification_request]
+  minutes: 7
+  difficulty: MEDIUM
+  stages: [TIMED, EXPLAIN, THINK_ALOUD]
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 150}
+  body:
+    prompt: |-
+      You are building a discount feature from this ticket: "Apply a 10 percent discount for premium users." The ticket does not say if the discount applies to the shipping cost, to items that are already on sale, or only to the first order.
+
+      In a team meeting, your lead, Karan, asks: "Any problems with this ticket?" Do two things ALOUD in about 90 seconds in total.
+
+      1. Raise your questions clearly and give a default.
+      2. Karan answers: "Not on sale items, not on shipping, every order." Confirm the answer back to him and say what you will do next.
+    key_points:
+      - Restates the ticket before raising the gaps.
+      - Names all three gaps in plain words (shipping, sale items, first order).
+      - Proposes a default and asks for confirmation.
+      - Confirms Karan's answer by repeating it in your own words.
+      - Says the next step and offers to write the decision in the ticket.
+    follow_ups:
+      - prompt: "Karan says, 'Also, what about refunds? Does the discount come back?' You did not think about it. Answer."
+        look_for: Admits it is a new point without panic, proposes a default (refund the amount actually paid), and asks to confirm.
+      - prompt: "Later the product owner says the discount should apply to shipping too. What do you say?"
+        look_for: Points to the recorded decision politely, asks who decides, and says the effort for the change.
+    model_answer: |-
+      Yes, one thing. The ticket says 10 percent discount for premium users. It does not say three details. Does it apply to shipping, to items on sale, and to every order or only the first?
+      My default is no on shipping, no on sale items, and every order. Is that right?
+      Thanks. So the discount is on regular items only, for every order, and not on shipping. I will build it that way. I will also write this in the ticket, so we have it in one place. Then I will start with the discount calculation today.
+    pitfalls:
+      - Raising only one gap and finding the other two in review.
+      - Not repeating the answer, so a misunderstanding stays hidden.
+      - Making a long speech before the first question.
+    speaking:
+      target_seconds: 90
+      min_words: 85
+      max_words: 180
+      max_filler_per_100: 5
+      structure_markers_min: 2
+      vocabulary: [the ticket does not say, my default, so just to confirm, every order, i will write this in the ticket]
+- key: comm.clarification_request.cards
+  type: revision_card
+  title: "Recall: clarification phrases"
+  skills: [comm.clarification_request]
+  minutes: 4
+  body:
+    cards:
+      - front: The four parts of a clarification request?
+        back: Restate, name the gap, propose a default, ask.
+      - front: How do you restate what you understand?
+        back: "My understanding is that ..."
+      - front: How do you name a gap?
+        back: "The ticket does not say ..."
+      - front: How do you propose a default?
+        back: "My plan is to ... unless you prefer something else."
+      - front: How do you confirm an answer?
+        back: "So just to confirm, I will ..."
+      - front: Where should you ask?
+        back: In the ticket comments or team channel, so the decision is recorded.
+
+# ---------------------------------------------------------------------------------------------- help and blockers (core)
+- key: comm.help_and_blockers.lesson
+  type: lesson
+  title: Asking for help and reporting blockers and delays
+  skills: [comm.help_and_blockers]
+  minutes: 15
+  difficulty: MEDIUM
+  body:
+    summary: Ask for help early with what you tried, report a blocker with its impact and a new estimate, and explain a delay with facts and a plan.
+    what: |-
+      There are three related situations, and each has a simple structure.
+
+      **Asking for help after you are stuck.** Say the problem, what you tried, and what you need.
+      "I have a failing test in the payment service. The test passes locally but fails in CI. I checked the environment variables and the database version. Can you look at it with me for ten minutes?"
+
+      **Reporting a blocker or a delay.** Say the situation, the impact, the new estimate, and what you need.
+      "The vendor API is down in staging. This blocks the integration tests. I now expect to finish on Friday, not Wednesday. I need the vendor contact from you."
+
+      **Explaining why work takes longer.** Say what you found, why it changes the work, the new estimate and the options.
+      "When I started, I found that the old module has no tests. To change it safely, I need two more days. I can also do a smaller change in one day, but with more risk."
+    why: |-
+      Engineers often wait too long to ask for help, because they worry that they look weak. The result is a delay that nobody knew about. A clear and early message makes the team plan around the problem. Managers trust people who report bad news early, with facts and a plan. They lose trust when they hear about a delay on the last day.
+    when: |-
+      You should ask for help when you have worked on a problem for a fixed time without progress. A common rule is 30 to 60 minutes, or less if the work is urgent. Report a delay as soon as you know the date is at risk, not on the due date.
+    how: |-
+      1. **Set a time limit for yourself.** "If I cannot find the cause in one hour, I ask."
+      2. **Prepare the message before you ask.** Write the problem in one sentence, the error message, and what you already checked. Use a short list.
+      3. **Ask a specific question.** "Why is this connection closed after 30 seconds?" is better than "Can you help me with the database?"
+      4. **State the time you need.** "Can I have ten minutes today?" makes it easy to say yes.
+      5. **For a blocker, say the impact in plain words.** What cannot be done, who is waiting, which date is affected.
+      6. **Give a new estimate, with a range if you must.** "I expect Friday. If the vendor answers late, Monday."
+      7. **Offer options.** "We can cut the export feature, or move the release by two days."
+      8. **Say what you need.** A decision, a person, access, or a review.
+      9. **Update again.** Say when you will give the next update, and keep that promise.
+      10. **Say thanks and close the loop.** After you get help, tell the person what the cause was.
+    mental_model: |-
+      A blocker report is like an incident message for your own task. It has the same parts: what is wrong, who is affected, how long, and what happens next. People can read it in 15 seconds and act.
+    tradeoffs: |-
+      If you ask for help too soon, you do not learn and you disturb others. If you ask too late, the delay grows. The time limit and the "what I tried" list protect both sides. Another trade-off is between a firm estimate and an honest range. A range is better when you do not know yet, but give a date for the next update so the uncertainty ends.
+    mistakes:
+      - "Asking 'Can you help me?' with no problem, error or context."
+      - "Not saying what you tried, so the helper repeats your steps."
+      - Staying silent for a day and then reporting a delay on the due date.
+      - Reporting a blocker without an impact or a new date.
+      - Blaming a person or a team ("The backend team is slow") instead of describing the fact.
+      - Over-apologising for a long time. One "sorry for the delay" is enough; spend the time on the plan.
+      - Promising the old date without checking, only to avoid bad news.
+    interview: |-
+      Interviewers ask "Tell me about a time you were stuck" or "Tell me about a time you missed a deadline". A good answer shows early communication, a clear impact, options and a result. In coding rounds, asking a precise question for a hint is also a good sign: "I tried X and I see Y. Am I on the right track?"
+    explain_it:
+      - Ask for help after a time limit, with the problem, what you tried and what you need.
+      - A blocker report has the situation, the impact, a new estimate and what you need.
+      - Explain a delay with the finding, the reason, the new date and the options.
+      - Give the next update time and keep it.
+    example:
+      language: text
+      code: |-
+        1. Asking for help after one hour of debugging (message to a senior engineer):
+        "Hi Priya, can I have ten minutes? I am stuck on a problem in the orders service.
+        The unit test passes locally but fails in CI with 'connection refused'.
+        I checked the database version and the environment variables, and both are the same.
+        I think the CI container starts the service before the database is ready.
+        Can you look at the CI file with me?"
+
+        2. Reporting a blocker (standup or channel):
+        "I have a blocker. The vendor sandbox is returning errors since this morning.
+        I cannot finish the payment integration tests, and QA is waiting for them.
+        I now expect to finish on Friday instead of Wednesday.
+        I need the vendor contact from you. I will update you tomorrow at 11."
+
+        3. Explaining why the work takes longer:
+        "When I opened the invoice module, I found that it has no tests and the logic is
+        spread over four files. To change it safely, I need two more days, so the new date
+        is Monday. Option two is a smaller fix in one day, but with a higher risk of
+        regression. Which do you prefer?"
+      explanation: Each message is short and has the same pieces. The reader knows the problem, the impact, the date and the next step.
+    edge_cases:
+      - "The helper is busy: ask when a good time is. 'Is later today or tomorrow better for you?' and write your question in a message so they can read it first."
+      - "The blocker is a person who does not answer: describe the facts, not the person. 'I asked on Monday and did not get an answer. Can you help me get a decision?' and tell your lead."
+      - "You made a mistake and caused the delay: say it plainly. 'I underestimated the migration. I now expect Friday.' Then give the plan."
+    misconceptions:
+      - "Asking for help means you are junior. Senior engineers ask precise questions all the time."
+      - "A delay report should be soft and unclear so it does not upset people. Clear facts and a plan upset people less than a surprise."
+- key: comm.help_and_blockers.check
+  type: concept_check
+  title: "Concept check: help, blockers and delays"
+  skills: [comm.help_and_blockers]
+  minutes: 5
+  difficulty: MEDIUM
+  body:
+    intro: Judge each message as the senior engineer or the manager who receives it.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "You have been debugging a failing test for one hour with no progress. Which message to a teammate is best?"
+        options:
+          - "Can you help me?"
+          - "The test is broken, nothing works."
+          - "Can I have ten minutes? The payment test passes locally and fails in CI with a timeout. I checked the environment variables and the database version. Can you look at the CI setup with me?"
+          - "Sorry to disturb you, I am so sorry, it is probably my mistake."
+        answer: [2]
+        explanation: "The third message gives the problem, what you tried, the time needed and a clear request. The first has no context, the second blames the test without facts, and the fourth uses the time to apologise instead of explaining."
+      - id: q2
+        kind: multi
+        prompt: "Which pieces should a blocker report include?"
+        options:
+          - "What is blocked."
+          - "The impact on the people or the date."
+          - "A new estimate."
+          - "A story about who is to blame."
+        answer: [0, 1, 2]
+        explanation: "A blocker report gives what, impact and new date, and what you need. Blame adds no information and makes people defensive."
+      - id: q3
+        kind: single
+        prompt: "When is the best time to tell your manager that a deadline is at risk?"
+        options:
+          - "On the due date."
+          - "As soon as you know the date is at risk."
+          - "After the release."
+          - "Never; try to finish quietly."
+        answer: [1]
+        explanation: "Early information lets the manager move people, cut scope or inform other teams. A report on the due date, or no report, removes all options and damages trust."
+      - id: q4
+        kind: single
+        prompt: "Which sentence explains a delay best?"
+        options:
+          - "It was more difficult than I thought."
+          - "I found that the old module has no tests, so I need two more days to change it safely. The new date is Monday, or Friday with a smaller change and more risk."
+          - "The other team did not help me."
+          - "I will try to finish soon."
+        answer: [1]
+        explanation: "The second sentence gives the finding, the reason, a date and options. The first and last are vague, and the third blames another team instead of stating a fact."
+      - id: q5
+        kind: short
+        prompt: "Write one sentence that gives an impact and a new estimate for this blocker: the vendor sandbox has been down all morning, and QA is waiting for your payment tests."
+        model_answer: "The vendor sandbox is down, so I cannot finish the payment tests that QA is waiting for. I now expect to finish on Friday instead of Wednesday."
+        explanation: "A good sentence says what is blocked, who is affected and the new date. A vague sentence like 'It may be late' gives the manager nothing to plan with."
+- key: comm.help_and_blockers.practice
+  type: interview_question
+  title: "Practice: ask a senior engineer for help"
+  skills: [comm.help_and_blockers]
+  minutes: 8
+  difficulty: MEDIUM
+  stages: [GUIDED, INDEPENDENT, DIAGNOSE]
+  observation: {kind: CONCEPT_EXPLAIN}
+  body:
+    prompt: |-
+      You have debugged a problem for one hour. The order service returns "500 Internal Server Error" on one endpoint, but only in the staging environment. You already checked the logs (a null pointer in the price calculation), the database data (the same as local), and the deployment version (correct). A senior engineer, Priya, is at her desk.
+
+      Ask Priya for help ALOUD in about 45 seconds. Say the problem, what you tried, and what you need from her.
+    key_points:
+      - Asks for time first, for example "Can I have ten minutes?"
+      - States the problem in one sentence with the endpoint and the error.
+      - Lists what was already checked (logs, data, version).
+      - Makes one specific request for what Priya should do.
+      - Does not apologise for more than one short sentence.
+    follow_ups:
+      - prompt: "Priya asks, 'What do you think the cause is?' Answer."
+        look_for: Gives one honest hypothesis with the evidence, and says what would confirm it.
+      - prompt: "Priya says she is busy until 4 pm. What do you say?"
+        look_for: Accepts, agrees on a time, offers to send the details in a message first, and says what they will do meanwhile.
+    model_answer: |-
+      Hi Priya, can I have ten minutes? I am stuck on a bug, and I have been on it for one hour.
+      The orders endpoint returns a 500 error, but only in staging. The log shows a null pointer in the price calculation. I checked three things. The database data is the same as local, the deployed version is correct, and the logs show the error only in staging.
+      I think a staging config value may be missing, but I am not sure. Can you look at the config with me? Thank you.
+    pitfalls:
+      - Saying "It is not working" without the endpoint, error or what was tried.
+      - Asking Priya to solve it, and not saying what you need.
+      - Apologising three times before explaining the problem.
+    speaking:
+      target_seconds: 45
+      min_words: 55
+      max_words: 130
+      max_filler_per_100: 5
+      structure_markers_min: 2
+      vocabulary: [i am stuck, i checked, error, staging, can you look at, ten minutes]
+- key: comm.help_and_blockers.timed
+  type: interview_question
+  title: "Timed: report a late dependency and a delay"
+  skills: [comm.help_and_blockers]
+  minutes: 8
+  difficulty: MEDIUM
+  stages: [TIMED, EXPLAIN, THINK_ALOUD]
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 180}
+  body:
+    prompt: |-
+      You are building a "download invoice as PDF" feature, planned for Wednesday. On Tuesday you discover that the feature needs customer tax details from the Accounts team API, and that API does not return the tax number yet. The Accounts team says the change will be ready on Monday. Your manager, Sunita, planned to tell the client that the feature is ready on Wednesday.
+
+      Tell Sunita ALOUD, in about 90 seconds. Report the blocker and the impact, give a new estimate, offer one option, and say what you need from her.
+    key_points:
+      - States the main point first, that the date will change, with the cause.
+      - Says the impact in plain words, including that the client expects Wednesday.
+      - Gives a new estimate with a reason, and a range if needed.
+      - Offers at least one option, for example a first version without the tax number.
+      - Says what is needed from Sunita and when the next update will come.
+    follow_ups:
+      - prompt: "Sunita says, 'Why did you not find this earlier?' Answer."
+        look_for: Answers honestly without blame, says what was learned (check the dependency earlier), and returns to the plan.
+      - prompt: "Sunita asks, 'Can you guarantee Tuesday next week?' Answer."
+        look_for: Gives a confident date with the condition (Accounts team ready on Monday), and the date for the next check.
+    model_answer: |-
+      Sunita, I need to tell you about a delay on the invoice PDF feature. It will not be ready on Wednesday.
+      Yesterday I found that the feature needs the customer tax number from the Accounts team API, and that API does not return it yet. They say the change will be ready on Monday.
+      This affects the client date, because we planned to say Wednesday. My new estimate is Tuesday next week, one day after the Accounts change.
+      There is one option. I can deliver a first version on Wednesday without the tax number, and add the number on Tuesday.
+      I need your decision on that option, and your help to confirm Monday with the Accounts team. I will update you on Monday afternoon.
+    pitfalls:
+      - Starting with a long apology and hiding the date change.
+      - Blaming the Accounts team in an emotional way.
+      - Giving a new date without a reason or a condition.
+    speaking:
+      target_seconds: 90
+      min_words: 95
+      max_words: 200
+      max_filler_per_100: 5
+      structure_markers_min: 3
+      vocabulary: [delay, dependency, new estimate, impact, option, next update]
+- key: comm.help_and_blockers.cards
+  type: revision_card
+  title: "Recall: help, blocker and delay phrases"
+  skills: [comm.help_and_blockers]
+  minutes: 4
+  body:
+    cards:
+      - front: How do you start a request for help?
+        back: "Can I have ten minutes? I am stuck on X."
+      - front: What three things does a help request include?
+        back: The problem, what you already tried, and what you need.
+      - front: What does a blocker report include?
+        back: What is blocked, the impact, a new estimate, and what you need.
+      - front: How do you give a range for an estimate?
+        back: "I expect Friday. If the vendor answers late, Monday."
+      - front: How do you explain a delay without blame?
+        back: State the finding and the reason, then give the new date and options.
+      - front: What closes a blocker message?
+        back: The next update time, for example "I will update you tomorrow at 11."
+
+# ---------------------------------------------------------------------------------------------- feedback and disagreement (non-core)
+- key: comm.feedback_and_disagreement.concept
+  type: concept
+  title: Giving feedback and disagreeing politely
+  skills: [comm.feedback_and_disagreement]
+  minutes: 7
+  difficulty: MEDIUM
+  body:
+    summary: Give feedback on the work, not the person, with one example and a suggestion; disagree by checking the goal, giving evidence, and proposing an alternative.
+    explanation: |-
+      **Constructive feedback** has four parts: the situation, the effect, the example and a suggestion. "In this pull request, the function has 120 lines (example). It is hard for me to review (effect). Could we split it into two smaller functions (suggestion)?"
+
+      Talk about the code or the action, not about the person. Say "This query is slow" and not "You write slow queries". Ask a question when you are not sure: "Is there a reason for using a list here?"
+
+      **Polite disagreement** is not a fight. You want the best technical result, and you also want a good relationship. A simple structure is:
+
+      1. **Acknowledge** the idea: "I see why you want to use a cache here."
+      2. **Say your concern with evidence**: "My concern is stale data. In our case, prices change every hour, and the cache time is one day."
+      3. **Propose an alternative**: "What if we use a cache time of five minutes?"
+      4. **Ask and agree on a next step**: "Can we try it in staging and measure?"
+
+      With a senior engineer, use more questions and more evidence, and fewer strong words. "I am not sure that will work" is weaker than "In my test, the query took two seconds with 100,000 rows. Could we check the index first?" If the decision is made and it is not your way, say "I understand. Let us go with that, and let us add a metric so we can check."
+    points:
+      - Feedback uses a situation, an effect, an example and a suggestion.
+      - Talk about the code or the decision, not the person.
+      - Disagree with the structure acknowledge, concern with evidence, alternative, next step.
+      - Use questions, such as "What do you think about ...?" or "Could we ...?" to soften a point without making it unclear.
+      - "Avoid 'No, that is wrong' and 'You always ...'. Use 'I see it differently because ...'."
+      - After a decision, commit to it and ask for a way to measure the result.
+    misconceptions:
+      - "Polite disagreement means saying nothing. Silent disagreement leads to bad code and hidden problems."
+      - "Soft words mean unclear words. You can be kind and still say the exact problem."
+- key: comm.feedback_and_disagreement.practice
+  type: interview_question
+  title: "Practice: disagree with a senior engineer's design"
+  skills: [comm.feedback_and_disagreement]
+  minutes: 8
+  difficulty: MEDIUM
+  stages: [GUIDED, INDEPENDENT, DIAGNOSE, TIMED]
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 120}
+  body:
+    prompt: |-
+      In a design review, a senior engineer, Rahul, proposes to store the user session data in the main database and to read it on every request. You are worried about the load: the app has about 2,000 requests per second at peak, and the database is already at high CPU. You would prefer an in-memory store such as Redis with an expiry time.
+
+      Respond to Rahul ALOUD in about 60 seconds. Disagree politely, with evidence, and propose your alternative.
+    key_points:
+      - Acknowledges Rahul's idea before the concern.
+      - States the concern with a fact (the request rate and the database CPU).
+      - Proposes a clear alternative and one reason it helps.
+      - Asks a question or suggests a next step, such as a quick test.
+      - Uses polite and calm wording, with no personal words.
+    follow_ups:
+      - prompt: "Rahul says, 'Redis is one more system to run. I do not want that.' Answer."
+        look_for: Accepts the cost as fair, compares with the risk, and suggests a small test or a short trial.
+      - prompt: "After the discussion, Rahul decides to use the database. What do you say?"
+        look_for: Accepts the decision, commits to it, and asks for a metric or a review date to check the load.
+    model_answer: |-
+      Rahul, I see why you want to use the main database. It keeps the system simple, and we already run it.
+      My concern is the load. We have about 2,000 requests per second at peak, and the database CPU is already high. Reading the session on every request will add to that.
+      What if we keep the sessions in Redis with a one-hour expiry? Reads would be much faster and the database would stay free for orders.
+      I know it is one more system to run. Could we test it in staging for a day and compare the numbers?
+    pitfalls:
+      - Saying "That is a bad idea" with no reason.
+      - Giving a long technical lecture and no clear alternative.
+      - Agreeing in the meeting, and complaining after it.
+    speaking:
+      target_seconds: 60
+      min_words: 75
+      max_words: 160
+      max_filler_per_100: 5
+      structure_markers_min: 2
+      vocabulary: [i see why, my concern is, what if we, could we test, trade-off, alternative]
+- key: comm.feedback_and_disagreement.cards
+  type: revision_card
+  title: "Recall: feedback and disagreement phrases"
+  skills: [comm.feedback_and_disagreement]
+  minutes: 4
+  body:
+    cards:
+      - front: Four parts of constructive feedback?
+        back: Situation, effect, example, suggestion.
+      - front: How do you start a polite disagreement?
+        back: "I see why you suggest X. My concern is Y."
+      - front: What makes a disagreement strong?
+        back: One fact or measurement, not only an opinion.
+      - front: How do you offer an alternative?
+        back: 'Say "What if we ...?" or "Could we try ... instead?"'
+      - front: What do you say after the decision goes against you?
+        back: "I understand. Let us go with it and add a metric to check."
+
+# ---------------------------------------------------------------------------------------------- senior engineer comms (non-core)
+- key: comm.senior_engineer_comms.concept
+  type: concept
+  title: Brief and prepared communication with senior engineers
+  skills: [comm.senior_engineer_comms]
+  minutes: 7
+  difficulty: MEDIUM
+  body:
+    summary: Senior engineers have little time, so lead with the conclusion, ask for a decision, and summarise the context in a few sentences.
+    explanation: |-
+      Senior engineers and managers are often in many meetings. They want the answer first and the details only if they ask. This is different from telling a story in time order.
+
+      Use this order: **conclusion, reason, ask**.
+
+      - **Conclusion**: "I recommend that we use a queue for the email sending."
+      - **Reason**: "Direct sending makes the checkout slow, and it failed twice last week."
+      - **Ask**: "Can you approve this design today, so I can start tomorrow?"
+
+      Before you talk to a senior person, prepare. Know your facts and numbers. Write your ask in one sentence. Have the details ready (a link, a graph, the ticket) but do not start with them. If you ask for a decision, give two options and say which one you prefer.
+
+      When you finish, **summarise** in one sentence: "So, the decision is to use a queue, and I will share the design by Thursday." This confirms that you both understood the same thing. If you do not know an answer, say so briefly and give a time: "I do not know yet. I will check and tell you by 3 pm."
+    points:
+      - Lead with the conclusion, not the history.
+      - Use the order conclusion, reason, ask.
+      - Ask for a clear decision and give two options with your preference.
+      - Prepare the facts and numbers before the conversation, and keep the details ready.
+      - End with a one-sentence summary of what was decided and who does what.
+      - "If you do not know, say so briefly and give a time when you will know."
+    misconceptions:
+      - "A long and detailed message shows respect. A short message that leads with the point shows respect for their time."
+      - "You should not give a recommendation to a senior person. They often expect you to have one."
+- key: comm.senior_engineer_comms.practice
+  type: interview_question
+  title: "Practice: a 45-second request to a senior engineer"
+  skills: [comm.senior_engineer_comms]
+  minutes: 7
+  difficulty: MEDIUM
+  stages: [GUIDED, INDEPENDENT, DIAGNOSE, TIMED]
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 90}
+  body:
+    prompt: |-
+      You meet your tech lead, Anita, in the corridor. She has two minutes. You need a decision. You are adding a rate limit to the public API. Option A is a simple in-memory counter in each server, which is quick to build but not exact when you have several servers. Option B is a shared counter in Redis, which is exact but takes two more days to build. You prefer B because customers complain about unfair limits.
+
+      Talk to Anita ALOUD in about 45 seconds. Lead with the conclusion, give the reason, and ask for a decision.
+    key_points:
+      - Starts with the recommendation or the decision needed in the first sentence.
+      - Gives the two options in short, simple words.
+      - States the reason for the preferred option with one fact.
+      - Asks for a clear decision and says by when.
+      - Ends with a one-sentence summary of the next step.
+    follow_ups:
+      - prompt: "Anita asks, 'What is the risk if we choose A?' Answer in 15 seconds."
+        look_for: Gives one concrete risk (users get different limits on different servers), and says how likely or how serious it is.
+      - prompt: "Anita says, 'Decide yourself, I trust you.' What do you say?"
+        look_for: Makes the decision clearly, repeats it in one sentence, and says when they will report progress.
+    model_answer: |-
+      Anita, I need a decision on the API rate limit. I recommend a shared counter in Redis.
+      There are two options. Option A is an in-memory counter on each server. It is quick, but not exact, because each server counts alone. Option B is a shared counter in Redis. It is exact, but it takes two more days.
+      I prefer B, because customers already complain about unfair limits.
+      Can you approve B today? Then I start tomorrow, and I will show you the design on Thursday.
+    pitfalls:
+      - Starting with the history of why rate limits are needed.
+      - Giving two options and no preference.
+      - Leaving without a summary of what was decided.
+    speaking:
+      target_seconds: 45
+      min_words: 55
+      max_words: 130
+      max_filler_per_100: 5
+      structure_markers_min: 2
+      vocabulary: [i recommend, option, because, decision, by when, next step]
+- key: comm.senior_engineer_comms.cards
+  type: revision_card
+  title: "Recall: talking to senior engineers"
+  skills: [comm.senior_engineer_comms]
+  minutes: 4
+  body:
+    cards:
+      - front: What order do you use with a senior person?
+        back: Conclusion first, then the reason, then the ask.
+      - front: How do you ask for a decision?
+        back: "I recommend A because ... Can you approve A today?"
+      - front: What should you prepare before you talk?
+        back: Your facts and numbers, one sentence for the ask, and a link for details.
+      - front: What do you say if you do not know an answer?
+        back: "I do not know yet. I will check and tell you by 3 pm."
+      - front: How do you close the conversation?
+        back: "So we decided X, and I will do Y by Z."
+
+# ---------------------------------------------------------------------------------------------- meeting participation (non-core)
+- key: comm.meeting_participation.concept
+  type: concept
+  title: Taking part in meetings
+  skills: [comm.meeting_participation]
+  minutes: 7
+  difficulty: EASY
+  body:
+    summary: Join a discussion with short, ready phrases, interrupt politely, ask people to repeat, and summarise action items before the meeting ends.
+    explanation: |-
+      Meetings are fast, and many people speak at once. A few ready phrases help you take part without stress.
+
+      **Join the discussion.** Wait for a pause and say "Can I add something?" or "I have a point on that." Then say your point in one or two sentences. Start with the point: "I think we should add a retry here, because the API fails sometimes."
+
+      **Interrupt politely.** Use "Sorry to interrupt, can I ask a quick question?" or "Can I jump in here?" Interrupt only when it is important, for example when the topic is going in a wrong direction or you need a term explained.
+
+      **Ask for repetition.** It is normal. Say "Sorry, can you say that again, please?" or "Could you repeat the last part, about the deployment date?" You can also check: "Let me check that I understood. You mean that we ship on Friday, right?" Checking is better than guessing.
+
+      **Summarise action items.** Near the end say "Let me summarise the actions. Ravi will fix the config today. I will write the tests by Wednesday. Meena will update the ticket. Is that right?" This makes each task clear and gives each task an owner and a date.
+    points:
+      - "Wait for a pause, then use 'Can I add something?'; start with your point."
+      - "Interrupt rarely and politely: 'Sorry to interrupt, can I ask a quick question?'"
+      - "Ask for repetition without shame: 'Can you say that again, please?'"
+      - "Check what you understood in your own words: 'So you mean ..., right?'"
+      - "Before the end, summarise the actions with an owner and a date for each."
+      - If you do not know the answer, say "I will check and tell you by tomorrow."
+    misconceptions:
+      - "Asking people to repeat is rude or shows weak English. Native speakers ask for repetition all the time, especially in online meetings."
+      - "You should speak only when you have a perfect sentence. A short and clear sentence is enough."
+- key: comm.meeting_participation.practice
+  type: interview_question
+  title: "Practice: contribute and summarise in a team meeting"
+  skills: [comm.meeting_participation]
+  minutes: 8
+  difficulty: EASY
+  stages: [GUIDED, INDEPENDENT, DIAGNOSE, TIMED]
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 180}
+  body:
+    prompt: |-
+      You are in an online planning meeting about a release. The team discusses how to deploy a database change. Your colleague speaks fast and says something about "the maintenance window", and you did not hear the time. You also think there is a risk: the migration locks a large table.
+
+      Do three things ALOUD in about 90 seconds in total.
+
+      1. Politely interrupt and ask the speaker to repeat the time.
+      2. Join the discussion and raise the table lock risk.
+      3. At the end of the meeting, summarise these action items: you will test the migration on a copy of production data by Wednesday; Ravi will book the maintenance window; Meena will tell support.
+    key_points:
+      - Interrupts with a polite phrase and asks a specific question.
+      - Raises the risk in the first sentence of the point, with the reason.
+      - Offers a way forward, for example testing the migration on a copy.
+      - Summarises all three actions with an owner for each.
+      - Uses short sentences and ends the summary with a check, for example "Is that right?"
+    follow_ups:
+      - prompt: "Someone says, 'Sorry, I did not catch that. Can you repeat your point about the table lock?' Repeat it in 15 seconds, with simpler words."
+        look_for: Repeats the point in fewer and simpler words, without getting nervous or adding new details.
+      - prompt: "The meeting leader says, 'We are out of time.' Close your point in one sentence."
+        look_for: Gives one sentence with the action and the owner, and offers to follow up in writing.
+    model_answer: |-
+      Sorry to interrupt. Can you say the time of the maintenance window again, please?
+      Thank you. Can I add something about that? I see one risk. The migration locks the orders table, and the table is large. A lock can block checkout. I suggest that I test the migration on a copy of production data first.
+      Let me summarise the actions. I will test the migration on a copy of the data by Wednesday. Ravi will book the maintenance window. Meena will tell the support team. Is that right?
+    pitfalls:
+      - Staying silent and asking someone after the meeting.
+      - Making a point without a reason or a proposal.
+      - Ending the meeting with no clear owners.
+    speaking:
+      target_seconds: 90
+      min_words: 80
+      max_words: 180
+      max_filler_per_100: 5
+      structure_markers_min: 2
+      vocabulary: [sorry to interrupt, can you say that again, can i add, one risk, let me summarise, is that right]
+- key: comm.meeting_participation.cards
+  type: revision_card
+  title: "Recall: meeting phrases"
+  skills: [comm.meeting_participation]
+  minutes: 4
+  body:
+    cards:
+      - front: How do you join a discussion?
+        back: 'Say "Can I add something?" Then give your point in one or two sentences.'
+      - front: How do you interrupt politely?
+        back: "Sorry to interrupt, can I ask a quick question?"
+      - front: How do you ask someone to repeat?
+        back: "Sorry, can you say that again, please?"
+      - front: How do you check your understanding?
+        back: "So you mean X, right?"
+      - front: How do you end a meeting well?
+        back: 'Say "Let me summarise the actions" with an owner and a date for each.'
+
+# ---------------------------------------------------------------------------------------------- cross-track prompt: explain a production issue
+- key: comm.help_and_blockers.explain
+  type: interview_question
+  title: "Explain the production issue you just debugged: what happened, the impact, and your next step"
+  skills: [comm.help_and_blockers]
+  minutes: 4
+  difficulty: MEDIUM
+  stages: [EXPLAIN, THINK_ALOUD]
+  observation: {kind: CONCEPT_EXPLAIN}
+  body:
+    explains: [project]
+    prompt: |-
+      You just finished a debugging session on a production problem in your project. Imagine that you now report it to your team lead in the incident channel, and then explain it aloud in the follow-up call.
+
+      Explain the production issue ALOUD in 3 to 4 minutes, in this order: what happened, the impact, the cause (if you know it), and your next step. Use a real issue from your project, or a realistic one, for example an endpoint that became slow after a deployment. Say what you know and what you do not know yet.
+    key_points:
+      - Starts with what happened in one sentence, with the time and the system.
+      - Gives the impact in plain facts, such as who was affected and for how long.
+      - Separates what is known (cause, evidence) from what is not known yet.
+      - States the next step with an owner and a time.
+      - Uses short sentences and avoids blame.
+      - Ends with when the next update will come.
+    follow_ups:
+      - prompt: "The lead asks, 'Is it fixed, or only reduced?' Answer in 20 seconds."
+        look_for: Answers directly (fixed, reduced or not yet), gives the evidence, and says what remains.
+      - prompt: "The lead asks, 'What will stop this from happening again?' Answer."
+        look_for: Names one concrete prevention step, such as an alert, a test or a deployment check, with an owner.
+      - prompt: "The lead asks, 'Do I need to tell the client?' Answer."
+        look_for: Gives a clear recommendation based on the impact, and offers a short message that can be sent.
+    model_answer: |-
+      At 10:20 this morning, the orders endpoint became slow after our deployment. The response time went from 300 milliseconds to about four seconds.
+      The impact was about 15 minutes of slow checkout for some customers. We saw 40 timeouts. No data was lost.
+      The cause is a new query without an index on the customer column. I confirmed this with the query plan. I rolled back at 10:35, and the response time came back to normal.
+      What I do not know yet is why the test environment did not show it. The test data is small.
+      My next step is to add the index and test with larger data before the next deployment. I will do this today. I will send a written summary at 4 pm.
+    pitfalls:
+      - Starting with the long history of the system.
+      - Mixing the cause and the guesses, so the listener cannot tell what is confirmed.
+      - Saying "we will fix it" with no owner or time.
+      - Blaming the person who made the change.
+    speaking:
+      target_seconds: 120
+      min_words: 110
+      max_words: 330
+      max_filler_per_100: 5
+      structure_markers_min: 3
+      vocabulary: [what happened, the impact, root cause, rollback, next step, next update]

@@ -93,7 +93,7 @@ def test_g3_weak_prerequisite_vs_weak_downstream() -> None:
 def test_s01_cold_start() -> None:
     report = cold_start().gaps()
     statuses = [g.status for g in report.gaps]
-    assert statuses.count("UNASSESSED") == 31 and statuses.count("BLOCKED") == 102
+    assert statuses.count("UNASSESSED") == 32 and statuses.count("BLOCKED") == 129
     gaps = report.by_skill()
     for key, priority in [
         ("dsa.complexity_analysis", 100),

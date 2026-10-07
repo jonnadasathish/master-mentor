@@ -1,7 +1,7 @@
 # Learning curriculum (catalog). Owner doc: docs/domain/LEARNING_ENGINE.md, authoring: docs/domain/CONTENT_AUTHORING_GUIDE.md
 # Track -> topic -> canonical skills (seed/skills.yaml stays the only skill list). Topic order is the teaching order;
 # the mentor still decides what comes first for this learner. Every skill must appear in at least one topic.
-seed_version: seed-v2
+seed_version: seed-v3
 tracks:
 - key: dsa
   title: Data structures & algorithms
@@ -338,3 +338,33 @@ tracks:
     title: Failure, ambiguity and decisions
     summary: Failure and learning, ambiguity, difficult decisions, prioritisation and why you are changing jobs.
     skills: [behavioral.failure_learning, behavioral.ambiguity, behavioral.difficult_decision, behavioral.prioritization, behavioral.why_change]
+
+- key: communication
+  title: Communication & professional English
+  summary: Clear, concise spoken and written English for workplace and interview situations, practised through the same evidence loop as every other skill.
+  components: [coding, behavioral]
+  topics:
+  - key: comm.spoken_foundation
+    title: Spoken English foundation
+    summary: Clear sentences, questions, tenses and articles for everyday engineering speech.
+    skills: [comm.sentence_formation, comm.question_formation, comm.tense_consistency, comm.articles_prepositions]
+  - key: comm.fluency
+    title: Fluency and confidence
+    summary: Think in English, keep going for 30 seconds, one minute and two minutes, recover from a missing word and trim filler words.
+    skills: [comm.think_in_english, comm.speak_30s, comm.speak_1m, comm.speak_2m, comm.word_recovery, comm.filler_reduction, comm.delivery_confidence]
+  - key: comm.workplace
+    title: Workplace communication
+    summary: Status updates, clarifying requirements, asking for help, reporting blockers, giving feedback and speaking with seniors.
+    skills: [comm.status_update, comm.clarification_request, comm.help_and_blockers, comm.feedback_and_disagreement, comm.senior_engineer_comms, comm.meeting_participation]
+  - key: comm.technical_explanation
+    title: Technical explanation
+    summary: Explain code, bugs, decisions, queries, API changes and architecture clearly, and explain concepts simply.
+    skills: [comm.explain_code, comm.explain_bug_root_cause, comm.explain_decisions_tradeoffs, comm.explain_query_optimization, comm.explain_api_change, comm.explain_architecture, comm.explain_simply]
+  - key: comm.writing
+    title: Professional writing
+    summary: Chat messages, ticket comments, emails and technical or incident write-ups.
+    skills: [comm.chat_message, comm.ticket_comment, comm.email, comm.tech_doc_incident]
+  - key: comm.interview
+    title: Interview communication
+    summary: "Reused interview skills (existing skills, no duplicates): STAR answers, follow-ups, clarifying questions and thinking aloud."
+    skills: [communication.structured_answers, communication.followup_handling, execution.clarification, execution.think_aloud]

@@ -88,13 +88,13 @@ watch(key, load)
           <StatusPill
             v-if="content.progress?.passed"
             state="completed"
-            :label="content.progress.best_points !== null ? `Best ${content.progress.best_points}` : 'Done'"
+            :label="content.progress.best_points !== null && !content.spoken ? `Best ${content.progress.best_points}` : content.spoken ? 'Practised' : 'Done'"
             quiet
           />
           <StatusPill
             v-else-if="content.progress"
             state="medium"
-            :label="content.progress.best_points !== null ? `Best ${content.progress.best_points}` : 'Studied'"
+            :label="content.progress.best_points !== null && !content.spoken ? `Best ${content.progress.best_points}` : content.spoken ? 'Practised, not yet at the bar' : 'Studied'"
             quiet
           />
         </p>

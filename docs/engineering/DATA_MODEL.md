@@ -198,3 +198,7 @@ User state (exported with the decision history, imported after plan items, remov
 | `learning_session_steps` | session_id, position (unique per session), step_kind CONTENT/PROBLEM/REFLECTION, content_key, problem_id, title, minutes, status PENDING/DONE/SKIPPED, observation_type, observation_id, points, passed, reflection, completed_at |
 
 Progress is not stored: it is derived from current assessments with `source_key = content:<key>`. Learning sessions never hold evidence; their steps link to the observation that does.
+
+## 11. Speaking practice (migration `0013_speaking_practice`, D-087)
+
+One additive, append-only user table, `speaking_practices`: `id`, `assessment_id` (FK to `assessments`, unique: one row per observation), `source` (`BROWSER`/`MANUAL`), `transcript` (text, NULL for MANUAL), `duration_seconds`, `word_count`, `filler_count`, `metrics_json`, `metrics_version`, `self_reflection`, `created_at`. Constraints: a BROWSER row requires a transcript and a MANUAL row forbids one; counts are non-negative. There is **no audio column**; the session and content are derivable through the assessment (`source_key`, `learning_session_steps.observation_id`), so they are not stored twice. The assessment remains the only evidence. The table is in `USER_TABLES`/`IMPORT_ORDER` (export, import, dev-reset order). Downgrade drops only this table.

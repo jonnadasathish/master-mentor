@@ -260,7 +260,7 @@ def test_json_export_contains_raw_data_and_no_derived_tables(activity_client: Te
     assert (doc["format"], doc["format_version"], doc["seed_version"]) == (
         "master-mentor-export",
         2,  # v2: id_maps for import (D-075)
-        "seed-v2",
+        "seed-v3",
     )
     assert doc["counts"]["problem_attempts"] == 1 and doc["counts"]["assessments"] == 1
     assert doc["counts"]["problems"] == 0  # catalog problems are reproducible from seed/

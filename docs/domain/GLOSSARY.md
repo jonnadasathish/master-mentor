@@ -140,3 +140,15 @@ Conventions: `snake_case` is a field or code identifier; `UPPER_CASE` is an enum
 | `state_snapshots` | Mentor Run + daily snapshots |
 | "Interview Ready" skill label | skill label `INTERVIEW_GRADE` (readiness state `INTERVIEW_READY` is only a readiness term) |
 | Roadmap "Level 0–9" | Roadmap Milestone (the word Level is reserved for evidence levels) |
+
+## Communication (D-087)
+
+| Term | Meaning |
+|---|---|
+| **Communication skill** | One of the 28 optional (T4) `comm.*` skills. Its data component is `coding`, but it is never part of DSA or Coding & Execution. |
+| **Communication Readiness** | A separate, read-only view of six areas derived from communication skill states. Not a readiness component; no weight, gate or overall number; never part of Overall Readiness. |
+| **Speaking practice** | A spoken answer to an `interview_question` with a `speaking` block, recorded as a `CONCEPT_EXPLAIN` assessment plus a `speaking_practices` row (transcript text and counts only; never audio). |
+| **BROWSER / MANUAL** | The two sources of a speaking practice: transcript from browser speech recognition (measured signals) versus self-review without a transcript (weaker, capped at L2). |
+| **Signal** | A deterministic count from a transcript (words, seconds, filler words, structure phrases, target phrases, repeated phrases). Not a grade of English. |
+| **Explain it aloud** | The optional cross-track communication step that follows technical practice. |
+| **Self-report** | What the learner says about their English. Context only; never evidence. |

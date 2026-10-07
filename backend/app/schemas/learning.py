@@ -36,6 +36,7 @@ class ContentSummary(BaseModel):
     observation_kind: str
     time_limit_seconds: int | None
     progress: ProgressOut | None
+    spoken: bool = False  # a speaking practice: shown without a numeric score (D-087)
 
 
 class ProblemBrief(BaseModel):
@@ -56,6 +57,18 @@ class ContentDetail(ContentSummary):
     topic: dict[str, str] | None
 
 
+class SpeechIn(BaseModel):
+    """A speaking practice sent with the completion of an interview question (D-087). The client sends what
+    the browser heard and how long it took; the server computes every metric and rating itself."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source: Literal["BROWSER", "MANUAL"]
+    transcript: str | None = Field(default=None, max_length=8000)
+    duration_seconds: int = Field(ge=0, le=3600)
+    reflection: str | None = Field(default=None, max_length=2000)
+
+
 class CompletionIn(BaseModel):
     """What the learner did. Ratings are 0 (missed), 1 (partly), 2 (fully)."""
 
@@ -74,6 +87,7 @@ class CompletionIn(BaseModel):
     milestone: str | None = Field(default=None, max_length=48)
     defense: bool = False
     notes: str | None = Field(default=None, max_length=4000)
+    speech: SpeechIn | None = None
     client_request_id: str | None = Field(default=None, min_length=8, max_length=64)
 
 
@@ -87,6 +101,26 @@ class QuestionResultOut(BaseModel):
     model_answer: str | None
 
 
+class SpeakingResultOut(BaseModel):
+    """What the system measured, as signals. Never a grade of English, grammar or pronunciation."""
+
+    source: Literal["BROWSER", "MANUAL"]
+    metrics_version: str
+    word_count: int
+    sentence_count: int | None
+    duration_seconds: int
+    words_per_minute: int | None
+    filler_count: int
+    filler_per_100_words: int
+    fillers: list[tuple[str, int]]
+    structure_markers: list[str]
+    vocabulary_used: list[str]
+    vocabulary_missing: list[str]
+    repeated_phrases: list[tuple[str, int]]
+    criteria: dict[str, int]  # measured criteria, 0 missed / 1 partly / 2 fully
+    evidence_note: str
+
+
 class CompletionOut(BaseModel):
     content_key: str
     points: int | None
@@ -95,6 +129,7 @@ class CompletionOut(BaseModel):
     questions: list[QuestionResultOut]
     observation: AssessmentOut
     progress: ProgressOut | None
+    speaking: SpeakingResultOut | None = None
 
 
 # ------------------------------------------------------------------------------------------------ curriculum
@@ -162,6 +197,7 @@ class StepPreview(BaseModel):
     content_key: str | None
     content_type: str | None
     problem_id: int | None
+    optional: bool = False  # D-087: a cross-track "explain it aloud" prompt; never blocks the session
 
 
 class NextActionOut(BaseModel):
@@ -224,6 +260,7 @@ class StepOut(BaseModel):
     points: int | None
     passed: bool | None
     reflection: str | None
+    optional: bool = False
 
 
 class SessionOut(BaseModel):

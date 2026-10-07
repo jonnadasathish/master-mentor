@@ -1,5 +1,5 @@
 # Learning content: DSA foundations — stacks, queues and deques, monotonic stacks, linked lists and fast/slow pointers.
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- stack
 - key: dsa.stack.lesson

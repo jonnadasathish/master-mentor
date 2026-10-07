@@ -345,3 +345,14 @@ Root skills (no prerequisites; cold-start diagnostics begin here):
 
   Adding one requires a `DECISION_LOG.md` entry.
 - **Topics** (e.g. `exceptions` under `python.core_syntax`) are optional content tags, not skills. `seed-v1` populates them only where useful; problem selection uses problem→skill mappings.
+
+## 7. Communication family (D-087, `seed-v3`)
+
+Communication is its own **optional** skill family. Counts after `seed-v3`: 27 groups, 161 skills, **123 required (unchanged)**, 38 T4.
+
+- **28 skills in 5 groups**, keys `comm.*`: `comm.spoken_foundation` (sentence_formation, question_formation, tense_consistency, articles_prepositions), `comm.fluency` (think_in_english, speak_30s, speak_1m, speak_2m, word_recovery, filler_reduction, delivery_confidence), `comm.workplace` (status_update, clarification_request, help_and_blockers, feedback_and_disagreement, senior_engineer_comms, meeting_participation), `comm.technical_explanation` (explain_code, explain_bug_root_cause, explain_decisions_tradeoffs, explain_query_optimization, explain_api_change, explain_architecture, explain_simply), `comm.writing` (chat_message, ticket_comment, email, tech_doc_incident).
+- **All T4 (optional)**, so none counts in the 123-skill calibration denominator, in any component score or in G0/G1/G3. No baseline battery item covers them; their state comes from practice evidence only.
+- **Component `coding`** is only a data slot (a skill needs one and the component enum is unchanged). It must never leak into technical readiness or track accounting: G8, track minutes, the stop list, the Prepare pages and every UI label treat `comm.*` as Communication (`is_optional_communication_skill`, `presentation/communication.ts`).
+- **Prerequisites stay inside the family** (speak_1m needs speak_30s, explain_architecture needs explain_decisions_tradeoffs, ...). No required skill depends on a `comm.*` skill and technical weakness never blocks communication.
+- **Interview communication reuses existing skills, no duplicates:** `communication.structured_answers` (STAR), `communication.followup_handling`, `execution.clarification`, `execution.think_aloud`, `behavioral.*`, `sd.execution.*`, `dsa.complexity_analysis`. The Communication Readiness area "Interview communication" aggregates them. `communication.*` stays required and behavioral.
+- Roadmap: one optional milestone `COMM-1` on the `dsa_coding` track (no new track, no minute change; optional skills never block a milestone exit).

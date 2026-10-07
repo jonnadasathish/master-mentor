@@ -1,5 +1,5 @@
 # Practical engineering 1: systematic debugging in production and live debugging in a coding round.
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- systematic debugging
 - key: eng.debugging.lesson

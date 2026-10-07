@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
+from app.domain.communication.vocabulary import is_optional_communication_skill
 from app.domain.evidence.model import EvidenceRow
 from app.domain.gaps.model import GapReport
 from app.domain.profile.model import ProfileSpec, SkillGraph
@@ -86,9 +87,14 @@ class Readiness:
 def recent_passing_components(
     rows: Sequence[EvidenceRow], graph: SkillGraph, as_of: date, days: int
 ) -> set[str]:
-    """G8: components with >= 1 scoring row >= 60 points observed within the last ``days`` days."""
+    """G8: components with >= 1 scoring row >= 60 points observed within the last ``days`` days.
+
+    Optional communication skills (``comm.*``, D-087) carry component ``coding`` only because a skill needs
+    one; their practice must never satisfy a technical component's recency, so they are skipped here."""
     out: set[str] = set()
     for r in rows:
+        if is_optional_communication_skill(r.skill):
+            continue
         spec = graph.skills.get(r.skill)
         if (
             spec is not None

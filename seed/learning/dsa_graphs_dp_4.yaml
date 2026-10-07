@@ -1,5 +1,5 @@
 # Learning content: string and subsequence DP (LCS, edit distance, LIS), grid DP, interval and state-machine DP, DP on trees.
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- string and subsequence DP
 - key: dsa.dp_strings.lesson

@@ -35,6 +35,7 @@ USER_TABLES: Final = (
     "attempt_mistakes",
     "assessments",
     "assessment_skills",
+    "speaking_practices",
     "revision_item_actions",
     "mocks",
     "mock_rounds",

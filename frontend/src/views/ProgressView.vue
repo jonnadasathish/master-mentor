@@ -9,6 +9,7 @@ import ProgressBar from '../components/common/ProgressBar.vue'
 import SectionHeading from '../components/common/SectionHeading.vue'
 import Skeleton from '../components/common/Skeleton.vue'
 import StatusPill from '../components/common/StatusPill.vue'
+import CommunicationReadiness from '../components/learning/CommunicationReadiness.vue'
 import CurrentState from '../components/progress/CurrentState.vue'
 import Sparkline from '../components/readiness/Sparkline.vue'
 import TrendChart from '../components/readiness/TrendChart.vue'
@@ -377,6 +378,7 @@ onMounted(() =>
         </ul>
       </details>
     </template>
+    <CommunicationReadiness />
   </div>
 </template>
 

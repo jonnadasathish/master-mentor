@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import type { SelfReportClaim } from '../../api/types'
 import { claimsOf, toggleClaim } from '../../practice/onboarding'
+import { COMMUNICATION_SECTION_LABEL, isCommunicationSkill } from '../../presentation/communication'
 import { COMPONENT_LABEL, SELF_REPORT_CLAIMS } from '../../presentation/language'
 import { useCatalogTreeStore } from '../../stores/data'
 import { useOnboardingStore } from '../../stores/onboarding'
@@ -10,7 +11,18 @@ import Skeleton from '../common/Skeleton.vue'
 const store = useOnboardingStore()
 const tree = useCatalogTreeStore()
 const open = ref<Set<string>>(new Set())
-const sections = computed(() => (tree.data ?? []).map((c) => ({ ...c, label: COMPONENT_LABEL[c.component] ?? c.component })))
+/** Communication topics sit in their own optional section, never inside Coding & Execution. */
+const sections = computed(() => {
+  const out: { component: string; label: string; groups: { key: string; name: string }[] }[] = []
+  const spoken: { key: string; name: string }[] = []
+  for (const c of tree.data ?? []) {
+    const technical = c.groups.filter((g) => !isCommunicationSkill(g.key))
+    spoken.push(...c.groups.filter((g) => isCommunicationSkill(g.key)))
+    out.push({ ...c, groups: technical, label: COMPONENT_LABEL[c.component] ?? c.component })
+  }
+  if (spoken.length) out.push({ component: 'communication', label: COMMUNICATION_SECTION_LABEL, groups: spoken })
+  return out
+})
 const total = computed(() => Object.values(store.draft.claims).reduce((n, l) => n + l.length, 0))
 
 function toggle(claim: SelfReportClaim, group: string): void {

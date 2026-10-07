@@ -7,6 +7,7 @@ from app.api.v1 import (
     admin,
     assessments,
     catalog,
+    communication,
     content,
     data,
     export,
@@ -42,3 +43,4 @@ api_router.include_router(content.router)
 api_router.include_router(reviews.router)
 api_router.include_router(data.router)
 api_router.include_router(learning.router)
+api_router.include_router(communication.router)

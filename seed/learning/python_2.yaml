@@ -1,5 +1,5 @@
 # Learning content, Python for interviews (2/4): built-in data structures, sorting with keys, and the cost of built-in operations.
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- collections
 - key: py.collections.lesson

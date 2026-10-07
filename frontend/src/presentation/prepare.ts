@@ -1,4 +1,5 @@
 import type { Readiness, SkillWithState } from '../api/types'
+import { isCommunicationSkill } from './communication'
 import { ACTIONABLE_GAP_STATUSES, STAGE_LABEL, type PrepareCategory } from './language'
 
 /** Per-area summary for the Prepare pages. Reads server values only; sorts by the engine's own rank. */
@@ -14,7 +15,9 @@ export interface CategorySummary {
 }
 
 export function skillsInCategory(category: PrepareCategory, skills: readonly SkillWithState[]): SkillWithState[] {
-  return skills.filter((s) => (category.components as readonly string[]).includes(s.component))
+  return skills.filter(
+    (s) => (category.components as readonly string[]).includes(s.component) && !isCommunicationSkill(s.key),
+  )
 }
 
 export function summarizeCategory(

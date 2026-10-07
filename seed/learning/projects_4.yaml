@@ -1,5 +1,5 @@
 # Learning content: flagship projects Payment/Order System and Social Feed.
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- payment / order system
 - key: proj.payments.project

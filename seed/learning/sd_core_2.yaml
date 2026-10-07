@@ -1,5 +1,5 @@
 # Learning content: system design fundamentals — data model and storage choice, high-level decomposition, object storage, search, geo indexing and ID generation.
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- data modelling and storage choice
 - key: sd.data_modeling.lesson

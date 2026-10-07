@@ -25,6 +25,7 @@ from app.models.catalog import (
     SkillGroup,
     SkillPrerequisite,
 )
+from app.models.communication import SpeakingPractice
 from app.models.content import AssessmentPrompt, BehavioralStory, Project, StoryCompetency
 from app.models.derived import (
     Evidence,
@@ -48,6 +49,7 @@ from app.models.profile import Goal, StartingProfile
 from app.models.system import AppSettings, AuditLog, MentorRun
 
 __all__ = [
+    "SpeakingPractice",
     "AssessmentPrompt",
     "BehavioralStory",
     "Mock",

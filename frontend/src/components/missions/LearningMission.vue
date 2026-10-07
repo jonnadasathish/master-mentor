@@ -89,7 +89,10 @@ async function start(): Promise<void> {
           v-for="s in learning.steps"
           :key="s.position"
         >
-          <span>{{ s.title }}</span>
+          <span>{{ s.title }}<span
+            v-if="s.optional"
+            class="muted"
+          > (optional)</span></span>
           <span class="muted tabular">{{ formatMinutes(s.minutes) }}</span>
         </li>
       </ol>

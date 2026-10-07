@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 
+from app.domain.communication.cross_track import ExplainCandidate
 from app.domain.learning import vocabulary as lv
 from app.domain.learning.model import ContentItem
 
@@ -100,6 +101,7 @@ class Step:
     content_type: str | None = None
     problem_id: int | None = None
     title: str = ""
+    optional: bool = False  # D-087: cross-track communication prompt
 
 
 def compose_session(
@@ -110,6 +112,7 @@ def compose_session(
     done: Collection[str],
     attempted: Collection[int],
     budget_minutes: int | None,
+    explain: ExplainCandidate | None = None,
 ) -> tuple[Step, ...]:
     """``content``: the items mapped to the skill (``LearningCatalog.for_skill`` order). ``done``:
     content keys
@@ -141,6 +144,25 @@ def compose_session(
         total += minutes
         if len(steps) == lv.MAX_SESSION_STEPS - 1:
             break
+    # D-087: one optional "explain it aloud" step, only when it fits the budget and the step cap.
+    if (
+        explain is not None
+        and len(steps) < lv.MAX_SESSION_STEPS - 1
+        and (budget_minutes is None or total + explain.minutes <= budget_minutes)
+    ):
+        steps.append(
+            Step(
+                len(steps) + 1,
+                "CONTENT",
+                explain.minutes,
+                explain.key,
+                "interview_question",
+                None,
+                explain.title,
+                optional=True,
+            )
+        )
+        total += explain.minutes
     room = budget_minutes is None or total + lv.REFLECTION_MINUTES <= budget_minutes
     if stage in WITH_REFLECTION and room:
         steps.append(Step(len(steps) + 1, "REFLECTION", lv.REFLECTION_MINUTES, title="Reflection"))

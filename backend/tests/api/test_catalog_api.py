@@ -16,14 +16,14 @@ def ok(client: TestClient, path: str, **params: Any) -> dict[str, Any]:
     assert response.status_code == 200, response.text
     body = response.json()
     assert set(body) == {"data", "meta"}
-    assert body["meta"]["seed_version"] == "seed-v2"
+    assert body["meta"]["seed_version"] == "seed-v3"
     return body
 
 
 def test_summary_exposes_versions_fingerprints_and_counts(seeded_client: TestClient) -> None:
     data = ok(seeded_client, "")["data"]
-    assert data["seed_version"] == "seed-v2" and len(data["catalog_fingerprint"]) == 64
-    assert data["versions"]["catalog_version"].startswith("seed-v2+")
+    assert data["seed_version"] == "seed-v3" and len(data["catalog_fingerprint"]) == 64
+    assert data["versions"]["catalog_version"].startswith("seed-v3+")
     assert set(data["versions"]) == {
         "catalog_version",
         "skill_graph_version",
@@ -32,13 +32,13 @@ def test_summary_exposes_versions_fingerprints_and_counts(seeded_client: TestCli
         "mission_template_version",
         "roadmap_version",
     }
-    assert data["counts"]["skills"] == 133 and data["counts"]["mission_templates"] == 86
+    assert data["counts"]["skills"] == 161 and data["counts"]["mission_templates"] == 96
     assert data["loaded_at"].endswith("Z") or data["loaded_at"].endswith("+00:00")
 
 
 def test_skill_list_and_filters(seeded_client: TestClient) -> None:
     body = ok(seeded_client, "/skills")
-    assert body["meta"]["count"] == 133 and body["data"][0]["key"] == "python.core_syntax"  # seed order
+    assert body["meta"]["count"] == 161 and body["data"][0]["key"] == "python.core_syntax"  # seed order
     assert ok(seeded_client, "/skills", component="lld")["meta"]["count"] == 6
     assert ok(seeded_client, "/skills", tier="T1")["meta"]["count"] == 35
     assert ok(seeded_client, "/skills", group="cs.dbms")["meta"]["count"] == 8
@@ -88,19 +88,19 @@ def test_tree_and_group_children(seeded_client: TestClient) -> None:
         "behavioral",
         "project",
     ]
-    assert sum(len(g["skills"]) for c in tree for g in c["groups"]) == 133
+    assert sum(len(g["skills"]) for c in tree for g in c["groups"]) == 161
     assert ok(seeded_client, "/groups/lld.design/skills")["meta"]["count"] == 6
 
 
 def test_role_profile_and_targets(seeded_client: TestClient) -> None:
     profile = ok(seeded_client, "/role-profile")["data"]
     assert profile["profile_key"] == "backend_fullstack_sde2"
-    assert profile["tier_counts"] == {"T1": 35, "T2": 56, "T3": 32, "T4": 10}
+    assert profile["tier_counts"] == {"T1": 35, "T2": 56, "T3": 32, "T4": 38}
     assert profile["required_skill_count"] == 123
     assert len(profile["critical_skills"]) == 35
     assert sum(c["weight"] for c in profile["config"]["components"]) == 100
     assert ok(seeded_client, "/role-profile/targets", required="true")["meta"]["count"] == 123
-    assert ok(seeded_client, "/role-profile/targets", required="false")["meta"]["count"] == 10
+    assert ok(seeded_client, "/role-profile/targets", required="false")["meta"]["count"] == 38
 
 
 def test_roadmap(seeded_client: TestClient) -> None:
@@ -113,8 +113,8 @@ def test_roadmap(seeded_client: TestClient) -> None:
         "behavioral_project",
         "mock",
     ]
-    assert sum(len(t["milestones"]) for t in data["tracks"]) == 18
-    assert sum(len(m["skills"]) for t in data["tracks"] for m in t["milestones"]) == 133
+    assert sum(len(t["milestones"]) for t in data["tracks"]) == 19
+    assert sum(len(m["skills"]) for t in data["tracks"] for m in t["milestones"]) == 161
     assert len(data["baseline_items"]) == 12 and data["baseline_total_minutes"] == 420
     assert ok(seeded_client, "/roadmap/milestones/LLD-3")["data"]["skills"] == ["lld.machine_coding"]
 
@@ -131,7 +131,7 @@ def test_problems(seeded_client: TestClient) -> None:
 
 
 def test_mission_template_listing_and_resolution(seeded_client: TestClient) -> None:
-    assert ok(seeded_client, "/mission-templates")["meta"]["count"] == 86
+    assert ok(seeded_client, "/mission-templates")["meta"]["count"] == 96
     assert ok(seeded_client, "/mission-templates", component="dsa", stage="TIMED")["meta"]["count"] == 1
     drill = ok(
         seeded_client,
@@ -181,4 +181,4 @@ def test_catalog_not_loaded_is_a_409(db_client_empty_catalog: TestClient) -> Non
 
 
 def test_health_reports_loaded_seed_version(seeded_client: TestClient) -> None:
-    assert seeded_client.get("/api/v1/health").json()["data"]["seed_version"] == "seed-v2"
+    assert seeded_client.get("/api/v1/health").json()["data"]["seed_version"] == "seed-v3"

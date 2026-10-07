@@ -1,5 +1,5 @@
 # Learning content: transactions and ACID, isolation levels and MVCC, row/gap/next-key locks and deadlocks. MySQL 8 / InnoDB unless stated.
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- transactions and ACID
 - key: db.transactions_acid.lesson

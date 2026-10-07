@@ -1,5 +1,5 @@
 # Learning content: operating systems — race conditions, mutexes, semaphores, condition variables, RW locks, atomics/CAS, deadlocks, livelock and starvation.
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- synchronization
 - key: os.synchronization.lesson

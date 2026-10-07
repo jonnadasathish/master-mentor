@@ -1,5 +1,5 @@
 # Learning content: operating systems — processes vs threads, fork/exec, IPC, scheduling, context switches, system calls (Linux-oriented).
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- processes and threads
 - key: os.processes_threads.lesson

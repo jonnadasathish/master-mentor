@@ -1,0 +1,859 @@
+# Learning content: communication track part 5 — professional writing (chat, tickets, email, incident docs) and interview communication (STAR aloud, follow-ups, clarifying, thinking aloud).
+seed_version: seed-v3
+content:
+# ---------------------------------------------------------------------------------------------- PART A: chat messages
+- key: comm.chat_message.concept
+  type: concept
+  title: Chat messages that get a fast answer
+  skills: [comm.chat_message]
+  minutes: 7
+  difficulty: EASY
+  body:
+    summary: A good Slack or Teams message leads with the ask, adds only the context needed, gives a deadline, and covers one topic.
+    explanation: |-
+      Chat is fast, and people read it between other tasks. If your first line is "Hi" and the real question is in line five, the reader may answer late or not at all. Put the point first.
+
+      A simple order for a work message:
+
+      1. **The ask** in the first sentence: what you need and from whom.
+      2. **Context** in one or two short sentences: what you already checked.
+      3. **Deadline**: when you need the answer, and why.
+      4. **One topic only.** If you have two questions, send two messages.
+
+      Write full short sentences. Do not send five tiny messages in a row; send one clear message.
+    points:
+      - "Lead with the ask: 'Can you review PR 482 today?' comes before the background."
+      - "Say what you already tried, so the reader does not repeat it."
+      - "Give a real deadline: 'before 4 pm, because the release freeze starts then'."
+      - One message, one topic. A second question gets a second message.
+      - Use a thread for the answer, so the channel stays readable.
+      - "A greeting is fine, but put it on the same line as the ask: 'Hi Anita, can you review PR 482 today?'"
+    example:
+      language: text
+      code: |-
+        Weak: "Hi" ... "are you there?" ... "I have a small issue in the payment service".
+
+        Better: "Hi Anita, can you review PR 482 today? It fixes the duplicate refund bug. I tested it locally and added a unit test. I need it merged before 4 pm, because the release freeze starts then."
+    misconceptions:
+      - Starting with "Hi" alone and waiting for a reply is polite. It only adds a delay; the reader cannot act on it.
+      - A long message shows effort. A short message with the ask first is easier to answer.
+- key: comm.chat_message.practice
+  type: interview_question
+  title: "Writing drill: ask a teammate for a code review"
+  skills: [comm.chat_message]
+  minutes: 7
+  difficulty: EASY
+  stages: [GUIDED, INDEPENDENT, DIAGNOSE, TIMED]
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 600}
+  body:
+    prompt: |-
+      Situation: You fixed a bug where some customers got two refunds for one order. The pull request is PR 482 in the payment service. The release freeze starts today at 4 pm. Your teammate Anita knows the refund code best. You tested it locally and added a unit test.
+
+      Write the Slack message to Anita. Write it, then self-review against the key points.
+    key_points:
+      - The first sentence is the ask (a review of PR 482) and names Anita.
+      - Says in one sentence what the PR fixes.
+      - Says what was already done (local test, unit test).
+      - Gives a deadline with the reason (before 4 pm, release freeze).
+      - Covers only one topic and is five sentences or fewer.
+    follow_ups:
+      - prompt: Anita does not answer for two hours. Write the follow-up message.
+        look_for: Short, polite, repeats the ask and the deadline, offers help (for example a quick call), and does not blame.
+    model_answer: |-
+      Hi Anita, can you review PR 482 today? It fixes the bug where a customer gets two refunds for one order.
+
+      I tested it locally and added a unit test for the duplicate case.
+
+      I need it merged before 4 pm, because the release freeze starts then. If it is easier, I can walk you through it on a short call.
+
+      Thanks!
+    pitfalls:
+      - Sending "Hi Anita" first and the ask in a separate later message.
+      - Asking for the review and a second, unrelated question in the same message.
+      - Writing "urgent" with no deadline and no reason.
+- key: comm.chat_message.cards
+  type: revision_card
+  title: "Recall: chat message structure"
+  skills: [comm.chat_message]
+  minutes: 4
+  body:
+    cards:
+      - front: What goes in the first line of a work chat message?
+        back: The ask, with the name of the person who should act.
+      - front: How do you give a deadline?
+        back: "A time plus a reason: 'before 4 pm, because the freeze starts then'."
+      - front: What do you do with a second, different question?
+        back: Send it as a separate message.
+      - front: What context should you include?
+        back: What you already checked, in one or two short sentences.
+      - front: Where should replies go in a busy channel?
+        back: In a thread.
+# ---------------------------------------------------------------------------------------------- PART A: ticket comments
+- key: comm.ticket_comment.concept
+  type: concept
+  title: Jira comments that move a ticket forward
+  skills: [comm.ticket_comment]
+  minutes: 7
+  difficulty: EASY
+  body:
+    summary: A useful ticket comment states the status, the evidence, the next step and, if needed, one clear ask.
+    explanation: |-
+      A ticket is read later by people who were not in the meeting: your manager, the tester, or you in three weeks. A comment like "looking into it" tells them nothing. A good comment lets a new reader understand the situation in 20 seconds.
+
+      Use four parts:
+
+      1. **Status**: where are you now? (investigating, fix ready, blocked)
+      2. **Evidence**: what did you see? Give facts: a log line, a query time, a link to the PR.
+      3. **Next step**: what will you do, and by when?
+      4. **Ask**: what do you need from someone? Name the person.
+
+      Keep facts and guesses apart. Write "I confirmed X" for facts and "I think Y, not yet confirmed" for guesses.
+    points:
+      - "Status first: 'Fix is ready for review' or 'Blocked on staging access'."
+      - "Evidence is checkable: a log line, a query plan, a link, a number."
+      - "Next step has an owner and a day: 'I will deploy to staging tomorrow'."
+      - "An ask names a person and a deadline: '@Ravi, can you confirm the schema change by Thursday?'"
+      - "Mark guesses as guesses: 'I suspect the missing index; not yet confirmed.'"
+    example:
+      language: text
+      code: |-
+        Status: Fix is ready for review (PR 482).
+
+        Evidence: Duplicate refunds happen when the payment callback is retried. In the logs for order 88231, the callback arrived twice within 2 seconds, and both created a refund.
+
+        Next step: I added an idempotency check on the refund id. I will deploy to staging tomorrow and run the retry test.
+
+        Ask: @Anita, can you review PR 482 by Thursday?
+    misconceptions:
+      - A short comment such as "working on it" is enough. It gives the reader no way to help or to judge progress.
+      - Guesses can be written as facts to sound confident. A wrong "fact" costs the team time.
+- key: comm.ticket_comment.practice
+  type: interview_question
+  title: "Writing drill: update a blocked ticket"
+  skills: [comm.ticket_comment]
+  minutes: 8
+  difficulty: EASY
+  stages: [GUIDED, INDEPENDENT, DIAGNOSE, TIMED]
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 600}
+  body:
+    prompt: |-
+      Situation: Ticket PAY-317 says "Order search is slow". You checked: the search query takes about 4 seconds on production data (1.2 million rows) and 0.1 seconds on your small test database. The query plan shows a full table scan on the orders table, filtered by customer_id. You think an index on customer_id will fix it, but you cannot create indexes on production. Only the DBA, Ravi, can do that, and you want it done before Friday's release.
+
+      Write the Jira comment. Write it, then self-review against the key points.
+    key_points:
+      - Starts with a status (investigating done, blocked on an index).
+      - Gives evidence with numbers (4 seconds, 1.2 million rows, full table scan).
+      - Separates the confirmed fact (the scan) from the guess (the index will fix it).
+      - States the next step with a timing.
+      - Ends with one clear ask that names Ravi and a date.
+    follow_ups:
+      - prompt: Ravi adds the index and the query is still 3 seconds. Write the next comment.
+        look_for: Status, new evidence (new plan or timing), says the first guess was wrong or incomplete, and gives a new next step.
+    model_answer: |-
+      Status: Root cause found. I am blocked on a production index.
+
+      Evidence: The search query takes about 4 seconds on production data (1.2 million rows) and 0.1 seconds on my test database. The query plan shows a full table scan on orders, filtered by customer_id. This is confirmed.
+
+      I think an index on orders(customer_id) will fix it. I tested this on a copy with 1.2 million rows and the time dropped to 0.05 seconds. I have not tested it on production yet.
+
+      Next step: After the index exists, I will re-run the query and attach the new timing to this ticket.
+
+      Ask: @Ravi, can you create the index on production by Thursday? I need it before the Friday release.
+    pitfalls:
+      - Writing only "Query is slow, need index" with no numbers.
+      - Writing the guess as a fact ("the index will fix it").
+      - Tagging nobody, or tagging the whole team, in the ask.
+- key: comm.ticket_comment.cards
+  type: revision_card
+  title: "Recall: Jira comment structure"
+  skills: [comm.ticket_comment]
+  minutes: 4
+  body:
+    cards:
+      - front: Four parts of a useful ticket comment?
+        back: Status, evidence, next step, ask.
+      - front: What counts as evidence?
+        back: A log line, a number, a query plan or a link a reader can check.
+      - front: How do you write something you are not sure about?
+        back: "'I suspect X; not yet confirmed.'"
+      - front: How should an ask be written?
+        back: Name one person and give a date.
+      - front: Why is "working on it" a weak comment?
+        back: It gives no status, evidence or next step, so nobody can help.
+# ---------------------------------------------------------------------------------------------- PART A: email
+- key: comm.email.concept
+  type: concept
+  title: Professional emails with a clear subject and ask
+  skills: [comm.email]
+  minutes: 7
+  difficulty: EASY
+  body:
+    summary: A professional email has a specific subject, a clear purpose, a clear ask with a date, a thank-you, and a polite and direct tone.
+    explanation: |-
+      Email is slower than chat and is often forwarded to people who have no context. It must be understandable alone.
+
+      Structure:
+
+      1. **Subject**: specific and short. "Request: access to staging database by Friday" is better than "Help".
+      2. **Opening**: greeting and the purpose in the first sentence. "I am writing to ask for access to the staging database."
+      3. **Details**: two or three short sentences or bullets with the reason.
+      4. **Ask and date**: say exactly what you need and when.
+      5. **Thanks and close**: "Thank you for your help." then "Best regards," and your name.
+
+      Tone: polite and direct. "Could you please ..." is better than "You must ..." and better than "Sorry to disturb you, if you have time maybe ...". Do not apologise more than once.
+    points:
+      - "A specific subject: say the action and the topic ('Request: ...', 'Update: ...', 'Question: ...')."
+      - Purpose in the first sentence, so the reader knows why they are reading.
+      - Short paragraphs or bullets. One email, one main ask.
+      - "Ask with a date: 'by Friday 5 pm'."
+      - "Polite, direct phrases: 'Could you please', 'I would appreciate', 'Thank you for your help'."
+      - Read it once before sending. Check names, dates and attachments.
+    example:
+      language: text
+      code: |-
+        Subject: Request: staging database access by Friday
+
+        Hi Meera,
+
+        I am writing to ask for read access to the staging database.
+
+        I am working on ticket PAY-317 (slow order search), and I need to run the query on realistic data.
+
+        Could you please grant access by Friday 5 pm? I need it to finish testing before the release.
+
+        Thank you for your help.
+
+        Best regards,
+        Satish
+    misconceptions:
+      - A formal email needs long, difficult words. Plain, short sentences are more professional and easier to understand.
+      - A polite email needs many apologies. One clear "Could you please" is enough.
+- key: comm.email.practice
+  type: interview_question
+  title: "Writing drill: ask your manager for a deadline extension"
+  skills: [comm.email]
+  minutes: 9
+  difficulty: MEDIUM
+  stages: [GUIDED, INDEPENDENT, DIAGNOSE, TIMED]
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 600}
+  body:
+    prompt: |-
+      Situation: You promised to finish the "export orders to CSV" feature by Wednesday. On Monday you found that the export fails for customers with more than 50,000 orders, because it loads all rows in memory. A fix needs streaming, which needs about two more days. Your manager is Priya. The feature is for a client demo on Friday.
+
+      Write the email to Priya asking to move the delivery to Friday morning. Write it, then self-review against the key points.
+    key_points:
+      - Subject names the request and the new date.
+      - The first sentence states the purpose (the delivery date needs to move).
+      - Gives the reason in two sentences or fewer (memory problem, streaming fix, about two days).
+      - States the new date and the effect on the Friday demo, with a safe plan (for example, demo with a smaller dataset if late).
+      - Ends with a clear ask, a thank-you and a polite, direct tone with no repeated apologies.
+    follow_ups:
+      - prompt: Priya replies "Why did you not see this earlier?" Write a short, honest reply.
+        look_for: Does not blame or over-apologise; states what was found and when, and what check will be added to catch it earlier.
+    model_answer: |-
+      Subject: Request to move the CSV export delivery to Friday morning
+
+      Hi Priya,
+
+      I am writing to ask if we can move the delivery of the CSV export from Wednesday to Friday morning.
+
+      On Monday I found that the export fails for customers with more than 50,000 orders, because it loads all rows into memory. The fix is to stream the rows, which needs about two more days.
+
+      This should still be ready before the client demo on Friday. If anything goes wrong, I can show the demo with a smaller dataset, and I will tell you on Thursday evening whether we are on track.
+
+      Could you please confirm if this plan is acceptable?
+
+      Thank you for your understanding.
+
+      Best regards,
+      Satish
+    pitfalls:
+      - A subject like "Problem" or "Urgent" that does not say what is needed.
+      - Three paragraphs of apology before the request.
+      - Not saying what happens to the Friday demo.
+- key: comm.email.cards
+  type: revision_card
+  title: "Recall: professional email"
+  skills: [comm.email]
+  minutes: 4
+  body:
+    cards:
+      - front: What makes a good subject line?
+        back: "Specific action and topic: 'Request: staging access by Friday'."
+      - front: What goes in the first sentence?
+        back: The purpose of the email.
+      - front: How do you end the ask?
+        back: With a clear request and a date.
+      - front: Polite and direct phrase for a request?
+        back: "'Could you please ...?'"
+      - front: How often should you apologise?
+        back: At most once, and only when it is needed.
+# ---------------------------------------------------------------------------------------------- PART A: technical docs and incidents
+- key: comm.tech_doc_incident.concept
+  type: concept
+  title: Incident and bug write-ups people can act on
+  skills: [comm.tech_doc_incident]
+  minutes: 8
+  difficulty: MEDIUM
+  body:
+    summary: A technical write-up for a bug or incident has a summary, impact, timeline, root cause and actions, in that order.
+    explanation: |-
+      An incident write-up (often called a postmortem) is read by managers, support and other engineers. They need to know what happened, how bad it was, why it happened and what will change. Put the most important facts first.
+
+      Sections:
+
+      1. **Summary**: two sentences. What failed, for how long, and the current status.
+      2. **Impact**: who and how many were affected. Use numbers.
+      3. **Timeline**: times in one time zone, one line per event. Detection, action, recovery.
+      4. **Root cause**: the technical reason, in plain words. Explain the cause, not the person.
+      5. **Actions**: what you will do so it does not happen again. Each action has an owner and a date.
+
+      Keep facts separate from opinions. Write "the deploy at 14:05 added a new query" rather than "someone broke the database". The write-up is about the system and the process, not about blaming a person.
+    points:
+      - "Summary first: what failed, how long, and whether it is fixed."
+      - "Impact in numbers: '2,300 checkouts failed over 12 minutes'."
+      - "Timeline with exact times and one time zone, for example UTC or IST."
+      - "Root cause explains why: 'a new query did a full table scan, and used all database connections'."
+      - "Actions have an owner and a date: 'Ravi: add an index check to the PR template, by 20 Oct'."
+      - Use neutral words. Describe what the system did, not who made the mistake.
+    example:
+      language: text
+      code: |-
+        Summary: On 3 October, checkout returned errors for 12 minutes after a deploy. It is fixed.
+
+        Impact: About 2,300 checkout attempts failed (18 percent of attempts during the period).
+
+        Timeline (IST):
+        - 14:05 Deploy of release 4.2
+        - 14:10 Alert: error rate above 5 percent
+        - 14:14 Rollback started
+        - 14:22 Error rate back to normal
+
+        Root cause: A new query in release 4.2 scanned the whole orders table. Under load it used all database connections, so new requests failed.
+
+        Actions:
+        - Add the missing index (Satish, 5 Oct).
+        - Add a query-plan check to the PR template (Ravi, 12 Oct).
+    misconceptions:
+      - A write-up should tell the whole story from the start of the project. Readers need the summary and impact first.
+      - Naming the person who made the change is part of root cause. The root cause is a system or process gap that let the change reach production.
+- key: comm.tech_doc_incident.practice
+  type: interview_question
+  title: "Writing drill: write up a production bug"
+  skills: [comm.tech_doc_incident]
+  minutes: 10
+  difficulty: MEDIUM
+  stages: [GUIDED, INDEPENDENT, DIAGNOSE, TIMED]
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 600}
+  body:
+    prompt: |-
+      Situation: Yesterday, from 10:30 to 11:10 IST, the order confirmation emails were not sent. About 640 customers did not receive an email. Support noticed at 10:50 because customers asked about their orders. You found that the email worker crashed at 10:30 because a new template used a field called customer_name, but old orders have the field called name. You fixed the template at 11:00, restarted the worker, and by 11:10 all queued emails were sent. The code review did not include a test with old orders.
+
+      Write the incident summary for the engineering channel. Write it, then self-review against the key points.
+    key_points:
+      - Starts with a two-sentence summary with duration and current status.
+      - Gives impact with numbers (640 customers, 40 minutes).
+      - Gives a timeline with times in one time zone (10:30, 10:50, 11:00, 11:10).
+      - States the root cause as a technical reason and a process gap, without blaming a person.
+      - Lists at least two actions, each with an owner and a date.
+    follow_ups:
+      - prompt: A manager asks, "Do we need to tell the customers?" Write a two-sentence answer for the write-up.
+        look_for: Direct yes or no, based on impact, with a proposed message or a next step; uses facts, not guesses.
+    model_answer: |-
+      Summary: On 4 October, order confirmation emails were not sent from 10:30 to 11:10 IST (40 minutes). The issue is fixed and all queued emails were sent.
+
+      Impact: About 640 customers did not receive their confirmation email on time. Support received customer questions from 10:50.
+
+      Timeline (IST):
+      - 10:30 Email worker crashed after a template change
+      - 10:50 Support reported customer questions
+      - 11:00 Template fixed and worker restarted
+      - 11:10 All queued emails sent
+
+      Root cause: The new template used the field customer_name, but orders created before the change store the field as name. The worker raised an error and stopped. Our tests only used new orders, so the problem was not found before release.
+
+      Actions:
+      - Add a test with an old-format order (Satish, 8 October).
+      - Add an alert for the email worker crashing (Ravi, 15 October).
+    pitfalls:
+      - Starting with a long story of the day instead of a summary.
+      - Writing "Satish broke the template" instead of describing the missing test.
+      - Actions without an owner or a date, such as "improve testing".
+- key: comm.tech_doc_incident.cards
+  type: revision_card
+  title: "Recall: incident write-up"
+  skills: [comm.tech_doc_incident]
+  minutes: 4
+  body:
+    cards:
+      - front: Order of an incident write-up?
+        back: Summary, impact, timeline, root cause, actions.
+      - front: How do you write the impact?
+        back: With numbers, such as people affected and minutes of downtime.
+      - front: What must a timeline use?
+        back: Exact times in one time zone, one event per line.
+      - front: What does the root cause describe?
+        back: The technical reason and the process gap, not a person.
+      - front: What must every action have?
+        back: An owner and a date.
+# ---------------------------------------------------------------------------------------------- PART B: STAR out loud
+- key: comm.interview_structured_answers.concept
+  type: concept
+  title: STAR out loud in two minutes
+  skills: [communication.structured_answers]
+  minutes: 7
+  difficulty: EASY
+  body:
+    summary: Spoken STAR needs a short headline, a short situation, your own actions in first person, and a result with a number, all in about two minutes.
+    explanation: |-
+      Speaking is different from writing. The listener cannot go back, so every sentence must be short and clear. Say the main point first, then the details.
+
+      A two-minute spoken answer:
+
+      1. **Headline** (10 seconds): the outcome in one sentence. "I fixed a checkout bug that was failing one in five payments."
+      2. **Situation and task** (20 seconds): where you were and what your job was.
+      3. **Actions** (60 seconds): three steps, each in first person. "I checked the logs. I rolled back the deploy. I wrote the fix."
+      4. **Result** (20 seconds): the outcome with a number. "Errors went from 18 percent to under 1 percent."
+      5. **Stop.** Do not add a long ending. Let the interviewer ask more.
+
+      Use "I" for your own actions. Use "we" only for the team's work, then say your part. Use simple linking words: first, then, because, finally.
+    points:
+      - Say the headline first. The listener should know the point in 10 seconds.
+      - Keep sentences short. One idea in each sentence.
+      - Say "I" for what you did. Say "my teammate" for what someone else did.
+      - Say the result with a number and a starting value.
+      - Use words like first, then, because and finally so the listener can follow.
+      - Stop after the result. A short pause is better than extra words.
+    misconceptions:
+      - A long, detailed answer shows more experience. A clear answer with a headline and a number is stronger.
+      - Always saying "we" sounds humble. The interviewer needs to hear what you did.
+- key: comm.interview_structured_answers.practice
+  type: interview_question
+  title: "Speaking drill: a time you fixed a production problem"
+  skills: [communication.structured_answers]
+  minutes: 8
+  difficulty: MEDIUM
+  stages: [GUIDED, INDEPENDENT, DIAGNOSE]
+  observation: {kind: CONCEPT_EXPLAIN}
+  body:
+    prompt: |-
+      An interviewer says: "Tell me about a time you fixed a problem in production."
+
+      Answer ALOUD in about 2 minutes. Use a real story from your own work. Say the headline first, then the situation, your actions, and the result with a number. Record yourself if you can.
+    key_points:
+      - States the outcome in the first sentence (the headline).
+      - Gives the situation and own role in about 20 seconds.
+      - Describes at least three actions, each starting with "I".
+      - Uses linking words such as first, then, because or finally.
+      - Ends with a result that has a number and a starting value, then stops.
+    follow_ups:
+      - prompt: What exactly did you do, and what did your teammates do?
+        look_for: A clear split, using "I" for own work and names or roles for others; the answer is short and matches the story.
+      - prompt: How did you measure the result?
+        look_for: Names the tool or source (dashboard, logs, support tickets) and the value before and after.
+    model_answer: |-
+      I fixed a checkout problem that was failing about one in five payments. Our order service started returning errors ten minutes after a Friday deploy. I was on call, so I had to restore checkout first. First, I looked at the dashboard. The errors started at the deploy time, so I rolled back. Then I reproduced the problem on staging and found a new query that scanned the whole orders table. Because of that, it used all database connections. Finally, I wrote an index and asked a teammate to review it. We deployed it on Monday. Checkout recovered 12 minutes after the alert. The error rate went from 18 percent to under 1 percent. After that, I added a query check to our pull request template.
+    pitfalls:
+      - Starting with a long description of the company and system.
+      - Saying "we" for every action.
+      - Ending with "and then it was fine" without a number.
+    speaking:
+      target_seconds: 120
+      min_words: 150
+      max_words: 320
+      max_filler_per_100: 4
+      structure_markers_min: 3
+      vocabulary: [root cause, rollback, error rate, on call, deploy, i decided]
+- key: comm.interview_structured_answers.practice_disagreement
+  type: interview_question
+  title: "Speaking drill: a disagreement with a teammate"
+  skills: [communication.structured_answers]
+  minutes: 8
+  difficulty: MEDIUM
+  stages: [GUIDED, INDEPENDENT, DIAGNOSE]
+  observation: {kind: CONCEPT_EXPLAIN}
+  body:
+    prompt: |-
+      An interviewer says: "Tell me about a disagreement you had with a teammate."
+
+      Answer ALOUD in about 2 minutes. Choose a technical disagreement (for example, a design choice). Say what the disagreement was, what you did to resolve it, and the result. Speak about the idea, not about the person's character.
+    key_points:
+      - States in the first sentence what the disagreement was about.
+      - Explains the other person's point fairly, in one sentence.
+      - Describes what the speaker did to resolve it (data, a test, a small prototype, a third opinion), in first person.
+      - Ends with the decision and the result, with a number or a concrete effect.
+      - Says something the speaker learned or changed, in one sentence.
+    follow_ups:
+      - prompt: What if your teammate still disagreed after that?
+        look_for: Separates understanding from agreement; mentions accepting the team decision or escalating with trade-offs written down; stays respectful.
+    model_answer: |-
+      I disagreed with a teammate about how to send notifications from our order service. He wanted to call the SMS provider directly in the request. I wanted to use a queue. His point was fair: direct calls are simpler and we had no queue. I did not want to argue in meetings, so I collected data. First, I measured the provider's response time. It was slow at peak, up to three seconds. Then I built a small prototype with an outbox table, and showed that checkout stayed fast. We looked at the numbers together and agreed on the outbox. Checkout latency went from about 1,200 to 450 milliseconds. What I learned is to bring data early, before the discussion gets personal.
+    pitfalls:
+      - Describing the other person as difficult or wrong.
+      - Telling a story where nothing was resolved.
+      - Choosing a disagreement that was only about a personal preference.
+    speaking:
+      target_seconds: 110
+      min_words: 130
+      max_words: 300
+      max_filler_per_100: 4
+      structure_markers_min: 3
+      vocabulary: [trade-off, i measured, we agreed, prototype, because]
+- key: comm.interview_structured_answers.explain_star
+  type: interview_question
+  title: "Explain aloud: answer a behavioral question with STAR"
+  skills: [communication.structured_answers]
+  minutes: 4
+  difficulty: MEDIUM
+  stages: [EXPLAIN]
+  observation: {kind: CONCEPT_EXPLAIN}
+  body:
+    explains: [behavioral]
+    prompt: |-
+      You just finished a behavioral practice session. Now answer this question aloud, as if to an interviewer: "Tell me about a time you had to learn something new quickly."
+
+      Use the STAR structure. Speak for about 2 minutes. Start with a one-sentence headline, then the situation and task, then your actions in first person, then a result with a number.
+    key_points:
+      - Opens with a headline that names what was learned and the outcome.
+      - Gives the situation and task in two sentences or fewer.
+      - Uses "I" for at least three actions, with a reason for each.
+      - States a result with a number or a checkable effect.
+      - Finishes in about two minutes and stops after the result.
+    follow_ups:
+      - prompt: How did you check that you really understood it?
+        look_for: A concrete check, such as a working demo, a code review, a test, or explaining it to a teammate.
+    model_answer: |-
+      I learned Kafka in two weeks and used it to fix a slow notification flow. My team needed to move notifications to a queue, and I had never used Kafka. I owned the design. First, I read the main concepts and built a small producer and consumer on my laptop. Then I asked a senior colleague to review my design, because I wanted to find mistakes early. Finally, I tested the flow with production-sized data. We released in three weeks. Notification delay went from about four minutes to under ten seconds, measured in our dashboard.
+    pitfalls:
+      - Telling a story with no action of your own.
+      - Saying "I learned a lot" instead of a result.
+    speaking:
+      target_seconds: 100
+      min_words: 100
+      max_words: 280
+      max_filler_per_100: 4
+      structure_markers_min: 3
+      vocabulary: [first, because, finally, i owned, result]
+- key: comm.interview_structured_answers.cards
+  type: revision_card
+  title: "Recall: STAR out loud"
+  skills: [communication.structured_answers]
+  minutes: 4
+  body:
+    cards:
+      - front: What do you say in the first 10 seconds?
+        back: A one-sentence headline with the outcome.
+      - front: How long is a spoken STAR answer?
+        back: About two minutes, then stop.
+      - front: Which word do you use for your own actions?
+        back: '"I", and name others for their work.'
+      - front: What makes a result strong?
+        back: A number with its starting value.
+      - front: Useful linking words for a spoken answer?
+        back: First, then, because, finally.
+# ---------------------------------------------------------------------------------------------- PART B: follow-up handling
+- key: comm.interview_followup_handling.concept
+  type: concept
+  title: Staying calm and clear under follow-up questions
+  skills: [communication.followup_handling]
+  minutes: 7
+  difficulty: MEDIUM
+  body:
+    summary: Listen to the whole question, pause, answer the question that was asked, and say honestly when you do not know.
+    explanation: |-
+      Follow-up questions are normal. They are not a sign that your answer was bad. The interviewer wants to see how you think.
+
+      Steps for a spoken follow-up:
+
+      1. **Listen** to the end. Do not start answering in the middle of the question.
+      2. **Pause** for two or three seconds. It is fine to say, "Let me think for a moment."
+      3. **Answer the question that was asked.** Give the direct answer in one sentence, then add one detail.
+      4. **Be honest about unknowns.** Say, "I am not sure about that part. My best understanding is ..." or "I have not used that, but I would expect ... because ...".
+      5. **Check.** "Does that answer your question?"
+
+      Do not repeat your whole earlier answer. Do not invent a number or a fact. A wrong answer said with confidence is worse than an honest "I do not know, but here is how I would find out".
+    points:
+      - Wait until the question ends. Then pause for two or three seconds.
+      - 'A useful phrase: "Let me think for a moment."'
+      - Answer the exact question in the first sentence.
+      - 'Admit unknowns: "I am not sure. My best understanding is ..."'
+      - Never invent numbers. Give a range and say where it comes from.
+      - 'If you did not understand, ask: "Do you mean X or Y?"'
+    misconceptions:
+      - A pause looks weak. A short pause looks calm, and it improves the answer.
+      - Saying "I do not know" ends the answer. Add how you would find out, and the answer is still useful.
+- key: comm.interview_followup_handling.practice
+  type: interview_question
+  title: "Speaking drill: three follow-ups on one story"
+  skills: [communication.followup_handling]
+  minutes: 8
+  difficulty: MEDIUM
+  stages: [GUIDED, INDEPENDENT, DIAGNOSE]
+  observation: {kind: CONCEPT_EXPLAIN}
+  body:
+    prompt: |-
+      You said in an interview: "I reduced the latency of our search API by adding a cache." The interviewer now asks three follow-ups, one after the other:
+
+      1. "What was the cache hit rate?"
+      2. "How did you handle stale data?"
+      3. "What would you do if the cache server went down?"
+
+      Answer each ALOUD in about 30 to 40 seconds (about 2 minutes in total). If you do not know a number from your real project, give an honest range and say where it comes from, or say you do not remember exactly.
+    key_points:
+      - Each answer starts with a direct one-sentence reply to the exact question.
+      - Gives a number with its source, or an honest range, and does not invent a precise figure.
+      - Explains the stale-data approach with a concrete method (expiry time, or invalidation on write).
+      - Explains a failure plan for the cache (fall back to the database, with a limit on the load).
+      - Uses a short pause or the phrase "let me think" at least once, and does not repeat the original story.
+    follow_ups:
+      - prompt: Would a longer expiry time be acceptable?
+        look_for: States the trade-off between freshness and load, and says what would change the decision.
+    model_answer: |-
+      The hit rate was around 85 to 90 percent. I do not remember the exact value, but it came from our cache dashboard in the first week.
+
+      Let me think about stale data. We used a five minute expiry, and we also removed the cached item when the product was updated. Because of that, users saw old data for only a short time, usually less than a minute.
+
+      If the cache server went down, the API would read from the database. That is slower, so we added a limit on parallel database calls, and an alert. In a test, latency went up but the service stayed available.
+    pitfalls:
+      - Inventing an exact hit rate such as 87.3 percent.
+      - Answering a different question, for example explaining what a cache is.
+      - Becoming defensive when the interviewer finds a weakness.
+    speaking:
+      target_seconds: 120
+      min_words: 110
+      max_words: 300
+      max_filler_per_100: 4
+      structure_markers_min: 2
+      vocabulary: [hit rate, expiry, invalidate, fall back, trade-off, because]
+- key: comm.interview_followup_handling.cards
+  type: revision_card
+  title: "Recall: handling follow-ups"
+  skills: [communication.followup_handling]
+  minutes: 4
+  body:
+    cards:
+      - front: What do you do before answering a hard follow-up?
+        back: Listen to the end, pause, and think for two or three seconds.
+      - front: Phrase to buy thinking time?
+        back: '"Let me think for a moment."'
+      - front: What goes in the first sentence of your answer?
+        back: A direct answer to the exact question.
+      - front: How do you say you do not know?
+        back: '"I am not sure. My best understanding is ..., and I would check ..."'
+      - front: What should you never do with a number you forgot?
+        back: Invent it; give a range with its source.
+# ---------------------------------------------------------------------------------------------- PART B: clarification
+- key: comm.interview_clarification.concept
+  type: concept
+  title: Clarify the question before you solve it
+  skills: [execution.clarification]
+  minutes: 7
+  difficulty: EASY
+  body:
+    summary: Before coding, restate the problem in your own words, ask about inputs, constraints and scale, and confirm an example.
+    explanation: |-
+      Interview questions are often short and unclear on purpose. If you start coding at once, you may solve the wrong problem. Spend the first two minutes on clarification, and say it aloud.
+
+      Four steps:
+
+      1. **Restate**: "So we need to find two numbers in the array that add up to the target. Is that right?"
+      2. **Ask about inputs**: type, sign, duplicates, empty input, sorted or not.
+      3. **Ask about constraints and scale**: "How large can the array be? Is memory limited?"
+      4. **Confirm an example**: "For input [2, 7, 11] and target 9, the answer is indexes 0 and 1. Correct?"
+
+      Then say your plan before you write code. Do not ask ten questions. Ask the three or four that change your solution.
+    points:
+      - 'Restate in your own words and ask, "Is that right?"'
+      - "Ask about inputs: empty, negative, duplicates, sorted or not."
+      - "Ask about scale: 'How large can n be?' It decides which algorithm is acceptable."
+      - Confirm one example, including an edge case, before coding.
+      - Ask only questions that change the solution.
+      - If the interviewer says "your choice", state your assumption aloud.
+    misconceptions:
+      - Asking questions shows that you do not understand. Interviewers expect clarifying questions and often judge them.
+      - You must ask everything first. You can also state an assumption and continue.
+- key: comm.interview_clarification.practice
+  type: interview_question
+  title: "Speaking drill: clarify an ambiguous question"
+  skills: [execution.clarification]
+  minutes: 7
+  difficulty: MEDIUM
+  stages: [GUIDED, INDEPENDENT, DIAGNOSE]
+  observation: {kind: CONCEPT_EXPLAIN}
+  body:
+    prompt: |-
+      The interviewer says only: "Given a list of log lines, find the most frequent IP address."
+
+      Do not solve it yet. Speak ALOUD for about 60 to 90 seconds: restate the problem, ask your clarifying questions about inputs, constraints and scale, and confirm one example. Say your questions as you would in the interview, and say what you would assume if the interviewer does not answer.
+    key_points:
+      - Restates the problem in one sentence and checks it ("Is that right?").
+      - Asks about the input format (where the IP is in the line, invalid lines).
+      - Asks about scale (number of lines, whether the data fits in memory).
+      - Asks what to return if there is a tie or if the input is empty.
+      - Confirms a small example before saying a plan.
+    follow_ups:
+      - prompt: The interviewer says "The file is 50 GB." How does your plan change?
+        look_for: Moves away from a simple in-memory count; mentions reading as a stream and counting in parts, or an approximate method, and states the trade-off.
+    model_answer: |-
+      Let me check I understand. We receive log lines, and we need to return the IP address that appears most often. Is that right?
+
+      I have a few questions. What is the format of a line? Is the IP always in the same position? Can there be invalid lines, and should I skip them? How many lines can there be, and does the file fit in memory? If two IPs have the same count, can I return any one, or all of them? And what should I return for an empty input?
+
+      Let me confirm with an example. For three lines from 10.0.0.1, 10.0.0.2 and 10.0.0.1, the answer is 10.0.0.1 with count 2. Is that correct?
+
+      If you do not mind, I will assume the data fits in memory and any IP is fine in a tie, and I will use a hash map to count.
+    pitfalls:
+      - Starting to code after the first sentence.
+      - Asking many questions that do not change the solution.
+      - Asking without saying an assumption, then waiting silently.
+    speaking:
+      target_seconds: 75
+      min_words: 80
+      max_words: 220
+      max_filler_per_100: 4
+      structure_markers_min: 2
+      vocabulary: [restate, assume, constraints, edge case, example, input]
+- key: comm.interview_clarification.cards
+  type: revision_card
+  title: "Recall: clarifying a question"
+  skills: [execution.clarification]
+  minutes: 4
+  body:
+    cards:
+      - front: First step of clarification?
+        back: Restate the problem in your own words and ask if it is right.
+      - front: Three things to ask about?
+        back: Inputs, constraints and scale.
+      - front: Why ask about scale?
+        back: It decides which algorithm is acceptable.
+      - front: What do you do before coding?
+        back: Confirm an example and say your plan.
+      - front: What if the interviewer does not answer?
+        back: State your assumption aloud and continue.
+# ---------------------------------------------------------------------------------------------- PART B: think aloud
+- key: comm.interview_think_aloud.concept
+  type: concept
+  title: Thinking aloud while you solve
+  skills: [execution.think_aloud]
+  minutes: 7
+  difficulty: MEDIUM
+  body:
+    summary: Say your plan, name the trade-offs, narrate while you code, and say what you are checking, so the interviewer can follow your thinking.
+    explanation: |-
+      The interviewer cannot see your thoughts. If you are silent for three minutes, they do not know whether you are stuck or thinking well. Speak in short sentences.
+
+      What to say at each stage:
+
+      1. **Plan**: "My first idea is a brute force with two loops. That is O(n squared). A better idea is a hash map, which is O(n) time and O(n) space."
+      2. **Trade-off**: "The hash map uses more memory, but it is much faster. I think that is the right choice here."
+      3. **While coding**: "I create a map from value to index. Now I loop over the array. For each number I check if the target minus the number is in the map."
+      4. **Checking**: "Let me test with the example. For [2, 7, 11] and target 9 ... it returns indexes 0 and 1. Now an edge case: an empty array returns no result."
+
+      If you are stuck, say so: "I am stuck on how to handle duplicates. Let me think about a small example." Silence is not a problem for 10 or 20 seconds; long silence is.
+    points:
+      - 'State the plan before coding: "My approach is ..."'
+      - "Name the trade-off: time against memory, or simple against fast."
+      - 'Narrate while coding, in short sentences: "Now I loop over ..."'
+      - 'Say what you are checking: "Let me test an empty input."'
+      - 'If stuck, say it and think with a small example: "Let me try n equal to 2."'
+      - Do not read code character by character. Explain the purpose of each block.
+    misconceptions:
+      - Thinking aloud means talking all the time. Short, useful sentences are better than a constant stream.
+      - You should only speak when you are sure. Saying a small idea out loud lets the interviewer help you.
+- key: comm.interview_think_aloud.practice
+  type: interview_question
+  title: "Speaking drill: narrate a solution plan"
+  skills: [execution.think_aloud]
+  minutes: 8
+  difficulty: MEDIUM
+  stages: [GUIDED, INDEPENDENT, DIAGNOSE]
+  observation: {kind: CONCEPT_EXPLAIN}
+  body:
+    prompt: |-
+      Problem: "Given a string, return true if it has balanced brackets: (), [] and {}."
+
+      Speak ALOUD for about 2 minutes as you would in the interview. Do not write full code. Say your first idea, a better idea, the trade-off, the steps of the algorithm as if you were writing it, and one test with an edge case.
+    key_points:
+      - States a first idea or the key observation (the last opened bracket must close first) before the final plan.
+      - Names the data structure (a stack) and its time and space cost.
+      - Narrates the steps in short sentences (push opening, pop on closing, compare).
+      - Names at least one edge case (empty string, closing bracket first, left-over opening brackets).
+      - Says what is being checked when testing an example, and states the result.
+    follow_ups:
+      - prompt: What if the string can also contain other characters, like letters?
+        look_for: Says to ignore other characters, explains the change in one sentence, and checks that complexity stays O(n).
+    model_answer: |-
+      My first thought is to count the brackets. But that fails for a string like "([)]", because the order matters. The key idea is that the last opened bracket must be closed first. That is a stack.
+
+      My plan: I go through the string once. When I see an opening bracket, I push it on the stack. When I see a closing bracket, I check the top of the stack. If the stack is empty, or the top does not match, I return false. At the end, the stack must be empty. The time is O(n), and the space is O(n) in the worst case.
+
+      Let me test it. For "([])": push open round, push open square, then close square matches, close round matches, the stack is empty, so true. Now edge cases: an empty string returns true. A string with only "(" ends with a non-empty stack, so it returns false.
+    pitfalls:
+      - Staying silent for a long time and then giving the final answer.
+      - Reading code aloud word by word instead of explaining the idea.
+      - Skipping the check of an edge case.
+    speaking:
+      target_seconds: 100
+      min_words: 120
+      max_words: 280
+      max_filler_per_100: 4
+      structure_markers_min: 3
+      vocabulary: [stack, edge case, time complexity, trade-off, first idea, let me test]
+- key: comm.interview_think_aloud.timed
+  type: interview_question
+  title: "Timed speaking drill: think aloud on a new problem"
+  skills: [execution.think_aloud]
+  minutes: 7
+  difficulty: MEDIUM
+  stages: [TIMED, EXPLAIN, THINK_ALOUD]
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 180}
+  body:
+    prompt: |-
+      Problem: "You are given a sorted array of integers. Return true if two different elements add up to a target."
+
+      You have 3 minutes. Speak ALOUD from the start: clarify one thing, give a first idea and a better idea, name the trade-off, narrate the steps of the best idea, and test it with one example and one edge case.
+    key_points:
+      - Asks or states at least one clarification or assumption (duplicates, negative numbers, same element twice).
+      - Gives a brute force idea with its cost, then a better idea (two pointers, because the array is sorted).
+      - Names the trade-off (no extra memory compared with a hash set).
+      - Narrates the pointer moves in short sentences (sum too small, move left pointer right).
+      - Tests an example and an edge case aloud, and finishes inside three minutes.
+    follow_ups:
+      - prompt: What if the array is not sorted?
+        look_for: Says either to sort it (O(n log n)) or to use a hash set (O(n) time and O(n) space) and states the trade-off.
+    model_answer: |-
+      First, a quick question. Can the same element be used twice? I will assume no, only two different positions.
+
+      My first idea is two loops, checking every pair. That is O(n squared). A better idea uses the fact that the array is sorted. I use two pointers, one at the start and one at the end. The trade-off is that I need no extra memory, and the time is O(n).
+
+      Now the steps. I compute the sum of the two pointers. If the sum equals the target, I return true. If the sum is too small, I move the left pointer to the right, because I need a bigger number. If the sum is too big, I move the right pointer to the left. I stop when the pointers meet.
+
+      Let me test it with 1, 3, 4, 6 and target 7. One plus six is seven, so true. For an empty array, the pointers do not make a pair, so it returns false.
+    pitfalls:
+      - Spending two minutes silent before speaking.
+      - Giving only the final solution with no first idea and no trade-off.
+      - Running over the time limit because of too many small details.
+    speaking:
+      target_seconds: 150
+      min_words: 120
+      max_words: 320
+      max_filler_per_100: 4
+      structure_markers_min: 3
+      vocabulary: [two pointers, brute force, trade-off, edge case, i assume, let me test]
+- key: comm.interview_think_aloud.cards
+  type: revision_card
+  title: "Recall: thinking aloud"
+  skills: [execution.think_aloud]
+  minutes: 4
+  body:
+    cards:
+      - front: What do you say before you write code?
+        back: Your plan, with time and space cost.
+      - front: What trade-off do you usually name?
+        back: Time against memory, or simple against fast.
+      - front: How do you narrate while coding?
+        back: Short sentences that explain the purpose of each block.
+      - front: What do you say when you are stuck?
+        back: '"I am stuck on X. Let me try a small example."'
+      - front: What do you say when testing?
+        back: The input you check, the expected result and what you see.

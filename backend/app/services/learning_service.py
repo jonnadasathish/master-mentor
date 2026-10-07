@@ -13,10 +13,32 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.domain.catalog import vocabulary as v
-from app.domain.clock import Clock
+from app.domain.clock import Clock, local_date
+from app.domain.communication.cross_track import (
+    ExplainCandidate,
+    is_communication_skill,
+    is_optional_step,
+    pick_explain_item,
+    recent_communication_skills,
+)
+from app.domain.communication.metrics import (
+    SpeakingMetrics,
+    compute_speaking_metrics,
+    rate_measured_criteria,
+    speech_errors,
+    targets_from_body,
+)
+from app.domain.communication.vocabulary import is_optional_communication_skill
 from app.domain.learning import vocabulary as lv
 from app.domain.learning.coverage import SkillFacts, coverage_report, summarize_coverage
-from app.domain.learning.evidence import CompletionError, Graded, Submission, grade_completion, rubric_of
+from app.domain.learning.evidence import (
+    CompletionError,
+    Graded,
+    SpeechEvidence,
+    Submission,
+    grade_completion,
+    rubric_of,
+)
 from app.domain.learning.model import ContentItem, LearningCatalog
 from app.domain.learning.practice import AttemptFact, ProblemRef, problem_state, resolve_practice
 from app.domain.learning.progress import ContentProgress, content_progress, pass_mark
@@ -31,7 +53,9 @@ from app.models import (
     ProblemAttempt,
     ProblemSkill,
     Skill,
+    SpeakingPractice,
 )
+from app.repositories.activity_repository import ActivityRepository
 from app.repositories.catalog_repository import CatalogRepository
 from app.repositories.evidence_repository import EvidenceRepository
 from app.repositories.learning_repository import LearningRepository
@@ -55,6 +79,7 @@ from app.schemas.learning import (
     SessionOut,
     SessionStartIn,
     SkillLearningOut,
+    SpeakingResultOut,
     StepCompleteIn,
     StepOut,
     StepPreview,
@@ -64,7 +89,13 @@ from app.schemas.learning import (
     TrackDetail,
     TrackOut,
 )
-from app.services.activity_service import ActivityService, attempt_fact, platform_url, problem_key
+from app.services.activity_service import (
+    FALLBACK_TIMEZONE,
+    ActivityService,
+    attempt_fact,
+    platform_url,
+    problem_key,
+)
 from app.services.assessment_service import AssessmentService
 from app.services.catalog_service import CatalogService
 
@@ -83,6 +114,46 @@ MOCK_TYPES = (
 )
 MOCK_KIT_SIZE = 5
 DEFAULT_PROBLEM_MINUTES = {"EASY": 15, "MEDIUM": 30, "HARD": 45}  # DEFAULT_EXPECTED_MINUTES (seed comment)
+
+
+def _metrics_json(metrics: SpeakingMetrics, measured: Mapping[str, int]) -> dict[str, Any]:
+    return {
+        "sentence_count": metrics.sentence_count,
+        "words_per_minute": metrics.words_per_minute,
+        "filler_per_100_words": metrics.filler_per_100_words,
+        "fillers": [list(f) for f in metrics.fillers],
+        "structure_markers": list(metrics.structure_markers),
+        "vocabulary_used": list(metrics.vocabulary_used),
+        "vocabulary_missing": list(metrics.vocabulary_missing),
+        "repeated_phrases": [list(r) for r in metrics.repeated_phrases],
+        "criteria": dict(measured),
+    }
+
+
+EVIDENCE_NOTE = {
+    "BROWSER": "Practice evidence from a browser transcript. These are signals, not a grade of your English.",
+    "MANUAL": "Manual self-review: recorded as supported practice (weaker evidence than a measured one).",
+}
+
+
+def _speaking_out(source: str, m: SpeakingMetrics, measured: Mapping[str, int]) -> SpeakingResultOut:
+    return SpeakingResultOut(
+        source=source,
+        metrics_version=m.metrics_version,
+        word_count=m.word_count,
+        sentence_count=m.sentence_count,
+        duration_seconds=m.duration_seconds,
+        words_per_minute=m.words_per_minute,
+        filler_count=m.filler_count,
+        filler_per_100_words=m.filler_per_100_words,
+        fillers=list(m.fillers),
+        structure_markers=list(m.structure_markers),
+        vocabulary_used=list(m.vocabulary_used),
+        vocabulary_missing=list(m.vocabulary_missing),
+        repeated_phrases=list(m.repeated_phrases),
+        criteria=dict(measured),
+        evidence_note=EVIDENCE_NOTE[source],
+    )
 
 
 def _naive_now(clock: Clock) -> Any:
@@ -172,6 +243,7 @@ class LearningService:
             observation_kind=item.observation_kind,
             time_limit_seconds=item.time_limit_seconds,
             progress=self._progress_out(progress.get(item.key)),
+            spoken=bool(item.body.get("speaking")),
         )
 
     def content(self, key: str) -> ContentDetail:
@@ -194,7 +266,27 @@ class LearningService:
         )
 
     # --------------------------------------------------------------------------------------- completion
-    def _record(self, item: ContentItem, inp: CompletionIn) -> tuple[Graded, Any]:
+    def _speech(
+        self, item: ContentItem, inp: CompletionIn
+    ) -> tuple[SpeechEvidence | None, SpeakingMetrics | None, dict[str, int]]:
+        """Validate a speaking practice and compute its metrics on the server (D-087)."""
+        speech = inp.speech
+        if speech is None:
+            return None, None, {}
+        if item.type != "interview_question":
+            raise AppError(
+                ErrorCode.VALIDATION_ERROR, "Speaking practice records only on an interview question.", 422
+            )
+        errors = speech_errors(speech.source, speech.transcript, speech.duration_seconds)
+        if errors:
+            raise AppError(ErrorCode.VALIDATION_ERROR, "; ".join(errors), 422)
+        targets = targets_from_body(item.body.get("speaking"))
+        metrics = compute_speaking_metrics(speech.transcript or "", speech.duration_seconds, targets)
+        measured = rate_measured_criteria(metrics, targets) if speech.source == "BROWSER" else {}
+        return SpeechEvidence(speech.source, speech.duration_seconds, measured), metrics, measured
+
+    def _record(self, item: ContentItem, inp: CompletionIn) -> tuple[Graded, Any, SpeakingResultOut | None]:
+        speech_evidence, metrics, measured = self._speech(item, inp)
         sub = Submission(
             answers=inp.answers,
             self_grades=dict(inp.self_grades),
@@ -209,6 +301,7 @@ class LearningService:
             milestone=inp.milestone,
             defense=inp.defense,
             notes=inp.notes,
+            speech=speech_evidence,
         )
         try:
             graded = grade_completion(item, sub, self._components())
@@ -220,11 +313,37 @@ class LearningService:
             assessment = AssessmentInput.model_validate(payload)
         except ValidationError as exc:  # a seed/validator gap, never the learner's fault
             raise AppError(ErrorCode.VALIDATION_ERROR, f"Cannot record {item.key}: {exc}", 422) from exc
-        recorded = AssessmentService(self._s, self._clock).record(assessment)
-        self._all_progress = None
-        return graded, recorded
 
-    def _completion_out(self, item: ContentItem, graded: Graded, recorded: Any) -> CompletionOut:
+        def add_practice(row: Any) -> None:
+            if inp.speech is None or metrics is None:
+                return
+            self._s.add(
+                SpeakingPractice(
+                    assessment_id=row.id,
+                    source=inp.speech.source,
+                    transcript=inp.speech.transcript,
+                    duration_seconds=inp.speech.duration_seconds,
+                    word_count=metrics.word_count,
+                    filler_count=metrics.filler_count,
+                    metrics_json=_metrics_json(metrics, measured),
+                    metrics_version=metrics.metrics_version,
+                    self_reflection=inp.speech.reflection,
+                    created_at=_naive_now(self._clock),
+                )
+            )
+
+        recorded = AssessmentService(self._s, self._clock).record(assessment, with_assessment=add_practice)
+        self._all_progress = None
+        speaking = (
+            _speaking_out(inp.speech.source, metrics, measured)
+            if inp.speech is not None and metrics is not None
+            else None
+        )
+        return graded, recorded, speaking
+
+    def _completion_out(
+        self, item: ContentItem, graded: Graded, recorded: Any, speaking: SpeakingResultOut | None = None
+    ) -> CompletionOut:
         questions = []
         if graded.check is not None:
             questions = [
@@ -247,14 +366,15 @@ class LearningService:
             questions=questions,
             observation=recorded,
             progress=self._progress_out(self._progress(item.key).get(item.key)),
+            speaking=speaking,
         )
 
     def complete(self, key: str, inp: CompletionIn) -> CompletionOut:
         item = self._item(key)
         if item.type in lv.PROBLEM_TYPES:
             raise _invalid("Guided and timed problems are recorded from the problem page.")
-        graded, recorded = self._record(item, inp)
-        return self._completion_out(item, graded, recorded)
+        graded, recorded, speaking = self._record(item, inp)
+        return self._completion_out(item, graded, recorded, speaking)
 
     # ---------------------------------------------------------------------------------------- problems
     def _attempt_facts(self, problem_ids: Sequence[int]) -> dict[int, list[AttemptFact]]:
@@ -391,7 +511,9 @@ class LearningService:
             {
                 str(r["round_type"])
                 for r in profile.get("interview_loop", [])
-                if r.get("round_type") and summary.component in (r.get("components") or [])
+                if r.get("round_type")
+                and not is_optional_communication_skill(key)  # D-087: not a technical round skill
+                and summary.component in (r.get("components") or [])
             }
         )
         tiers = profile.get("tiers", {})
@@ -506,6 +628,7 @@ class LearningService:
                 content_key=s.content_key,
                 content_type=s.content_type,
                 problem_id=s.problem_id,
+                optional=s.optional,
             )
             for s in steps
         ]
@@ -529,14 +652,66 @@ class LearningService:
             for p in sorted(problems, key=lambda p: p.id)
         ]
         attempted = set(self._attempt_facts([p.id for p in problems]))
-        return compose_session(
+        done = frozenset(k for k, p in progress.items() if p.completions)
+        base = dict(
             stage=stage,
             content=learning.for_skill(key),
             problems=options,
-            done=frozenset(k for k, p in progress.items() if p.completions),
+            done=done,
             attempted=attempted,
             budget_minutes=budget,
         )
+        steps = compose_session(**base)  # type: ignore[arg-type]
+        explain = self._explain_candidate(key, stage, budget, steps, done)
+        if explain is None:
+            return steps
+        return compose_session(**base, explain=explain)  # type: ignore[arg-type]
+
+    # ------------------------------------------------------------------------ cross-track communication
+    def _explain_candidate(
+        self, key: str, stage: str, budget: int | None, steps: Sequence[Any], done: frozenset[str]
+    ) -> ExplainCandidate | None:
+        """D-087: the optional "explain it aloud" prompt for a technical session, if one applies."""
+        if not steps or is_communication_skill(key):
+            return None
+        spec = self.skills().get(key)
+        if spec is None:
+            return None
+        candidates = [
+            ExplainCandidate(c.key, c.title, c.minutes, c.skills[0], tuple(c.body["explains"]), c.position)
+            for c in self.learning().content
+            if c.type == "interview_question" and c.body.get("explains")
+        ]
+        if not candidates:
+            return None
+        used = sum(s.minutes for s in steps if s.kind != "REFLECTION")
+        room = None if budget is None else max(0, budget - used)
+        return pick_explain_item(
+            skill=key,
+            component=spec.component,
+            stage=stage,
+            candidates=candidates,
+            done=done,
+            recent_skills=self._recent_communication_skills(candidates),
+            room_minutes=room,
+        )
+
+    def _recent_communication_skills(self, candidates: Sequence[ExplainCandidate]) -> frozenset[str]:
+        tz = ActivityRepository(self._s).timezone() or FALLBACK_TIMEZONE
+        today = local_date(self._clock.now_utc(), tz).toordinal()
+        progress = self._progress()
+        last: dict[str, int | None] = {}
+        for c in self.learning().content:
+            p = progress.get(c.key)
+            if p is None or p.last_on is None or c.skills[0] not in {x.skill for x in candidates}:
+                continue
+            ordinal = p.last_on.toordinal()
+            last[c.skills[0]] = max(ordinal, last.get(c.skills[0]) or 0)
+        return recent_communication_skills(last, today)
+
+    def _is_optional(self, skill_key: str, content_key: str | None) -> bool:
+        item = self.learning().by_key.get(content_key) if content_key else None
+        return bool(item) and is_optional_step(skill_key, bool(item.body.get("explains")))  # type: ignore[union-attr]
 
     # ------------------------------------------------------------------------------------- curriculum
     def _coverage_rows(self) -> tuple[Any, ...]:
@@ -593,6 +768,7 @@ class LearningService:
                 if c.type in MOCK_TYPES
                 and skills.get(c.primary_skill) is not None
                 and skills[c.primary_skill].component in components
+                and not is_optional_communication_skill(c.primary_skill)  # D-087: comm.* is not a loop round
                 and (c.time_limit_seconds is not None or c.type == "timed_problem")
             ]
             candidates.sort(key=lambda c: (rank.get(c.primary_skill, 9999), c.position))
@@ -729,6 +905,7 @@ class LearningService:
                     points=s.points,
                     passed=s.passed,
                     reflection=s.reflection,
+                    optional=self._is_optional(skill.skill_key, s.content_key),
                 )
                 for s in steps
             ],
@@ -773,7 +950,11 @@ class LearningService:
             if existing is not None and existing.status == "ACTIVE":
                 return self.session(existing.id)
         active = self._repo.active_session(skill_id)
-        if active is not None:
+        if active is not None and not (
+            inp.plan_item_id is not None
+            and active.plan_item_id != inp.plan_item_id
+            and self._settle_stale_session(active)
+        ):
             return self.session(active.id)  # resume: one active session per skill
         gap = self._evidence.gaps().get(skill_id)
         stage = inp.stage or (plan_item.stage if plan_item is not None and plan_item.stage else None)
@@ -854,8 +1035,8 @@ class LearningService:
             if inp.completion is None or step.content_key is None:
                 raise AppError(ErrorCode.VALIDATION_ERROR, "This step needs a completion.", 422)
             item = self._item(step.content_key)
-            graded, recorded = self._record(item, inp.completion)
-            completion = self._completion_out(item, graded, recorded)
+            graded, recorded, speaking = self._record(item, inp.completion)
+            completion = self._completion_out(item, graded, recorded, speaking)
             step.observation_type, step.observation_id = "ASSESSMENT", recorded.id
             step.points, step.passed = graded.points, graded.passed
         elif step.step_kind == "PROBLEM":
@@ -907,16 +1088,32 @@ class LearningService:
         return self.session(row.id)
 
     def _finish_if_done(self, row: LearningSession) -> None:
+        """A session completes when every step is done or skipped. Its plan item closes as soon as every
+        required step is: a cross-track "explain aloud" prompt is optional (D-087) and neither delays the
+        closure nor supplies the observation that closes it."""
         self._s.flush()
         steps = self._repo.steps(row.id)
+        skill = self._s.get(Skill, row.skill_id)
+        assert skill is not None
+        required = [s for s in steps if not self._is_optional(skill.skill_key, s.content_key)]
+        required_summary = summarize([StepState(s.position, s.status, s.points, s.passed) for s in required])
+        if required_summary.status != "COMPLETED":
+            return
+        self._close_plan_item(row, required)
         summary = summarize([StepState(s.position, s.status, s.points, s.passed) for s in steps])
         if summary.status != "COMPLETED":
             return
-        row.status, row.outcome, row.completed_at = "COMPLETED", summary.outcome, _naive_now(self._clock)
-        self._audit(row.id, "COMPLETE_LEARNING_SESSION", {"outcome": summary.outcome})
+        row.status, row.outcome, row.completed_at = (
+            "COMPLETED",
+            required_summary.outcome,
+            _naive_now(self._clock),
+        )
+        self._audit(row.id, "COMPLETE_LEARNING_SESSION", {"outcome": required_summary.outcome})
+
+    def _close_plan_item(self, row: LearningSession, required: Sequence[LearningSessionStep]) -> None:
         if row.plan_item_id is None:
             return
-        observed = [s for s in steps if s.observation_id is not None and s.observation_type]
+        observed = [s for s in required if s.observation_id is not None and s.observation_type]
         scored = [s for s in observed if s.passed is not None]
         last = (scored or observed)[-1] if observed else None
         item = self._s.get(PlanItemRow, row.plan_item_id)
@@ -927,3 +1124,21 @@ class LearningService:
             PlanService(self._s, self._clock).close_with_observation(
                 item, last.observation_type, last.observation_id
             )
+
+    def _settle_stale_session(self, row: LearningSession) -> bool:
+        """An old session whose required steps are done and only an optional prompt is left is finished when
+        the learner starts new work on the skill. Returns True when it was settled."""
+        steps = self._repo.steps(row.id)
+        skill = self._s.get(Skill, row.skill_id)
+        assert skill is not None
+        pending = [s for s in steps if s.status == "PENDING"]
+        if not pending or not all(self._is_optional(skill.skill_key, s.content_key) for s in pending):
+            return False
+        for s in pending:
+            s.status, s.completed_at = "SKIPPED", _naive_now(self._clock)
+        self._audit(
+            row.id, "SKIP_LEARNING_STEP", {"position": [s.position for s in pending], "reason": "STALE"}
+        )
+        self._finish_if_done(row)
+        self._s.flush()
+        return row.status != "ACTIVE"

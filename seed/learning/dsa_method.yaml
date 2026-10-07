@@ -1,7 +1,7 @@
 # Learning content: problem-solving method, complexity analysis and binary search. Exemplar file for authors.
 # Schema and quality bar: docs/domain/CONTENT_AUTHORING_GUIDE.md. Text uses the safe subset: paragraphs, "- " lists,
 # `inline code`, **bold** and fenced code blocks. Never paste a platform's problem statement: paraphrase.
-seed_version: seed-v2
+seed_version: seed-v3
 content:
 # ---------------------------------------------------------------------------------------------- complexity analysis
 - key: dsa.complexity.lesson
