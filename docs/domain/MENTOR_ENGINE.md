@@ -47,6 +47,7 @@ Same inputs give the same plan. `daily_plans.input_hash` records the hash of the
 - Once the battery is complete but < 60% of required skills are assessed:
   - diagnostics score at 100% of priority (normally 70%);
   - diagnostics may use up to 60% of the budget with no count limit.
+- **Hybrid day (D-086):** battery open **and** assessed required skills ≥ `CALIBRATION_MIN_ASSESSED_PCT` (phase `ENOUGH_MEASURED`). The plan then also contains the existing `GAP` candidates, capped at **one** GAP mission, packed first (before revisions and the battery); due revisions and the next battery items follow in their usual order and budget rules; no `DIAGNOSTIC`, `MAINTENANCE` or `MOCK` candidates; the `CALIBRATION` message rule does not fire (the normal rules choose the message). Below the threshold the battery-only plan above applies; with the battery complete the ordinary plan applies.
 - Feasibility parking (`GAP_ENGINE.md` §8) is inactive until ≥ 60% of required skills are assessed.
 
 **Prep phase behavior** (phase from `GAP_ENGINE.md` §2):

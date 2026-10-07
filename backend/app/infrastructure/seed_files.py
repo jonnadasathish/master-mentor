@@ -10,6 +10,10 @@ import yaml
 
 from app.domain.catalog import vocabulary as v
 
+# libyaml's safe loader parses the same documents about ten times faster (the learning catalog is ~2 MB of
+# YAML); the pure-Python SafeLoader is the fallback. Both build the same data, so fingerprints do not change.
+SAFE_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+
 
 class SeedFileError(Exception):
     """A seed file exists but cannot be parsed as YAML."""
@@ -18,7 +22,7 @@ class SeedFileError(Exception):
 def _load_yaml(path: Path) -> Any:
     try:
         with path.open(encoding="utf-8") as handle:
-            return yaml.safe_load(handle)
+            return yaml.load(handle, Loader=SAFE_LOADER)
     except yaml.YAMLError as exc:
         raise SeedFileError(f"{path.name}: invalid YAML: {exc}") from exc
 

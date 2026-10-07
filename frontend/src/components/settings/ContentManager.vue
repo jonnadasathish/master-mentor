@@ -10,7 +10,9 @@ const stories = ref<Story[]>([])
 const projects = ref<ProjectRecord[]>([])
 const prompts = ref<PromptRecord[]>([])
 const skills = ref<{ key: string; component: string }[]>([])
-const story = reactive({ title: '', situation: '', task: '', action: '', result: '', competency: '' })
+const story = reactive({
+  title: '', situation: '', task: '', action: '', result: '', metric: '', tradeoffs: '', learning: '', competency: '',
+})
 const project = reactive({ project_key: '', name: '', summary: '' })
 const prompt = reactive({ prompt_key: '', skill: '', kind: 'CONCEPT_EXPLAIN', prompt_text: '' })
 const message = ref('')
@@ -72,7 +74,9 @@ onMounted(async () => {
       class="card"
       data-testid="story-form"
       @submit.prevent="submit('/stories', { title: story.title, situation: story.situation, task: story.task,
-                                            action: story.action, result: story.result, competencies: [story.competency] },
+                                            action: story.action, result: story.result, metric: story.metric || null,
+                                            tradeoffs: story.tradeoffs || null, learning: story.learning || null,
+                                            competencies: [story.competency] },
                               'Story saved: its revision item starts tomorrow.')"
     >
       <label>Title <input
@@ -95,6 +99,21 @@ onMounted(async () => {
       <label>Result <textarea
         v-model="story.result"
         rows="1"
+      /></label>
+      <label>Metrics <input
+        v-model="story.metric"
+        maxlength="255"
+        placeholder="e.g. p95 latency 2 s → 300 ms"
+      ></label>
+      <label>Trade-offs <textarea
+        v-model="story.tradeoffs"
+        rows="1"
+        placeholder="What you weighed and gave up"
+      /></label>
+      <label>Reflection <textarea
+        v-model="story.learning"
+        rows="1"
+        placeholder="What you learned or would do differently"
       /></label>
       <label>Main competency
         <select

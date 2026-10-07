@@ -127,3 +127,7 @@ At 10 h/week, from a mixed baseline:
 | ~30–40 | Final simulations |
 
 That puts INTERVIEW_READY at roughly **8–10 months**. A target date sooner than this triggers CONSOLIDATE/SHARPEN parking and, if needed, `DEADLINE_INFEASIBLE`. The app's job is to make this estimate honest, not to shorten it by lowering the bar.
+
+## 6. Learning paths (MASTER_SPEC_V3, D-083)
+
+The milestones above order the tracks; `seed/learning/curriculum.yaml` orders the teaching inside them (tracks DSA, Python, CS fundamentals, LLD, System design, Practical engineering, Projects, Behavioral; topics in teaching order). Neither decides what comes first for a learner: the mentor's gap ranking does, prerequisites first (a weak prerequisite is taught before the downstream skill, never "Arrays because Arrays are first"). Each roadmap item's "why now" is the personal roadmap's reason plus, on the skill page, the learning session the mentor's stage opens.

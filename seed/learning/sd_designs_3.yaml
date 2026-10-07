@@ -1,0 +1,805 @@
+# Learning content: running the design round — deep dives and bottlenecks, trade-off articulation, time-boxing — and full designs (URL shortener, chat, food delivery).
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- deep dives and bottlenecks
+- key: sdx.deep_dive.lesson
+  type: lesson
+  title: Finding the bottleneck and running a deep dive
+  skills: [sd.deep_dive_bottlenecks, sd.capacity_estimation]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Follow the numbers to the component that breaks first, explain why it breaks, fix it, and name the next bottleneck your fix creates.
+    what: |-
+      A **bottleneck** is the component whose capacity limits the whole system: the first thing that saturates as load grows. A **deep dive** is the part of a design round where you leave the boxes-and-arrows level and go one or two layers down on one component: its data layout, its algorithm, its failure behaviour and its limits.
+
+      Bottlenecks come in a small number of shapes:
+
+      - **Single-writer limits**: one database primary, one leader, one partition taking all writes.
+      - **Hot keys or partitions**: a viral post, a celebrity account, a flash-sale product, a popular cache key.
+      - **Amplification**: fan-out (one write becomes a million), retries, N+1 queries, chatty service calls.
+      - **Resource ceilings**: CPU (transcoding, encryption), memory (connections, caches), disk IOPS, network bandwidth (video egress).
+      - **Contention**: row locks, distributed locks, connection pools.
+      - **External limits**: a payment provider's or SMS gateway's rate limit.
+    why: |-
+      A design that is correct at 100 requests per second can fall over at 10,000 in exactly one place. Interviewers use the deep dive to separate candidates who can draw a standard diagram from those who understand why it works. It is also where most of the round's signal comes from, because it cannot be memorised.
+    when: |-
+      After the high-level design is end to end (usually around minute 25 to 30 of 45). Pick the deep dive yourself unless the interviewer steers: the component with the highest load relative to its capacity, or the one where correctness is hardest (money, inventory, ordering). Also whenever the interviewer asks "what happens at 10 times the traffic?"
+    how: |-
+      1. **Put a number on every arrow.** From the estimates, write requests per second, bytes per second and storage for each component on the critical path, at peak.
+      2. **Compare with a rough per-node capacity, stated as an assumption.** For example: a single relational primary does thousands to low tens of thousands of simple writes per second depending on hardware and schema; one Redis node does on the order of 100,000 simple operations per second; one gateway holds tens of thousands to a few hundred thousand idle connections. Say "assume" and keep going; the interviewer cares about the reasoning.
+      3. **Find the first thing that breaks at the target load, then at 10 times it.** Prefer the shape that is hardest to scale horizontally: a single writer or a hot key, not a stateless tier that can just add instances.
+      4. **Explain the mechanism of the failure**: lock contention on one row, write amplification, a full connection pool, egress bandwidth.
+      5. **Fix it with a named technique**: shard or partition, cache, batch, pre-compute, make asynchronous, split the hot key, sample, move to a CDN.
+      6. **Name the cost and the next bottleneck.** Sharding a counter makes reads sum N rows; caching adds staleness; async adds lag and a queue to monitor.
+      7. **Close with failure behaviour** of the component you dived into: what happens when it is slow or down.
+    mental_model: |-
+      Water through pipes: the flow is limited by the narrowest pipe. Widening any other pipe changes nothing. So measure each pipe (the numbers on the arrows), find the narrowest, widen it, and look again, because now a different pipe is the narrowest.
+    tradeoffs: |-
+      Every bottleneck fix moves cost somewhere: sharding moves complexity into routing, cross-shard queries and rebalancing; caching trades freshness and invalidation work for read capacity; batching trades latency for throughput; asynchrony trades immediate consistency for smoothness under load; sampling trades completeness for bounded cost. A good deep dive states which of these the requirements can afford.
+    mistakes:
+      - Deep diving on the easy part (adding more stateless app servers) instead of the stateful or hot part.
+      - Declaring a bottleneck without numbers ("the database might be slow").
+      - Scaling everything at once instead of the one component that limits throughput.
+      - Fixing a hot key by sharding the whole table by a different key, which does not split the hot key.
+      - Stopping after the fix without naming the new cost or next limit.
+      - Spending the deep dive reciting a technology's features instead of the data flow.
+    interview: |-
+      A good deep dive sounds like: "At peak this is 50,000 increments a second on one row. Row-level locking serialises them, so it saturates long before that. I'll split the counter into 64 sub-rows and pick one at random per increment; reads sum 64 rows, which I cache for a second. The new cost is read work and a count that can be one second stale, which the product accepts." Expect the interviewer to push on the next layer ("and if one sub-row is still hot?").
+    explain_it:
+      - State the load on the component with a number.
+      - State its capacity as an explicit assumption.
+      - Explain the mechanism that makes it saturate.
+      - Name the fix and why it removes that mechanism.
+      - State the new cost and the next bottleneck.
+    edge_cases:
+      - "Skew: average load per shard looks fine while one shard holds a celebrity and is ten times hotter."
+      - "Time skew: daily peaks, launches and campaigns; size for peak, not average."
+      - A bottleneck that only appears during recovery (cache cold start, reconnect storms, backlog replay).
+    misconceptions:
+      - "Horizontal scaling fixes everything. It fixes stateless tiers; single writers, hot keys and external rate limits need design changes."
+
+- key: sdx.deep_dive.worked
+  type: worked_example
+  title: "Worked example: deep dive on a like counter for a viral post"
+  skills: [sd.deep_dive_bottlenecks, sd.caching, sd.queues_async]
+  minutes: 15
+  difficulty: MEDIUM
+  body:
+    problem: A social app stores likes as rows and a per-post counter column. A post goes viral and receives about 50,000 likes per second at peak. Walk through the deep dive the way you would say it in a round.
+    steps:
+      - title: Put numbers on the path
+        text: "Each like does two writes: insert a `(post_id, user_id)` row for de-duplication and `UPDATE posts SET likes = likes + 1 WHERE id = ?`. At 50,000 per second both land on one post. The insert rows spread across a primary key index, but the counter update hits one row."
+        code:
+          language: sql
+          code: |-
+            INSERT INTO likes (post_id, user_id) VALUES (:post, :user);   -- unique (post_id, user_id)
+            UPDATE posts SET like_count = like_count + 1 WHERE id = :post;  -- one hot row
+      - title: Explain the mechanism
+        text: "Updates to one row take that row's lock for the duration of the transaction, so they run one at a time. If each holds the lock for even 1 ms including commit, the row tops out around 1,000 updates per second; the rest queue, connection pools fill, and every endpoint sharing the database slows down. The problem is the hot key, not the database size."
+      - title: First fix, split the counter
+        text: "Keep N sub-counters per post (say 64) and increment a random one. Contention per row drops by 64 times. Reading the count sums 64 rows; cache that sum for about a second, since nobody needs an exact live like count."
+        code:
+          language: sql
+          code: |-
+            UPDATE post_like_shards SET n = n + 1 WHERE post_id = :post AND shard = :random_0_to_63;
+            SELECT SUM(n) FROM post_like_shards WHERE post_id = :post;   -- cached ~1 s
+      - title: Second fix, take the counter off the request path
+        text: "Write the like event to a partitioned log keyed by post id; a consumer aggregates per post in memory for one second and applies one `+k` update per post per second. 50,000 row updates per second become one. Cost: the count lags by a second or two, and the consumer must handle replays (store the last applied log offset with the count so a restart does not double-add)."
+      - title: Name the next bottleneck
+        text: "The `(post_id, user_id)` de-duplication insert is now the heaviest write. It is spread by user id within the post's index, so it parallelises better, but if the likes table is sharded by post id, one shard takes all 50,000 inserts per second. Option: shard the likes table by `(post_id, user_id)` hash, keeping de-duplication local to the row, and serve 'did I like this' from that row."
+      - title: Close with failure behaviour
+        text: "If the aggregator falls behind, counts lag but likes are not lost because the log is durable; alert on consumer lag in seconds. If the log is unavailable, fall back to the sharded direct update for a while, accepting more database load."
+    takeaways:
+      - A single hot row caps throughput at roughly one over the lock hold time, regardless of hardware size.
+      - Split the hot key (sub-counters) or batch it (aggregate then apply) and accept a little staleness.
+      - Every fix moves the bottleneck; say where it went.
+    complexity: Read cost grows from one row to N sub-rows (cached); write contention per row falls by N; batching turns W writes per second into one per post per flush interval.
+
+- key: sdx.deep_dive.check
+  type: concept_check
+  title: "Concept check: bottlenecks and deep dives"
+  skills: [sd.deep_dive_bottlenecks]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Find the narrowest pipe before you pick a fix.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "A design has stateless API servers behind a load balancer, a Redis cache with a 95% hit rate, and one PostgreSQL primary for writes. Writes are 300 per second today and the interviewer asks about 30 times growth. Where should the deep dive go?"
+        options:
+          - The API servers, because they handle every request
+          - The PostgreSQL primary, because 9,000 writes per second on one writer is the limit that cannot be fixed by adding instances
+          - The load balancer
+          - The cache hit rate
+        answer: [1]
+        explanation: "Stateless servers and load balancers scale out by adding instances. A single writer cannot, so at 9,000 writes per second the primary (and its replication) is the component that needs a design change: partitioning, batching or moving some writes elsewhere."
+      - id: q2
+        kind: single
+        prompt: Likes are stored in a table sharded by post_id across 32 shards. One post receives 40,000 likes per second. What happens?
+        options:
+          - Load spreads evenly across 32 shards
+          - One shard receives all 40,000 writes per second, because every like for that post hashes to the same shard
+          - The database rebalances automatically within seconds
+          - Nothing, because inserts do not contend
+        answer: [1]
+        explanation: "Sharding by the hot key keeps the hot key on one shard. Sharding spreads many keys, not one hot key; you need to split the key itself (sub-keys, batching)."
+      - id: q3
+        kind: multi
+        prompt: Which are valid ways to relieve a hot counter?
+        options:
+          - Split it into N sub-counters and sum them on read
+          - Aggregate increments in a stream consumer and apply them in batches
+          - Increase the database server's RAM
+          - Serve an approximate count from a short-lived cache
+        answer: [0, 1, 3]
+        explanation: "Splitting and batching attack the single-row lock directly, and caching the read side removes repeated sums. More RAM does not help: the limit is serialised updates to one row, not memory."
+      - id: q4
+        kind: single
+        prompt: An updated row's lock is held for about 2 ms per transaction. Roughly what is the most updates per second that row can take?
+        options: ["About 50", "About 500", "About 5,000", "About 50,000"]
+        answer: [1]
+        explanation: "Serialised updates of 2 ms each allow about 1,000 ms / 2 ms = 500 per second. Adding CPU cores does not raise this, because the updates cannot run in parallel on the same row."
+      - id: q5
+        kind: single
+        prompt: After you cache video metadata and move video bytes to a CDN, what is usually the next thing to examine in a video platform?
+        options:
+          - The metadata database's read rate
+          - Transcoding throughput and the upload pipeline, which now dominate cost and delay for new videos
+          - The load balancer's TLS settings
+          - DNS resolution time
+        answer: [1]
+        explanation: "With reads absorbed by cache and CDN, the heavy remaining work is compute: transcoding every upload into several renditions. That is where queues, chunking and parallelism matter. Metadata reads were the thing just fixed."
+      - id: q6
+        kind: short
+        prompt: The interviewer says "your design handles today's load; what breaks first at 10 times?" Describe how you answer, in steps.
+        model_answer: "Multiply the peak numbers on each arrow by ten and compare each component with a stated per-node capacity. Skip stateless tiers that scale out. Identify the first single writer, hot key, amplification point or resource ceiling that exceeds its capacity, explain the mechanism (lock contention, bandwidth, pool exhaustion), propose a fix (partition, split the key, batch, cache, async, CDN) and state its cost and the next bottleneck."
+        explanation: The answer is a method driven by numbers; naming a fix without the arithmetic is the common miss.
+
+- key: sdx.deep_dive.interview
+  type: interview_question
+  title: "Interview question: what breaks first at ten times the traffic?"
+  skills: [sd.deep_dive_bottlenecks, sd.database_scaling, sd.caching]
+  minutes: 15
+  difficulty: HARD
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    prompt: |-
+      You have designed an event-ticketing site: stateless web servers, a Redis cache for event pages, and one PostgreSQL primary (with two read replicas) storing events, seats and orders. Normal peak is 2,000 page views and 50 seat purchases per second. A famous artist's tour goes on sale and you expect 200,000 page views and 5,000 purchase attempts per second for one event, for about ten minutes. Walk through what breaks first and how you would change the design.
+    key_points:
+      - "Uses numbers: page views are absorbed by cache and CDN, so the first real limit is 5,000 purchase attempts per second contending on the seat rows of one event in one primary."
+      - "Explains the mechanism: conditional updates or row locks on the same few thousand seats, plus connection pool exhaustion, cause timeouts and retries that make it worse."
+      - "Introduces admission control: a virtual waiting room that admits buyers at the rate the purchase path can handle, issuing time-limited tokens."
+      - "Makes seat holds cheap and short: a conditional update (`WHERE status = 'FREE'`) or an in-memory per-event allocator, with hold expiry, and payment completed off the hot path."
+      - "Names the cost and next bottleneck: fairness and queue position, the payment provider's rate limit, and what happens if the waiting room itself fails."
+    model_answer: |-
+      Page views first: event pages are the same for everyone, so they come from the CDN and cache; the 200,000 per second barely reach the origin. The real limit is the purchase path: 5,000 attempts per second on one event's seats in one primary. Every attempt locks or conditionally updates seat rows; buyers converge on the best seats, so contention is high, transactions wait, connection pools fill and timeouts trigger retries.
+
+      I would add a waiting room in front of the purchase path that admits buyers at a measured rate, say 500 per second, with a signed time-limited admission token checked by the purchase API. Seat holds become a single conditional update that marks a seat held with an expiry, so a transaction is a few milliseconds; payment happens after the hold, outside the seat transaction. If the seat table still contends, partition the event's seats into sections each owned by one allocator. The next limits are the payment provider's rate (which I check and request in advance, and queue against) and the waiting room itself, which must be static and CDN-friendly so it does not become the new hot spot.
+    pitfalls:
+      - Scaling web servers and calling it done.
+      - Proposing eventual consistency for seat holds, which allows double selling.
+      - Holding seat locks across the payment call.
+    follow_ups:
+      - prompt: How do you keep the waiting room fair?
+        look_for: "Assign a random or arrival-ordered position when the sale opens, issue signed tokens, rate-limit per user and device, and detect bots."
+      - prompt: Payment fails for a held seat. What happens to the seat?
+        look_for: "The hold expires or is released explicitly, the seat returns to the pool, and the next admitted buyer can take it; holds always have a TTL."
+      - prompt: Could you avoid the database for holds entirely?
+        look_for: "An in-memory allocator per event or section (single owner, persisted log) can be faster, at the cost of failover complexity; fencing on the owner."
+
+- key: sdx.deep_dive.cards
+  type: revision_card
+  title: "Recall: bottlenecks"
+  skills: [sd.deep_dive_bottlenecks]
+  minutes: 5
+  body:
+    cards:
+      - front: First step of a deep dive?
+        back: Put a peak number on every arrow of the critical path.
+      - front: Which tiers rarely deserve the deep dive?
+        back: Stateless ones; they scale by adding instances.
+      - front: Max updates per second on one row?
+        back: Roughly 1 second divided by the lock hold time.
+      - front: Two fixes for a hot counter?
+        back: Split it into sub-counters, or batch increments through a stream.
+      - front: Does sharding by the hot key help?
+        back: No; the hot key still lands on one shard.
+      - front: How do you end a deep dive?
+        back: State the fix's cost and the next bottleneck.
+
+# ---------------------------------------------------------------------------------------------- trade-off articulation
+- key: sdx.tradeoffs.lesson
+  type: lesson
+  title: Articulating and defending trade-offs
+  skills: [sd.tradeoff_articulation]
+  minutes: 20
+  difficulty: MEDIUM
+  body:
+    summary: State the choice, the requirement that drove it, the cost you accept and the condition that would change your mind; then defend it with numbers, not volume.
+    what: |-
+      A trade-off is a choice where improving one property makes another worse: consistency against latency, read speed against write cost, simplicity against scale. **Articulating** it means making the choice explicit and tying it to a requirement. **Defending** it means holding a reasoned position when the interviewer pushes, and changing it only when the requirement or the numbers change.
+
+      Recurring axes in design rounds:
+
+      - Consistency vs latency and availability (strong vs eventual, sync vs async replication).
+      - Read cost vs write cost (fan-out on write vs read, denormalisation, indexes, materialised views).
+      - Freshness vs load (cache TTLs, pre-computation).
+      - Latency vs throughput (batching).
+      - Exactness vs cost (approximate counts, sampling, probabilistic structures).
+      - Relational vs key-value or wide-column storage (query flexibility and transactions vs horizontal write scale).
+      - Synchronous vs asynchronous processing (immediate result vs resilience and smoothing).
+      - Simplicity and time to build vs scale headroom.
+    why: |-
+      There is rarely one right design; interviewers grade whether your choices follow from the requirements and whether you know what they cost. "It depends" without saying on what gives no signal. A clear trade-off statement also protects you: if the interviewer changes a requirement, you know exactly which decision to revisit.
+    when: |-
+      At every significant decision: storage choice, consistency level, sync vs async, push vs pull, cache strategy, ID generation. Summarise the two or three most important ones in the last minutes of the round.
+    how: |-
+      **Use a four-part sentence**:
+
+      1. **Choice**: "I'll use fan-out on write for feeds…"
+      2. **Driver**: "…because reads outnumber writes by about 100 to 1 and feed latency is the main requirement…"
+      3. **Cost and mitigation**: "…the cost is write amplification and storage, worst for accounts with millions of followers, so those are pulled at read time…"
+      4. **Revisit condition**: "…if most users followed very large accounts, I'd move to pull-based feeds with a ranking cache."
+
+      **When challenged**:
+
+      - Restate the requirement you optimised for and check it is still the requirement ("are we still assuming reads dominate?").
+      - Acknowledge what is valid in the challenge ("yes, write amplification is real").
+      - Quantify ("300 followers on average means about 6 billion inserts a day, around 70,000 per second; that is fine for a partitioned store").
+      - Either hold ("so I'd keep it") or adapt with a reason ("if the average were 5,000 followers I would switch"). Changing your answer because a requirement changed is a strength; changing it because the interviewer frowned is not.
+
+      **Compare at least two real options.** Name the alternative you rejected and why. A trade-off with only one option is just a decision.
+    mental_model: |-
+      Every decision is a purchase: you pay with one property to buy another. Say what you bought, what you paid, why the requirements make that a good price, and what price change would make you buy something else.
+    tradeoffs: |-
+      Spending time on trade-offs costs time for breadth: in a 45-minute round, two or three well-defended trade-offs beat ten superficial ones. Hedging every decision sounds careful but signals indecision; committing too hard sounds confident but brittle. The balance is commit, cost, condition.
+    mistakes:
+      - "\"It depends\" without naming on what."
+      - Listing pros and cons of a technology without connecting them to this system's requirements.
+      - Picking technologies by brand ("Kafka because it scales") instead of by property.
+      - Abandoning a sound choice at the first push, or defending a wrong one after the requirement changed.
+      - Only one option considered, so there is no trade-off to articulate.
+      - Claiming a choice has no downside.
+    interview: |-
+      Interviewers deliberately push on a choice ("why not just use a relational database?", "isn't that eventually consistent?") to see whether you reason or fold. They look for: the requirement behind the choice, a named and quantified cost, a credible alternative and the condition for switching. A crisp summary in the final minutes ("the three trade-offs I made were…") is a strong close.
+    explain_it:
+      - Name the choice and at least one alternative.
+      - Tie the choice to a specific requirement or number.
+      - State the cost and how you contain it.
+      - State the condition under which you would switch.
+      - When challenged, acknowledge, quantify, then hold or adapt.
+    edge_cases:
+      - "Both options meet the requirements: choose the simpler one and say so."
+      - "A requirement is unknown: state the assumption, choose, and say what answer would flip the decision."
+    misconceptions:
+      - "Defending a trade-off means never changing your mind. It means changing it for a reason you can state."
+
+- key: sdx.tradeoffs.worked
+  type: worked_example
+  title: "Worked example: defending a storage choice under pushback"
+  skills: [sd.tradeoff_articulation, sd.data_modeling, sd.database_scaling]
+  minutes: 12
+  difficulty: MEDIUM
+  body:
+    problem: In a food-ordering design you chose PostgreSQL for orders. The interviewer asks "why not Cassandra? It scales better." Walk through a defence using the four-part statement, then show how a changed requirement would change the answer.
+    steps:
+      - title: Restate the requirement and the numbers
+        text: "\"Orders are about 2 million a day, roughly 25 per second on average and about 150 at dinner peak, with a state machine (placed, accepted, picked up, delivered, refunded) and payments tied to each transition. The access patterns are by order id, by customer and by restaurant for recent orders.\""
+      - title: State the choice with its driver
+        text: "\"I picked PostgreSQL because state transitions must be atomic with payment and ledger records, and I want constraints and transactions to enforce that. 150 writes per second is comfortably within one primary's capacity, with replicas for reads.\""
+      - title: Acknowledge the challenge and name the cost
+        text: "\"Cassandra would give easier horizontal write scaling and multi-region writes. The cost of my choice is a single write primary and manual sharding if we grow by a couple of orders of magnitude. I contain it by partitioning by region or city early, which also matches how the business operates.\""
+      - title: State the revisit condition
+        text: "\"If we needed tens of thousands of order writes per second, or active-active writes across regions, I would move the order event history to a partitioned store keyed by order id and keep the transactional core small. Courier location updates are already in a different store, because they are 40,000 writes per second of data where only the latest value matters.\""
+      - title: Adapt when the requirement really changes
+        text: "Interviewer: \"Assume each order now produces 50 status events per second for live tracking.\" Response: \"Then tracking events are a different workload: high volume, append-only, and losing one is harmless. I'd send them to a log and a time-series or wide-column store, and keep PostgreSQL for the order state machine. The original choice still holds for the part it was made for.\""
+    takeaways:
+      - Defend with the requirement and the numbers, not with the technology's reputation.
+      - Acknowledge the real advantage of the alternative before explaining why it does not matter here.
+      - When a requirement changes, adapt the part of the design it touches, not everything.
+
+- key: sdx.tradeoffs.check
+  type: concept_check
+  title: "Concept check: articulating trade-offs"
+  skills: [sd.tradeoff_articulation]
+  minutes: 8
+  difficulty: MEDIUM
+  body:
+    intro: Choose the answer you would want to hear from a candidate.
+    questions:
+      - id: q1
+        kind: single
+        prompt: Which statement is the strongest trade-off articulation for using a cache in front of a product catalog?
+        options:
+          - "Caching is best practice for read-heavy systems."
+          - "I cache product pages for 60 s because reads are about 200 times writes and page latency matters; a price change can show for up to a minute, so checkout re-reads price from the database; if pricing had to be instantly consistent on the page I'd invalidate on write instead."
+          - "Redis is fast, so I'll use it."
+          - "It depends on the requirements."
+        answer: [1]
+        explanation: "It has the choice, the driver with a number, the cost with a mitigation and the revisit condition. The other options are a slogan, a brand and a non-answer."
+      - id: q2
+        kind: single
+        prompt: "You proposed asynchronous order processing. The interviewer says: 'The user must see a confirmation number immediately.' What is the best response?"
+        options:
+          - Switch the whole pipeline to synchronous processing
+          - Insist that asynchronous is better for scale
+          - Create the order record and its id synchronously and return it, and keep the slow downstream steps (email, fulfilment, analytics) asynchronous
+          - Return a fake confirmation number and fix it later
+        answer: [2]
+        explanation: "The new requirement touches only the creation step, so adapt that part. Switching everything gives up resilience for no reason; refusing to adapt ignores a real requirement."
+      - id: q3
+        kind: multi
+        prompt: Which belong in a complete trade-off statement?
+        options:
+          - The requirement or number that drove the choice
+          - The cost you accept and how you contain it
+          - A popular company that uses the same technology
+          - The condition under which you would choose differently
+        answer: [0, 1, 3]
+        explanation: "Driver, cost and revisit condition make the decision checkable. Naming a company that uses a technology says nothing about your requirements, and claims about specific companies are often wrong."
+      - id: q4
+        kind: single
+        prompt: Two options both meet every stated requirement. One is simpler to build and operate. What should you say?
+        options:
+          - Pick the more scalable one in case of future growth
+          - Pick the simpler one, say why it is sufficient with numbers, and say what growth would justify the other
+          - Present both and let the interviewer choose
+          - Pick whichever you have used before
+        answer: [1]
+        explanation: "Simplicity is a real benefit when requirements are met; say what would change the decision. Over-building for hypothetical growth costs complexity now; deferring to the interviewer avoids the decision being assessed."
+      - id: q5
+        kind: short
+        prompt: Write a four-part trade-off statement for choosing fan-out on read for a news feed.
+        model_answer: "I'll build feeds at read time by merging recent posts from followed accounts, because many users follow very large accounts and fan-out on write would mean millions of inserts per post. The cost is slower, more expensive reads, which I contain with a per-user feed cache of a few minutes and pre-computed recent posts per author. If most authors had small audiences and read latency became the main requirement, I'd switch to fan-out on write with a pull path for large accounts."
+        explanation: The statement names choice, driver, cost with mitigation and switch condition, which is the pattern to practise.
+
+- key: sdx.tradeoffs.interview
+  type: interview_question
+  title: "Interview question: stale prices on a cached page"
+  skills: [sd.tradeoff_articulation, sd.caching, sd.consistency_cap]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: |-
+      In your e-commerce design you cache rendered product pages for 60 seconds at the CDN. The interviewer says: "Pricing says prices must never be stale; a customer saw an old price and complained." Defend or adapt your design. Make your trade-offs explicit.
+    key_points:
+      - "Clarifies the real requirement: the price charged must be correct, versus the price displayed must be correct, and whether a short display lag with a guarantee at checkout is acceptable."
+      - "Separates the volatile price from the cacheable page: cache the page without the price and fetch the price from a fast, short-lived source, or purge the CDN on price change."
+      - "Guarantees correctness at checkout: price is re-read from the source of truth and the customer is shown any change before paying."
+      - "Quantifies the cost of each option (origin load if not cached, purge volume per price change, latency of a separate price call)."
+      - "States the revisit condition, for example frequent flash pricing where purge volume becomes too high."
+    model_answer: |-
+      First I'd clarify: is the issue the price charged or the price displayed? The charge must always be correct, and in my design checkout already re-reads price from the pricing service and shows a change before payment, so no one is charged an old price. If displayed prices must also be fresh, I would not drop caching: product pages are about 200 reads per write. Instead I'd take price out of the cached HTML and load it from a pricing endpoint with a cache of a second or two, or purge the CDN for that product on every price change. Purging is simplest when changes are rare (a few thousand a day is fine); a separate price call costs one extra request per page view but scales to frequent changes. The trade-off is a little more latency or purge traffic for display freshness; I'd revisit if prices changed thousands of times per second, where per-request pricing with a local cache would be better.
+    pitfalls:
+      - Removing the cache entirely, multiplying origin load.
+      - Not distinguishing displayed price from charged price.
+      - Promising zero staleness on a distributed cache without a mechanism.
+    follow_ups:
+      - prompt: A purge reaches CDN edges over several seconds. Is that acceptable?
+        look_for: "Yes for display, because checkout guarantees the charged price; if not, use the separate price call."
+      - prompt: Who decides whether the trade-off is acceptable?
+        look_for: "The product or business owner, informed by the cost numbers; the engineer frames the options."
+
+- key: sdx.tradeoffs.cards
+  type: revision_card
+  title: "Recall: trade-off statements"
+  skills: [sd.tradeoff_articulation]
+  minutes: 5
+  body:
+    cards:
+      - front: Four parts of a trade-off statement?
+        back: Choice, driver, cost with mitigation, revisit condition.
+      - front: First move when challenged?
+        back: Restate the requirement you optimised for and check it still holds.
+      - front: When should you change your answer?
+        back: When a requirement or number changes, not when the interviewer frowns.
+      - front: Two options both meet the requirements?
+        back: Choose the simpler one and say what would justify the other.
+      - front: Why is "it depends" weak?
+        back: It hides the variable; say what it depends on and pick.
+
+# ---------------------------------------------------------------------------------------------- time-boxing the round
+- key: sdx.time_boxing.lesson
+  type: lesson
+  title: Driving a 45-minute system design round
+  skills: [sd.time_boxing, sd.requirements_scoping]
+  minutes: 20
+  difficulty: MEDIUM
+  body:
+    summary: Split 45 minutes into fixed boxes, announce transitions, keep a parking lot, and make sure you reach the deep dive and failure modes.
+    what: |-
+      Time-boxing is planning the round's minutes before you start and steering by them: each step of the design gets a budget, you check the clock at transitions, and you cut or defer when a step runs long. A typical 45-minute plan (adjust to what the interviewer signals):
+
+      ```text
+      00-05  requirements: functional, non-functional, scope, users
+      05-08  estimates that drive decisions (peak QPS, storage, bandwidth)
+      08-12  API: main endpoints or events, with request and response shape
+      12-17  data model and storage choice
+      17-27  high-level architecture, walked end to end for the main flows
+      27-39  deep dive: one or two components (bottleneck, consistency, scale)
+      39-43  failure modes, observability, security in brief
+      43-45  summary of key trade-offs; questions
+      ```
+    why: |-
+      The most common way to fail a design round is not a wrong idea but running out of time: twenty minutes on requirements, or a perfect API and no architecture. The deep dive and failure handling carry most of the signal, and they come last, so they are what gets cut when time is lost.
+    when: |-
+      Every round. Announce the plan in one sentence at the start ("I'll spend a few minutes on requirements and scale, then API and data, the high-level design, and then go deep on the hardest part"), and use the plan to steer when you notice drift.
+    how: |-
+      - **Clarify fast**: three to six questions that change the design (scale, read/write ratio, consistency needs, real-time needs, geography). Write down the answers as a short list everyone can see.
+      - **Estimate only what decides something**: if storage is 3 TB, say "fits a few machines" and move on; do not compute ten numbers.
+      - **API and data model briefly**: the two or three core endpoints and tables or keys, not every field.
+      - **Go end to end before going deep**: a complete simple design beats a half-finished sophisticated one. Walk one request through it.
+      - **Choose the deep dive deliberately**: "the hardest part here is X; shall I go deep there?" Let the interviewer redirect.
+      - **Parking lot**: when a side topic appears (analytics, admin tools, internationalisation), say "I'll note that and come back if we have time" and write it down.
+      - **Checkpoints**: at about minute 15 you should have requirements, estimates and API; at about minute 27, a complete high-level design. If behind, compress the next step, not the deep dive.
+      - **Follow the interviewer**: if they steer, the steer is the priority; re-plan aloud ("then I'll skip the detailed schema and go to the matching service").
+    mental_model: |-
+      A flight plan with waypoints. You know where you should be at each checkpoint; if you are behind, you shorten the next leg rather than skipping the destination. The destination is the deep dive and failure modes.
+    tradeoffs: |-
+      Rigid boxes can cut off a promising discussion; no boxes lets one step eat the round. Use boxes as defaults and break them on purpose when the interviewer is clearly interested, saying so aloud. Breadth versus depth: a round with everything shallow shows little; a round that only goes deep on one detail shows no system thinking. Aim for one complete pass, then depth.
+    mistakes:
+      - Ten minutes or more of requirements questions, including ones that do not change the design.
+      - Computing every estimate to three significant figures.
+      - Designing the full schema with every column before the architecture exists.
+      - Starting the deep dive before the design is end to end.
+      - Never mentioning failure modes or observability because time ran out.
+      - Ignoring the interviewer's steer to finish your own plan.
+      - Long silences while drawing; narrate as you go.
+    interview: |-
+      Interviewers rarely state the plan for you; driving the round is part of what is assessed at SDE-2 level. They note whether you reached a complete design, whether you chose the deep dive sensibly, and whether you managed the clock without being prompted. Mentioning the plan up front and checking in at transitions ("I have the high-level design; I'd like to go deep on dispatch, unless you'd prefer something else") reads as senior.
+    explain_it:
+      - State the time plan in one sentence at the start.
+      - List the requirements and assumptions in writing.
+      - Announce each transition and check time.
+      - Name the deep dive and why it is the hardest part.
+      - Reserve the last minutes for failures, observability and a trade-off summary.
+    edge_cases:
+      - "A 60-minute round: lengthen the deep dive (two components) rather than the requirements."
+      - "An interviewer who drives with many questions: answer, then steer back to the plan at the next pause."
+      - "A very small problem: finish quickly, then add scale or a new requirement yourself and design for it."
+
+- key: sdx.time_boxing.check
+  type: concept_check
+  title: "Concept check: managing the clock in a design round"
+  skills: [sd.time_boxing]
+  minutes: 8
+  difficulty: EASY
+  body:
+    intro: Pick what you would actually do in the room.
+    questions:
+      - id: q1
+        kind: single
+        prompt: It is minute 20 of 45 and you are still refining the data model. What do you do?
+        options:
+          - Finish every table and index first, because the data model is the foundation
+          - Say you will keep the core tables as they are, sketch the high-level architecture end to end now, and return to the schema if the deep dive needs it
+          - Skip straight to the deep dive
+          - Ask the interviewer for more time
+        answer: [1]
+        explanation: "Without an end-to-end design, the deep dive has nothing to attach to and the round has no complete answer. Compress the step you are on, not the steps that carry the most signal."
+      - id: q2
+        kind: multi
+        prompt: Which clarifying questions are usually worth asking in the first five minutes?
+        options:
+          - Expected scale (users, requests per second, data size)
+          - Read to write ratio and latency targets
+          - Which programming language the team prefers
+          - Consistency needs for the core operation (can it be stale, can it be duplicated)
+        answer: [0, 1, 3]
+        explanation: "Scale, ratio and consistency change the architecture. Language preference rarely changes a high-level design and spends time that is better used elsewhere."
+      - id: q3
+        kind: single
+        prompt: The interviewer interrupts your plan and asks how you would handle a region failure. What is best?
+        options:
+          - Ask to finish your plan first
+          - Answer the question, note what you were about to do, and re-plan the remaining time aloud
+          - Give a one-word answer and continue
+          - Restart the design with multi-region in mind
+        answer: [1]
+        explanation: "An interviewer's steer signals what they want to assess. Answer it properly, then re-plan aloud so the round stays structured. Restarting wastes the work already done."
+      - id: q4
+        kind: single
+        prompt: How many minutes of a 45-minute round should the deep dive usually get?
+        options: ["2 to 3", "About 10 to 12", "About 25", "Whatever is left"]
+        answer: [1]
+        explanation: "Roughly a quarter of the round is a common budget: enough to go two layers down on one or two components. 'Whatever is left' is how it shrinks to two minutes."
+      - id: q5
+        kind: short
+        prompt: Say aloud, in two or three sentences, the plan you would announce at the start of a 45-minute round.
+        model_answer: "I'll spend about five minutes on requirements and scale and write them down, a few minutes on the API and data model, then about ten on a high-level design that handles the main flows end to end. Then I'd like to go deep on the hardest part for ten to twelve minutes, and finish with failure handling, monitoring and the main trade-offs. Please steer me if you want to focus somewhere specific."
+        explanation: Announcing the plan sets expectations and invites the interviewer to redirect early instead of late.
+
+- key: sdx.time_boxing.interview
+  type: interview_question
+  title: "Interview question: plan a round aloud before designing"
+  skills: [sd.time_boxing, sd.requirements_scoping]
+  minutes: 10
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 600}
+  body:
+    prompt: |-
+      You are asked: "Design a parking-garage reservation system for a city's public garages." Before designing anything, take five minutes to (a) state your time plan for the 45 minutes, (b) ask the clarifying questions that change the design, with assumed answers, and (c) say which component you expect to deep dive on and why.
+    key_points:
+      - "States a time plan with boxes that leave at least 10 minutes for the deep dive and a few for failures and trade-offs."
+      - "Asks design-changing questions: number of garages and spots, reservation window, peak demand (events), whether walk-ins share spots, payment, entry hardware integration."
+      - "Writes assumed answers as numbers (for example 200 garages, 50,000 spots, peak 100 reservations per second before big events)."
+      - "Picks the deep dive on spot allocation without double booking under peak demand (or the gate integration under network failure), and says why it is the hardest part."
+      - "Keeps a parking lot of deferred topics (pricing rules, analytics, admin UI)."
+    model_answer: |-
+      Plan: 5 minutes requirements, 3 estimates, 4 API, 5 data model, 10 high-level design, 12 deep dive, 4 failures and monitoring, 2 summary. Questions: how many garages and spots (assume 200 and 50,000); do reservations hold a specific spot or a count per garage and time slot (assume count per slot, simpler and matches how gates work); how far ahead and how long (up to 30 days, hourly slots); peak (stadium events, assume 100 reservations per second for a few minutes); do walk-ins share capacity (yes, so availability must reserve a walk-in buffer); payment at booking (yes, via a provider); gate integration (licence-plate or QR at entry, must work if the network is down). Deep dive: allocating capacity per garage and slot without overbooking during event peaks, a conditional decrement on per-slot counters, because that is where correctness and contention meet. Second candidate: offline gates. Parking lot: dynamic pricing, analytics, admin tools.
+    pitfalls:
+      - A plan that spends 15 minutes on requirements.
+      - Questions that do not change the design.
+      - No numbers attached to the assumptions.
+    follow_ups:
+      - prompt: The interviewer says "skip estimates". How does your plan change?
+        look_for: "Moves those minutes to the deep dive or failures, keeps one sentence of scale assumptions so decisions still have a basis."
+      - prompt: At minute 30 you realise you forgot a requirement (walk-in buffer). What do you do?
+        look_for: "Names it, states the small change to the design (a reserved buffer per garage), and continues rather than redesigning."
+
+- key: sdx.time_boxing.cards
+  type: revision_card
+  title: "Recall: the 45-minute plan"
+  skills: [sd.time_boxing]
+  minutes: 5
+  body:
+    cards:
+      - front: Rough 45-minute split?
+        back: 5 requirements, 3 estimates, 4 API, 5 data, 10 design, 12 deep dive, 6 failures and wrap-up.
+      - front: Checkpoint at minute 27?
+        back: A complete end-to-end high-level design.
+      - front: Behind schedule, what do you compress?
+        back: The step you are in, never the deep dive or failure modes.
+      - front: What is a parking lot?
+        back: A written list of deferred side topics to revisit if time allows.
+      - front: Interviewer steers you elsewhere?
+        back: Follow the steer and re-plan the remaining time aloud.
+
+# ---------------------------------------------------------------------------------------------- full design: URL shortener
+- key: sdx.url_shortener.case
+  type: architecture_case
+  title: "Full design: URL shortener"
+  skills: [sd.time_boxing, sd.capacity_estimation, sd.api_design, sd.data_modeling, sd.caching, sd.storage_search, sd.database_scaling, sd.deep_dive_bottlenecks]
+  minutes: 60
+  difficulty: MEDIUM
+  observation: {kind: SD_DESIGN, time_limit_seconds: 2700}
+  body:
+    prompt: |-
+      Design a service that turns long URLs into short links and redirects visitors from the short link to the original URL. It is a public service with an API for businesses and basic click analytics. Run the full 45-minute round: requirements, estimates, API, data model, architecture, a deep dive, trade-offs, failure modes and observability. Because the core is simple, pacing is part of the test: do not spend the round on the hashing scheme alone.
+    requirements:
+      functional:
+        - Create a short link for a long URL, optionally with a custom alias and an expiry date.
+        - Redirect a short link to its long URL.
+        - Show the owner click counts per link per day.
+        - Disable a link reported as malicious.
+      non_functional:
+        - Redirects are the hot path; p99 redirect latency under about 50 ms at the server.
+        - "Very high availability for redirects (links are printed and shared; a broken redirect is visible)."
+        - Short codes are not guessable in sequence and never reused.
+        - "Scale: 100 million new links per month, about 100 redirects per new link, data kept for 5 years."
+    approach:
+      - "Requirements (0-5 min): confirm the read/write ratio, custom aliases, expiry, analytics freshness, abuse handling."
+      - "Estimates (5-8): writes and reads per second at peak, total links and storage, short-code length."
+      - "API (8-12): create, redirect, stats; choose the redirect status code."
+      - "Data (12-17): links keyed by code; click counts aggregated per day; choose the store."
+      - "Architecture (17-27): write path with ID generation; read path with cache; analytics through an event stream."
+      - "Bottleneck (27-37): redirect read path and hot links; ID generation without coordination on every write."
+      - "Trade-off: 301 vs 302; counter-based vs random codes; cache TTL vs disable latency."
+      - "Failure: cache node loss, database replica lag on new links, analytics pipeline down."
+      - "Observability and defense (37-45): redirect SLI, cache hit ratio, then summarise trade-offs."
+    estimates: |-
+      - Writes: 100 million per month / about 2.6 million seconds per month ≈ 40 per second on average; assume about 100 per second at peak.
+      - Reads: 100 times writes ≈ 4,000 redirects per second on average; assume 10,000 to 20,000 per second at peak.
+      - Total links over 5 years: 100 million × 60 months = 6 billion.
+      - Storage: about 500 bytes per link (URL, code, owner, timestamps) × 6 billion ≈ 3 TB, before replication. Fits a small sharded cluster.
+      - Code length: base62 with 7 characters gives 62⁷ ≈ 3.5 trillion codes, far more than 6 billion; 6 characters (about 57 billion) would also fit but leaves less room for randomness.
+      - Cache: the hottest 10 million links × about 500 bytes ≈ 5 GB, which fits in memory on one cache node (replicate for availability).
+      - Analytics: 10,000 to 20,000 click events per second at peak, aggregated to one row per link per day.
+    hints:
+      - The read path should be one cache lookup in the common case.
+      - Generating IDs from a shared counter on every write is a coordination point; allocate ranges instead.
+    reference: |-
+      **API**
+
+      - `POST /v1/links {long_url, custom_alias?, expires_at?}` returns `{code, short_url}`; idempotency key header for retried creates.
+      - `GET /{code}` returns 302 (or 301) with a `Location` header; 404 if unknown; 410 if expired or disabled.
+      - `GET /v1/links/{code}/stats?from&to` returns daily counts.
+
+      **Data**
+
+      - `links(code PK, long_url, owner_id, created_at, expires_at, status)` in a key-value or wide-column store, or sharded relational tables keyed by code; access is almost entirely by primary key.
+      - `link_clicks_daily(code, day, count)` written by the analytics aggregator.
+
+      **Architecture**
+
+      - Write path: API servers validate the URL (scheme, length, malware or blocklist check), get a code, insert with a conditional put (fails if the code exists, which also implements custom aliases).
+      - Codes: each API server leases a block of IDs (say 10,000) from a small counter service backed by a strongly consistent store, so coordination happens once per block; IDs are mapped through a keyed bijective scramble (for example a block cipher over the ID space) and base62-encoded so codes are not sequential. Alternative: random 7-character codes with a conditional insert and retry on collision; collisions are rare while the space is mostly empty.
+      - Read path: CDN or edge for the hottest links (with short TTL), then a Redis cache (code to long URL, TTL of hours), then the database. Redirect with 302 so every click reaches the service for analytics and disabling works; 301 is cached by browsers and saves load but loses both.
+      - Analytics: each redirect emits a click event to a partitioned log asynchronously (never on the redirect's critical path); a consumer aggregates per link per minute and updates daily counts.
+
+      **Deep dive candidates**: the redirect path at 20,000 per second (cache hit ratio, hot links, cache stampede on a viral link: request coalescing), or ID generation (range leasing, what happens to unused ranges on crash: they are skipped, which is fine because codes need only be unique).
+
+      **Failure modes**: cache node loss (replicas, and the database can absorb the miss rate for a while because reads are by key); a new link read from a lagging replica returns 404 (read the primary on a cache miss for links younger than a minute); counter service down (servers still have leased blocks for minutes); analytics log down (buffer locally, drop clicks rather than slow redirects).
+
+      **Observability**: SLI = share of redirects answered correctly under 50 ms; cache hit ratio; 404 rate (spikes indicate broken links or scanning); creation error rate; analytics consumer lag.
+    rubric:
+      - {key: requirements, label: "Separates the redirect hot path from creation and analytics, with read/write ratio and retention stated", points: 2}
+      - {key: apis, label: "Defines create, redirect and stats endpoints, and justifies 301 versus 302", points: 1}
+      - {key: data_model, label: "Keys links by code, chooses a store for primary-key access, and aggregates clicks per link per day", points: 2}
+      - {key: architecture, label: "Draws write, read and analytics paths end to end, with analytics off the redirect's critical path", points: 2}
+      - {key: scalability, label: "Uses estimates to size cache and storage and to choose the code length", points: 2}
+      - {key: reliability, label: "Keeps redirects available when cache, counter service or analytics fail", points: 1}
+      - {key: consistency, label: "Guarantees unique codes (range leasing or conditional insert) and handles replica lag for new links", points: 2}
+      - {key: bottlenecks, label: "Deep dives on the redirect path or ID generation with numbers (hit ratio, hot links, stampede)", points: 2}
+      - {key: tradeoffs, label: "Articulates at least two trade-offs (301 vs 302, sequential vs random codes, cache TTL vs disable latency)", points: 2}
+      - {key: failure_modes, label: "Describes at least two concrete failures and the user-visible result", points: 1}
+      - {key: observability, label: "Names a redirect SLI with a target and the metrics that would page", points: 1}
+      - {key: pacing, label: "Reaches a complete design and a deep dive within 45 minutes without over-spending on hashing", points: 2}
+    follow_ups:
+      - prompt: A malicious link is reported. How fast can you stop redirects, given caching at the CDN and Redis?
+        look_for: "Mark it disabled in the database, delete or overwrite the cache entry, purge the CDN; the worst case is the CDN TTL, which argues for short edge TTLs or none for new links."
+      - prompt: How would you support 1,000 custom-alias requests per second for the same popular word?
+        look_for: "Conditional insert decides the single winner; others get a conflict quickly; no lock needed."
+      - prompt: Analytics must now show unique visitors per day. What changes?
+        look_for: "Approximate distinct counting per link per day (HyperLogLog), stored with the daily row; exact counts would need per-visitor state."
+      - prompt: Move to two regions for latency. What is the hardest part?
+        look_for: "Unique code generation across regions (disjoint ID ranges per region) and replicating new links before they are clicked elsewhere; reads fall back to the home region on a miss."
+
+# ---------------------------------------------------------------------------------------------- full design: chat system
+- key: sdx.chat.case
+  type: architecture_case
+  title: "Full design: chat system with one-to-one and group messaging"
+  skills: [sd.realtime_delivery, sd.queues_async, sd.data_modeling, sd.database_scaling, sd.consistency_cap, sd.fault_tolerance, sd.capacity_estimation]
+  minutes: 60
+  difficulty: HARD
+  observation: {kind: SD_DESIGN, time_limit_seconds: 2700}
+  body:
+    prompt: |-
+      Design a mobile and web chat service with one-to-one and group conversations (up to 500 members), delivery and read receipts, online presence, offline delivery with push notifications, and message history on every device. End-to-end encryption and voice or video calls are out of scope. Run the full 45-minute round.
+    requirements:
+      functional:
+        - Send and receive text messages in one-to-one and group conversations.
+        - Messages appear in the same order for every member of a conversation.
+        - Delivery and read receipts.
+        - Online/last-seen presence for contacts.
+        - Offline users receive a push notification and see the messages when they open the app, on every device.
+        - Scroll back through history.
+      non_functional:
+        - Delivery latency under about 500 ms for online recipients within a region.
+        - No message loss once the sender sees "sent".
+        - "Scale: 50 million daily active users, about 40 messages each per day, about 10 million concurrent connections at peak."
+        - High availability; a gateway or node failure causes at most a reconnect.
+    approach:
+      - "Requirements: confirm group size limit, ordering guarantee, multi-device, retention, receipts."
+      - "Estimates: messages per second, storage per day, concurrent connections and gateway count."
+      - "API: WebSocket events (send, ack, deliver, receipt), REST for history sync."
+      - "Data: messages partitioned by conversation, ordered by a per-conversation sequence number; membership; per-device read pointers."
+      - "Architecture: connection gateways plus registry, message service, message store, fan-out to members, push service for offline."
+      - "Bottleneck: fan-out for large groups and presence traffic; per-conversation sequencing."
+      - "Trade-off: write-then-deliver (durable) vs deliver-then-write; per-conversation vs global ordering; presence accuracy vs cost."
+      - "Failure: gateway crash, message-service retry duplicates, store partition unavailable."
+      - "Observability and defense: delivery latency SLI, undelivered-message age, reconnect rate; summarise trade-offs."
+    estimates: |-
+      - Messages: 50 million × 40 = 2 billion per day ≈ 23,000 per second on average; assume about 70,000 per second at peak.
+      - Deliveries: most conversations are one-to-one; with groups, assume an average fan-out of about 3, so about 200,000 deliveries per second at peak.
+      - Storage: about 200 bytes per message with metadata × 2 billion ≈ 400 GB per day, about 150 TB per year before replication.
+      - Connections: 10 million concurrent; assuming a conservative 50,000 per gateway, about 200 gateways (plus headroom for failures and deploys).
+      - Presence: if each user has 100 contacts and status changes are broadcast to all, a few million status changes per minute become hundreds of millions of pushes; presence needs its own design.
+    hints:
+      - The sender's "sent" tick should mean "durably stored", not "delivered over a socket".
+      - Ordering only needs to hold within a conversation.
+    reference: |-
+      **API (WebSocket events)**: `send {client_msg_id, conversation_id, body}` returns `ack {client_msg_id, msg_id, seq}`; server pushes `message {conversation_id, seq, msg_id, sender, body}`; client sends `delivered {conversation_id, seq}` and `read {conversation_id, seq}`. REST: `GET /conversations/{id}/messages?after_seq=&limit=` for sync and history.
+
+      **Data**: `messages(conversation_id, seq, msg_id, sender_id, body, created_at)` partitioned by conversation_id, clustered by seq, in a wide-column store or sharded relational tables; `conversation_members(conversation_id, user_id)` and `user_conversations(user_id, conversation_id, last_activity)` for the inbox; `read_pointers(conversation_id, user_id, device_id, delivered_seq, read_seq)`.
+
+      **Send path**: client sends over its WebSocket to a gateway; the gateway forwards to the message service; the service routes by conversation_id to the owner of that conversation's partition, which assigns the next seq and writes the message (de-duplicating by `client_msg_id`, so client retries are safe); then acks the sender ("sent"). Fan-out: for each member, look up connections in the registry (user to gateways, multiple devices) and publish to those gateways; offline members get a push-notification job (collapsed per conversation so ten messages do not cause ten pushes).
+
+      **Receive and sync**: devices keep the last seq per conversation; on connect they fetch `after_seq` for conversations with activity since their last sync. Delivery is at-least-once; clients de-duplicate by msg_id and order by seq.
+
+      **Groups**: 500 members means up to 500 deliveries per message; fine with batched publishes per gateway (group members on the same gateway receive one publish). Larger broadcast channels would switch to pull.
+
+      **Presence**: heartbeats update `last_seen` with a TTL in an in-memory store; status is pushed only to users who currently have that contact's chat or list open (subscription-based), and fetched lazily otherwise.
+
+      **Failure**: gateway crash causes clients to reconnect with jittered backoff and resync from their last seq; message-service crash after write but before ack causes a client retry, de-duplicated by client_msg_id; a store partition outage makes those conversations unable to send (fail visibly, retry) rather than accepting messages that could be lost.
+
+      **Observability**: SLI = share of messages delivered to an online recipient within 500 ms; age of the oldest undelivered message; reconnect rate per gateway; push-notification provider errors; per-partition write latency.
+    rubric:
+      - {key: requirements, label: "Pins down ordering scope, group size, multi-device and the meaning of 'sent'", points: 1}
+      - {key: apis, label: "Defines socket events with client message ids and acks, plus a sync endpoint by sequence number", points: 2}
+      - {key: data_model, label: "Partitions messages by conversation with a per-conversation sequence and keeps per-device read pointers", points: 2}
+      - {key: architecture, label: "Separates gateways, registry, message service, store and push, and walks a message end to end", points: 2}
+      - {key: scalability, label: "Sizes gateways from concurrent connections and the store from messages per day", points: 2}
+      - {key: reliability, label: "Stores before acknowledging, so a crash after 'sent' never loses a message", points: 2}
+      - {key: consistency, label: "Orders within a conversation by a single sequencer and de-duplicates retries by client message id", points: 2}
+      - {key: bottlenecks, label: "Deep dives on group fan-out or presence with numbers", points: 2}
+      - {key: tradeoffs, label: "Articulates trade-offs such as presence accuracy vs cost and per-conversation vs global ordering", points: 2}
+      - {key: failure_modes, label: "Handles gateway crash, retry duplicates and a store partition outage", points: 2}
+      - {key: observability, label: "Defines a delivery-latency SLI and undelivered-message age alert", points: 1}
+    follow_ups:
+      - prompt: A user has a phone and a laptop. Read on the laptop should clear the badge on the phone. How?
+        look_for: "Per-user read pointer per conversation, updated by any device and pushed to the user's other connections; badge computed from last seq minus read seq."
+      - prompt: A conversation's partition owner fails mid-burst. How do you avoid two owners assigning the same seq?
+        look_for: "Ownership through a lease with an epoch or fencing token; the store rejects writes from a stale epoch, or seq is enforced by a conditional insert on (conversation_id, seq)."
+      - prompt: How would you add end-to-end encryption later, and what would it break?
+        look_for: "Clients encrypt per recipient device; the server stores ciphertext; server-side search and content moderation no longer work; key distribution and multi-device become the hard parts."
+      - prompt: How do you deliver to a 100,000-member broadcast channel?
+        look_for: "Switch from per-member fan-out to pull: store once, members fetch on open, push notifications sampled or batched."
+
+# ---------------------------------------------------------------------------------------------- full design: food delivery
+- key: sdx.food_delivery.case
+  type: architecture_case
+  title: "Full design: food delivery platform"
+  skills: [sd.deep_dive_bottlenecks, sd.storage_search, sd.realtime_delivery, sd.queues_async, sd.consistency_cap, sd.data_modeling, sd.tradeoff_articulation]
+  minutes: 60
+  difficulty: HARD
+  observation: {kind: SD_DESIGN, time_limit_seconds: 2700}
+  body:
+    prompt: |-
+      Design a food delivery platform: customers browse nearby restaurants and menus, place and pay for orders, restaurants accept and prepare them, couriers are assigned and pick up, and customers track the courier live until delivery. Run the full 45-minute round and choose your deep dive based on the numbers.
+    requirements:
+      functional:
+        - Browse restaurants near a location, with menus and estimated delivery times.
+        - Place an order and pay; restaurant accepts or rejects.
+        - Assign a nearby available courier; the courier accepts or declines.
+        - Live tracking of the courier on a map, and order status updates.
+        - Order history for customers, restaurants and couriers.
+      non_functional:
+        - An order is never charged twice and never lost once placed.
+        - A courier is never assigned two orders they did not accept.
+        - Courier location visible to the customer within a few seconds.
+        - "Scale: 2 million orders per day, heavily peaked at lunch and dinner; 200,000 couriers online at peak, reporting location every 5 seconds."
+        - Browsing should stay fast even when ordering is degraded.
+    approach:
+      - "Requirements: confirm cities, peaks, payment flow, batching of multiple orders per courier (out of scope or not)."
+      - "Estimates: orders per second at peak versus location updates per second; the second dominates."
+      - "API: browse, place order (idempotent), restaurant accept, courier offer/accept, location update, tracking stream."
+      - "Data: orders as a state machine in a relational store; restaurants and menus cached; latest courier location in an in-memory geo index."
+      - "Architecture: browse service + search/geo index; order service + payments; dispatch service; location ingestion; notification and tracking push."
+      - "Bottleneck: location ingestion and nearby-courier queries at dinner peak; dispatch per zone."
+      - "Trade-off: strong consistency for order state and assignment vs eventual for locations, ETAs and menus; batch matching vs greedy nearest courier."
+      - "Failure: payment timeout, dispatch service down, courier app offline mid-delivery, location stream lag."
+      - "Observability and defense: order success SLI, time to assignment, location freshness."
+    estimates: |-
+      - Orders: 2 million per day ≈ 23 per second on average; with a dinner peak of about five to six times average, about 150 per second. Each order causes perhaps 10 state changes, so about 1,500 order writes per second at peak, modest for a partitioned relational store.
+      - Courier locations: 200,000 couriers / 5 s = 40,000 updates per second at peak, almost all of which only overwrite the latest position. This is the largest write stream and does not belong in the order database.
+      - Tracking: perhaps 300,000 active orders at peak with a customer watching; pushing each courier update to its customer is up to 40,000 small pushes per second.
+      - Browse: assume about 20,000 requests per second at peak for restaurant lists and menus, highly cacheable per area.
+      - Storage: order rows are small (a few KB with items), about 2 million × a few KB ≈ several GB per day; location history, if kept, is 40,000 × 86,400 × about 50 bytes ≈ 170 GB per day at peak rates (an upper bound) and goes to cheap storage.
+    hints:
+      - Separate the latest position (overwrite, in memory) from the location history (append, cold storage).
+      - Assignment needs exactly one courier per order and one order per courier offer; think conditional writes.
+    reference: |-
+      **API**: `GET /restaurants?lat&lng`; `POST /orders` with an idempotency key; `POST /restaurants/{id}/orders/{oid}/accept`; courier app receives offers over a persistent connection and calls `POST /offers/{id}/accept`; `POST /couriers/me/location` (or a stream); customers subscribe to `/orders/{id}/events` (SSE or WebSocket).
+
+      **Data**: orders and order items in PostgreSQL partitioned by city or region, with a `status` column changed only by conditional updates (`WHERE status = 'READY_FOR_PICKUP'`); payments recorded with the order transition (outbox for events). Restaurants and menus in a relational store, served through a cache and a search index with geo filters. Latest courier positions in an in-memory geo index (for example Redis geo sets per city, or a grid of geohash or H3 cells) with a TTL so offline couriers drop out. Location history appended to a log and then cold storage.
+
+      **Flow**: order placed and paid (authorise at placement, capture on delivery or acceptance) then an event to the restaurant; on acceptance, dispatch looks for available couriers near the restaurant, timed to food readiness. Dispatch is partitioned by city zone, one active owner per zone; it offers the order to a courier with a timeout (say 30 s), marking the courier `OFFERED` by a conditional update so no courier receives two offers at once; on accept, a conditional update moves the order to `ASSIGNED` and the courier to `BUSY`; on decline or timeout, the next candidate.
+
+      **Deep dive (location path)**: 40,000 updates per second go to a stateless ingestion tier, then to a partitioned stream keyed by courier id; consumers update the geo index (latest only) and forward updates for couriers on active orders to the tracking service, which pushes to the customer's connection. If the geo index node for a city is lost, couriers repopulate it within one update interval (5 s), which is why the latest position can live in memory without durable storage.
+
+      **Failure**: payment provider timeout (unknown outcome; query by idempotency key before retrying); dispatch owner failure (lease with fencing; the new owner re-reads pending orders); courier app offline mid-delivery (order stays assigned; customer sees last known position with a timestamp; support escalation after a threshold); search or menu cache down (serve stale cached lists; ordering continues).
+
+      **Observability**: SLIs for order placement success and latency, time from restaurant acceptance to courier assignment (p50/p95 per city), location freshness (age of latest position for active couriers), offer acceptance rate; consumer lag on the location stream.
+    rubric:
+      - {key: requirements, label: "Identifies actors (customer, restaurant, courier) and the correctness rules (no double charge, no double assignment)", points: 1}
+      - {key: apis, label: "Defines idempotent order placement, offer/accept, location update and a tracking push channel", points: 1}
+      - {key: data_model, label: "Models the order as a state machine with conditional transitions and keeps latest location apart from history", points: 2}
+      - {key: architecture, label: "Separates browse, ordering, dispatch, location ingestion and tracking, and walks an order end to end", points: 2}
+      - {key: scalability, label: "Shows that location updates (about 40,000 per second) dominate order writes and sizes accordingly", points: 2}
+      - {key: reliability, label: "Keeps browsing and ordering independent so one can degrade without the other", points: 1}
+      - {key: consistency, label: "Strong consistency for order state and assignment, eventual for locations, menus and ETAs, with reasons", points: 2}
+      - {key: bottlenecks, label: "Deep dives on location ingestion or dispatch with numbers and a partitioning scheme", points: 3}
+      - {key: tradeoffs, label: "Articulates trade-offs such as batch vs greedy matching and in-memory vs durable latest positions", points: 2}
+      - {key: failure_modes, label: "Handles payment timeouts, dispatch owner failure and a courier going offline", points: 2}
+      - {key: observability, label: "Names SLIs for placement, time to assignment and location freshness", points: 1}
+    follow_ups:
+      - prompt: Dispatch picks the nearest courier for each order as it arrives. What goes wrong at peak, and what would you change?
+        look_for: "Greedy nearest choice is locally optimal but globally poor; batch matching per zone every few seconds (an assignment problem) improves total delivery time at the cost of a few seconds of delay."
+      - prompt: How do you compute the delivery ETA shown while browsing?
+        look_for: "Estimated preparation time plus courier travel and assignment delay from recent per-zone statistics; cached per restaurant for a minute; eventual consistency is fine."
+      - prompt: A courier accepts on a flaky network and the accept request is retried. What protects you?
+        look_for: "Accept is idempotent per offer id; conditional update succeeds once; the retry sees the already-accepted state and returns success."

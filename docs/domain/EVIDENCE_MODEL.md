@@ -159,7 +159,7 @@ if level = L5 and (peer_evaluated or unseen_variant):                  level := 
 
 `time_limit_seconds` must not exceed the template's limit (`MISSION_LIBRARY.md`). A longer limit is recorded but treated as untimed.
 
-`source_key` = `prompt:<prompt_key>` (concepts, quizzes), `exercise:<exercise_key>` (design/LLD/machine coding), `story:<story_id>`, `project:<project_key>`. Repeating the same prompt does not add diversity.
+`source_key` = `prompt:<prompt_key>` (concepts, quizzes), `exercise:<exercise_key>` (design/LLD/machine coding), `story:<story_id>`, `project:<project_key>`. Repeating the same prompt does not add diversity. Learning content records `content:<content_key>` (`#<milestone>` / `#defense` for projects); the learning layer only fills in the fields above and never changes a level rule (LEARNING_ENGINE.md §3, D-083).
 
 ### 5.5 Mock rounds
 

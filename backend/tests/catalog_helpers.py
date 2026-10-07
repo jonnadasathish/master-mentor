@@ -78,6 +78,32 @@ def retire_learning_skill(raw: dict[str, Any], skill: str) -> None:
             data["content"][:] = [c for c in data["content"] if c["skills"]]
 
 
+def retire_problem_skill(raw: dict[str, Any], skill: str) -> list[int]:
+    """Drop the skill from problem mappings; problems it was primary for are removed (their ids returned)."""
+    removed: list[int] = []
+    kept = []
+    for problem in raw["problem_catalog"]["problems"]:
+        mappings = [m for m in problem["skills"] if m["skill"] != skill]
+        if not any(m["mapping_weight_bp"] == 10000 for m in mappings):
+            removed.append(problem["id"])
+            continue
+        problem["skills"] = mappings
+        kept.append(problem)
+    raw["problem_catalog"]["problems"][:] = kept
+    return removed
+
+
+def scrub_problem_refs(raw: dict[str, Any], removed: list[int]) -> None:
+    """Remove retired problem ids from learning content; items left without problems are dropped."""
+    gone = set(removed)
+    for role, data in raw.items():
+        if role.startswith("learning:") and role != "learning:curriculum":
+            for item in data["content"]:
+                if "problems" in item:
+                    item["problems"] = [p for p in item["problems"] if p not in gone]
+            data["content"][:] = [c for c in data["content"] if c.get("problems", [0])]
+
+
 def bump_version(raw: dict[str, Any], version: str) -> None:
     for data in raw.values():
         data["seed_version"] = version

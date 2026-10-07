@@ -14,11 +14,13 @@ import StatusPill from '../../components/common/StatusPill.vue'
 import { formatDuration, hintsLabel, mistakeLabel, outcomeLabel } from '../../practice/vocabulary'
 import { shortDate } from '../../presentation/format'
 import { STAGE_LABEL } from '../../presentation/language'
+import { PRACTICE_STATE_LABEL, PRACTICE_STATE_TONE } from '../../presentation/learning'
 import { refreshDerivedData, useSkillsStore } from '../../stores/data'
 
 const route = useRoute()
 const skills = useSkillsStore()
 const problem = ref<ProblemSummary | null>(null)
+const hintsShown = ref(0)
 const history = ref<ProblemAttempt[]>([])
 const error = ref<unknown>(null)
 const solving = ref(false)
@@ -95,6 +97,12 @@ watch(() => route.params.problemKey, load)
             v-if="problem.source === 'PERSONAL'"
             class="tag"
           >Your problem</span>
+          <StatusPill
+            v-if="problem.practice_state"
+            :state="PRACTICE_STATE_TONE[problem.practice_state]"
+            :label="PRACTICE_STATE_LABEL[problem.practice_state]"
+            quiet
+          />
           <a
             v-if="problem.url"
             :href="problem.url"
@@ -106,6 +114,51 @@ watch(() => route.params.problemKey, load)
             :size="14"
           /></a>
         </p>
+        <div
+          v-if="problem.guide"
+          class="guide"
+          data-testid="problem-guide"
+        >
+          <p>{{ problem.guide.summary }}</p>
+          <details>
+            <summary>Pattern and target complexity</summary>
+            <p><strong>{{ problem.guide.pattern }}</strong> · time {{ problem.guide.time }}, space {{ problem.guide.space }}</p>
+          </details>
+          <div class="hints">
+            <ol
+              v-if="hintsShown"
+              class="hint-list"
+              data-testid="guide-hints"
+            >
+              <li
+                v-for="h in problem.guide.hints.slice(0, hintsShown)"
+                :key="h"
+              >
+                {{ h }}
+              </li>
+            </ol>
+            <button
+              v-if="hintsShown < problem.guide.hints.length"
+              type="button"
+              class="link-btn small"
+              data-testid="guide-hint"
+              @click="hintsShown += 1"
+            >
+              Show a hint ({{ problem.guide.hints.length - hintsShown }} left) — count it when you log the attempt
+            </button>
+          </div>
+          <details>
+            <summary>Common mistakes</summary>
+            <ul class="hint-list">
+              <li
+                v-for="m in problem.guide.mistakes"
+                :key="m"
+              >
+                {{ m }}
+              </li>
+            </ul>
+          </details>
+        </div>
         <p
           v-if="recommendation"
           class="rec"
@@ -209,6 +262,10 @@ watch(() => route.params.problemKey, load)
 .pills { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); }
 .tag { padding: 0.2rem 0.7rem; border-radius: 999px; background: var(--surface-3); font-size: var(--fs-sm); font-weight: 560; color: var(--text-2); }
 .ext { display: inline-flex; align-items: center; gap: var(--s-1); font-size: var(--fs-sm); margin-left: auto; }
+.guide { display: grid; gap: var(--s-2); padding: var(--s-3) var(--s-4); border: 1px solid var(--border); border-radius: var(--r-md); }
+.guide summary { cursor: pointer; font-weight: 600; color: var(--accent-text); font-size: var(--fs-sm); }
+.hints { display: grid; gap: var(--s-1); }
+.hint-list { list-style: decimal; padding-left: var(--s-5); display: grid; gap: var(--s-1); font-size: var(--fs-sm); }
 .rec { display: flex; gap: var(--s-2); align-items: flex-start; padding: var(--s-3) var(--s-4); background: var(--accent-soft); border-radius: var(--r-md); color: var(--accent-text); }
 .rec :deep(svg) { margin-top: 0.15rem; }
 .note { display: flex; align-items: center; gap: var(--s-2); font-size: var(--fs-sm); color: var(--calibration-fg); background: var(--calibration-bg); padding: var(--s-2) var(--s-3); border-radius: var(--r-md); }

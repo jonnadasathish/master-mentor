@@ -132,6 +132,21 @@ export interface ProblemSummary {
   skills: { skill: string; mapping_weight_bp: number; primary: boolean }[]
   attempt_count: number
   last_attempt: { id: number; attempted_at: string; outcome: Outcome } | null
+  /** Derived from every current attempt (D-083); optional for older fixtures. */
+  practice_state?: ProblemPracticeState
+  guide?: ProblemGuide | null
+}
+
+/** Seed coaching metadata: a paraphrase (never the statement), pattern, complexity, a hint ladder, mistakes. */
+export interface ProblemGuide {
+  summary: string
+  pattern: string
+  time: string
+  space: string
+  hints: string[]
+  mistakes: string[]
+  prerequisites?: string[]
+  relevance: 'HIGH' | 'MEDIUM' | 'LOW'
 }
 
 export interface ProblemAttempt {
@@ -1008,4 +1023,13 @@ export interface CoverageReport {
   summary: { all: Record<CoverageState, number>; required: Record<CoverageState, number> }
   content_counts: Record<ContentType, number>
   rows: CoverageRow[]
+}
+
+export interface MockKit {
+  round: string
+  round_type: string
+  minutes: number
+  components: string[]
+  focus_skills: { key: string; name: string; status: string }[]
+  items: ContentSummary[]
 }

@@ -59,7 +59,7 @@ Conventions: `snake_case` is a field or code identifier; `UPPER_CASE` is an enum
 | **Confidence** | Evidence confidence: `NONE`, `LOW`, `MEDIUM`, `HIGH`, measuring how much evidence backs the score. It never means self-rating. |
 | **Effective Score** | `max(score − uncertainty_penalty[confidence], 0)`. The value used by gaps, floors, components, and gates. |
 | **Peak Score** | The score computed from all-time evidence with no recency window. Used for RETENTION. |
-| **Calibration Phase** | The user-facing status of the baseline: `NOT_STARTED`, `IN_PROGRESS`, `ENOUGH_MEASURED` (battery open but at least `CALIBRATION_MIN_ASSESSED_PCT` of required skills assessed), `COMPLETE` (every battery item done). Derived; it does not change the mentor's rules. |
+| **Calibration Phase** | The user-facing status of the baseline: `NOT_STARTED`, `IN_PROGRESS`, `ENOUGH_MEASURED` (battery open but at least `CALIBRATION_MIN_ASSESSED_PCT` of required skills assessed), `COMPLETE` (every battery item done). Derived. `ENOUGH_MEASURED` with the battery open is a **hybrid day** (D-086): the mentor also plans one learning mission before the remaining battery. |
 | **Personal Roadmap** | A read-only grouping of the gap engine's output: build, consolidate, sharpen, maintain, parked, not measured; plus "focus now" (top 5 actionable, unblocked). No second roadmap engine exists. |
 | **Gap** | The derived shortfall of one skill against its target for the active goal, with severity, priority, status, types, and reasons (`gap_states`). |
 | **Raw Gap** | `max(target_score − effective_score, 0)`. |
@@ -112,6 +112,19 @@ Conventions: `snake_case` is a field or code identifier; `UPPER_CASE` is an enum
 | **Ruleset Version** | The version string (`v1`) of all formula constants in `backend/app/domain/rulesets/`. Any change to a constant or rule requires a new version and a `DECISION_LOG.md` entry. Stored on every derived row. |
 | **Seed Version** | The version string (`seed-v1`) of the catalog YAML (skills, profile, problems, templates, roadmap). |
 | **Audit Event** | An append-only `audit_log` row for every state-changing user action (goal change, correction, suspension, plan regeneration, story edit). |
+
+## Learning layer (D-083)
+
+| Term | Meaning |
+|---|---|
+| Track / Topic | Curriculum grouping of canonical skills in teaching order (`seed/learning/curriculum.yaml`). Not a readiness component. |
+| Content item | One teaching or practice unit with a stable key, a type (17 types) and one or more canonical skills (first = primary). |
+| Completion | A learner finishing a content item; it records an existing observation (`source_key = content:<key>`). |
+| Learning session | One mentor stage for one skill expanded into steps (content, problem, reflection). |
+| Practice resolution | Case DIRECT / RELATED / CONCEPT / UNCOVERED for a skill's practice (the dead-end rule). |
+| Practice state | Derived per problem: not_started … interview_grade; never "mastered". |
+| Coverage state | FULL / PARTIAL / UNMEASURED / CONTENT_GAP of the library for a skill. |
+| Mock kit | Timed library prompts for one round of the interview loop, ordered by gap rank. |
 
 ## Retired v1 terms (do not use)
 

@@ -21,6 +21,7 @@ class StoryInput(BaseModel):
     result: str = Field(min_length=1, max_length=4000)
     metric: str | None = Field(default=None, max_length=255)
     learning: str | None = Field(default=None, max_length=4000)
+    tradeoffs: str | None = Field(default=None, max_length=4000)
     competencies: list[str] = Field(min_length=1, max_length=6)  # position 1 owns the revision item
 
 
@@ -34,6 +35,7 @@ class StoryPatch(BaseModel):
     result: str | None = Field(default=None, max_length=4000)
     metric: str | None = Field(default=None, max_length=255)
     learning: str | None = Field(default=None, max_length=4000)
+    tradeoffs: str | None = Field(default=None, max_length=4000)
     archived: bool | None = None
 
 
@@ -46,6 +48,7 @@ class StoryOut(BaseModel):
     result: str
     metric: str | None
     learning: str | None
+    tradeoffs: str | None = None
     competencies: list[str]
     archived: bool
     created_at: datetime

@@ -1,0 +1,752 @@
+# Learning content: scaling building blocks — queues and async processing, idempotency and retries, rate limiting.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- queues and async processing
+- key: sd.queues_async.lesson
+  type: lesson
+  title: Queues, pub/sub, delivery guarantees and the outbox
+  skills: [sd.queues_async]
+  minutes: 30
+  difficulty: MEDIUM
+  body:
+    summary: Put slow, bursty or fan-out work behind a durable queue or log, assume at-least-once delivery, make consumers idempotent, and publish events reliably with an outbox.
+    what: |-
+      Asynchronous messaging decouples the component that produces work from the one that does it.
+
+      - **Work queue** (RabbitMQ, Amazon SQS): each message is delivered to one of many competing consumers and removed once acknowledged. Good for jobs: send email, resize image.
+      - **Pub/sub**: a published message is delivered to every subscriber (each subscription gets its own copy). Good for events many services react to: `OrderPlaced`.
+      - **Log** (Apache Kafka and similar): an append-only, partitioned, replicated log. Messages stay for a retention period; each consumer group tracks its own offset per partition, so many groups can read the same events and a group can replay from an earlier offset. Ordering is guaranteed only **within a partition**, and a group's parallelism is capped by the partition count.
+    why: |-
+      Synchronous calls couple availability and latency: if the email service is down, checkout fails; if thumbnailing takes 3 seconds, uploads take 3 seconds. A queue lets the request finish once the work is durably recorded, absorbs bursts (a spike of 50,000 jobs per second drains at the rate consumers can sustain), lets consumers scale independently, and isolates failures (a crashed consumer resumes from where it stopped).
+    when: |-
+      Slow or retryable side effects (email, notifications, webhooks, media processing), fan-out (one event to many consumers or many timelines), load levelling for bursty writes, and integration between services through events. Not for work whose result the caller needs to build its response (authorisation, inventory reservation), and not as a database: queries over queued messages are not what queues are for.
+    how: |-
+      **Delivery semantics**, decided by when the consumer acknowledges relative to doing the work:
+
+      - **At-most-once**: acknowledge (or commit the offset) first, then process. A crash after the ack loses the message. Acceptable for metrics samples, not for orders.
+      - **At-least-once**: process first, then acknowledge. A crash after processing but before the ack causes redelivery, so the work may happen twice. The practical default.
+      - **Effectively-once** (often called exactly-once processing): at-least-once delivery plus an **idempotent consumer**, which records the message id in the same transaction as its effect and skips ids it has already applied. Kafka's transactions give exactly-once for read-process-write pipelines that stay inside Kafka; side effects outside (sending an email, charging a card) still need idempotency.
+
+      **Redelivery mechanics.** In SQS a received message becomes invisible for a *visibility timeout*; if not deleted in time it reappears for another consumer. In Kafka an uncommitted offset is re-read after a consumer restart or rebalance. Either way, a consumer slower than the timeout causes duplicates.
+
+      **Poison messages and dead-letter queues.** A message that always fails would be retried forever and block its partition. After N attempts move it to a dead-letter queue (DLQ), alert, and fix and replay later.
+
+      **Ordering.** If per-entity order matters (events of one order), use the entity id as the partition key so they land on one partition, and process each partition sequentially. Global ordering across all messages caps throughput at one consumer; avoid needing it.
+
+      **Backpressure.** Monitor **consumer lag** (messages behind, or age of the oldest message) and autoscale consumers on it; bound queue size or reject producers if lag would breach the latency requirement.
+
+      **The dual-write problem and the outbox.** "Write the order to the database, then publish `OrderPlaced`" fails in between: the order commits but the event is lost, or the event is published and the transaction rolls back. The **transactional outbox** fixes it: in the same database transaction insert the order and a row in an `outbox` table; a relay process (polling the table, or change data capture on the database log) publishes outbox rows and marks them sent. Publishing is at-least-once, so consumers deduplicate by event id.
+    mental_model: |-
+      A queue is a to-do list that survives crashes. The producer's only promise is "it is written down"; the consumer's promise is "I will do each item, possibly twice, and doing it twice must be harmless". Every design question becomes: where is the item written down durably, who crosses it off, and what happens if they die halfway.
+    tradeoffs: |-
+      Async processing improves latency, resilience and burst tolerance but introduces eventual consistency (the user's email arrives seconds later), duplicate and out-of-order delivery, harder debugging across hops, and another system to run. Work queues are simple and auto-delete messages; logs add retention, replay and multiple independent consumers at the cost of partition management and per-partition ordering constraints. More partitions mean more parallelism and more overhead and rebalancing.
+    mistakes:
+      - Assuming exactly-once delivery and writing non-idempotent consumers.
+      - Acknowledging before processing for important work.
+      - Publishing an event after the database commit without an outbox, losing events on crashes.
+      - A visibility timeout shorter than the processing time, causing constant duplicates.
+      - No dead-letter queue, so one poison message blocks a partition or loops forever.
+      - Requiring global ordering, which limits throughput to one consumer.
+      - Putting large payloads in messages instead of a reference to object storage.
+    interview: |-
+      When you draw a queue, say what is in a message, the partition key, the delivery semantics, how consumers deduplicate, what happens to failures (retries, DLQ) and what metric scales consumers. Interviewers often ask "what if the consumer crashes after doing the work but before acking?", "can events arrive out of order?", "how do you guarantee the event is published if the database commit succeeds?".
+    explain_it:
+      - Why the work is asynchronous and what the user sees meanwhile.
+      - Queue versus pub/sub versus log for this use case.
+      - Delivery semantics and the idempotent consumer.
+      - Partition key and the ordering it guarantees.
+      - Failure handling (retries, DLQ) and the scaling signal (lag).
+      - Outbox for reliable publishing.
+    example:
+      language: python
+      code: |-
+        def handle_order_placed(event, db):
+            # Effectively-once: dedupe and apply the effect in ONE transaction.
+            with db.transaction() as tx:
+                inserted = tx.execute(
+                    "INSERT INTO processed_event (event_id) VALUES (%s) "
+                    "ON CONFLICT (event_id) DO NOTHING",
+                    (event["event_id"],),
+                ).rowcount
+                if inserted == 0:
+                    return                      # already applied: a redelivery
+                tx.execute(
+                    "UPDATE loyalty SET points = points + %s WHERE user_id = %s",
+                    (event["points"], event["user_id"]),
+                )
+            # acknowledge only after the transaction committed (at-least-once delivery)
+      explanation: A redelivered event finds its id already recorded and is skipped; because both writes share a transaction, there is no window where the points were added but the id was not recorded.
+    internals: |-
+      A Kafka partition is an ordered, replicated log segment set on brokers; producers append, the partition leader replicates to followers, and with `acks=all` a write is acknowledged once all in-sync replicas have it. Consumers in a group are assigned partitions; when a consumer joins or leaves, partitions are rebalanced, and work done since the last committed offset is redone by the new owner. This is the concrete source of duplicates in at-least-once processing.
+    edge_cases:
+      - "A consumer's side effect is external (an email); dedupe with a sent-record keyed by event id, or accept rare duplicates explicitly."
+      - Out-of-order events across partitions or after retries; carry a version or timestamp and ignore older updates.
+      - Replaying from an old offset re-runs every consumer's effects, which is safe only if all are idempotent.
+    misconceptions:
+      - "\"Kafka gives exactly-once, so I do not need idempotency\" — only inside Kafka transactions; external side effects still need it."
+      - A queue does not make a slow system faster; it moves the waiting out of the request and adds latency to the work itself.
+- key: sd.queues_async.outbox_visual
+  type: visual_explanation
+  title: "Visual: the dual-write gap and the transactional outbox"
+  skills: [sd.queues_async]
+  minutes: 8
+  body:
+    summary: Why "commit then publish" loses events, and how writing the event in the same transaction closes the gap.
+    frames:
+      - caption: "Dual write: the service commits the order, then crashes before publishing. The order exists, but no downstream service ever hears about it."
+        diagram: |-
+          service ──1. COMMIT order──> ( database )      ✓
+          service ──2. publish OrderPlaced──X  (crash)   ✗
+          email, loyalty, shipping: never notified
+      - caption: "Outbox: the order and the event row commit atomically. Either both exist or neither does."
+        diagram: |-
+          BEGIN
+            INSERT INTO "order" ...
+            INSERT INTO outbox (event_id, type, payload) VALUES (e42, 'OrderPlaced', ...)
+          COMMIT                                   ← single atomic step
+      - caption: "A relay (polling or change data capture) publishes outbox rows and marks them sent. If it crashes after publishing but before marking, it republishes: at-least-once, so consumers dedupe by event_id."
+        diagram: |-
+          ( database: outbox ) ──relay──> [[ broker topic ]] ──> consumers
+                     ^                                           │
+                     └── mark e42 sent                           └─ skip e42 if already processed
+- key: sd.queues_async.check
+  type: concept_check
+  title: "Concept check: queues and delivery semantics"
+  skills: [sd.queues_async]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Assume components crash at the worst possible moment.
+    questions:
+      - id: q1
+        kind: single
+        prompt: A consumer processes a message, then crashes before acknowledging it. With at-least-once delivery, what happens?
+        options:
+          - The message is lost
+          - The message is redelivered and processed again
+          - The broker detects the processing and skips it
+          - The message moves straight to the dead-letter queue
+        answer: [1]
+        explanation: "The broker never received the ack, so it redelivers. That is why consumers must be idempotent. The broker cannot know the side effect happened; a DLQ is only for repeated failures."
+      - id: q2
+        kind: single
+        prompt: Events for the same order must be processed in order. In a partitioned log, what do you do?
+        options:
+          - Use a single partition for the whole topic
+          - Use the order id as the partition key and process each partition sequentially
+          - Use a random partition key for even load
+          - Sort events by timestamp in each consumer
+        answer: [1]
+        explanation: "Keying by order id puts all of an order's events on one partition, which is ordered, while different orders still spread across partitions. A single partition gives global order but caps throughput; random keys lose per-order ordering."
+      - id: q3
+        kind: multi
+        prompt: Which statements about the transactional outbox are correct?
+        options:
+          - The business row and the event row are written in the same database transaction
+          - It guarantees each event is published exactly once
+          - A relay publishes outbox rows, so consumers must tolerate duplicates
+          - It removes the need for the message broker
+        answer: [0, 2]
+        explanation: "Atomic write plus a relay closes the dual-write gap, but the relay can publish and crash before marking a row sent, so delivery is at-least-once. The broker is still how events reach consumers."
+      - id: q4
+        kind: single
+        prompt: Processing takes up to 90 seconds; the SQS visibility timeout is 30 seconds. Symptom?
+        options:
+          - Messages are lost
+          - Messages become visible again while still being processed, so another consumer processes them too
+          - The queue blocks until processing finishes
+          - Nothing; visibility timeout only affects ordering
+        answer: [1]
+        explanation: "After 30 seconds the message reappears for other consumers, causing duplicate processing. Set the timeout above the worst-case processing time or extend it while working (heartbeat)."
+      - id: q5
+        kind: single
+        prompt: Which metric should drive autoscaling of queue consumers?
+        options:
+          - Incoming HTTP requests per second on the API
+          - Consumer lag or age of the oldest unprocessed message
+          - CPU of the broker
+          - Number of topics
+        answer: [1]
+        explanation: "Lag directly measures whether consumers keep up and maps to the latency users see. API request rate is only indirectly related; broker CPU says nothing about consumer throughput."
+      - id: q6
+        kind: short
+        prompt: How do you make a consumer effectively-once when its effect is a database update?
+        model_answer: "Give each message a unique id. In the same database transaction as the effect, insert the id into a processed-messages table with a unique constraint (or use a conditional update keyed by the id or a version). If the insert conflicts, the message was already applied, so skip it. Acknowledge only after commit. Delivery stays at-least-once; the outcome is applied once."
+        explanation: Exactly-once is achieved at the effect, not at the transport.
+- key: sd.queues_async.case
+  type: architecture_case
+  title: "Drill: asynchronous post-checkout pipeline"
+  skills: [sd.queues_async, sd.idempotency_retries]
+  minutes: 25
+  difficulty: MEDIUM
+  observation: {kind: SD_DESIGN, time_limit_seconds: 1500}
+  body:
+    prompt: |-
+      After an order is placed (synchronously, in the order service's database), five things must happen: send a confirmation email, award loyalty points, notify the warehouse, update analytics, and call a partner webhook. Peak is 3,000 orders per second during sales. Within 25 minutes design the asynchronous part: how the event is published reliably, the broker topology, partitioning, delivery semantics per consumer, retries and dead letters, and how you observe it.
+    requirements:
+      functional:
+        - Every placed order triggers all five side effects
+        - Loyalty points are awarded exactly once per order
+        - The warehouse receives order events in order per order (placed, then cancelled)
+      non_functional:
+        - Checkout latency is unaffected by the side effects
+        - No order event is ever lost
+        - Side effects complete within a minute at peak
+    approach:
+      - "Transactional outbox in the order service; a relay (polling or CDC) publishes `OrderPlaced` and `OrderCancelled` to a topic."
+      - "One topic partitioned by order_id; each downstream is its own consumer group (pub/sub through a log), so a slow consumer does not delay others."
+      - "Loyalty: idempotent consumer recording event_id in the same transaction as the points update."
+      - "Warehouse: per-order ordering from the partition key; events carry a version so stale ones are ignored after retries."
+      - "Email and webhook: at-least-once with a sent-record keyed by event_id; webhook retries with exponential backoff and jitter, then a DLQ; signed payloads with event ids so partners can dedupe."
+      - "Analytics: at-least-once into a warehouse that deduplicates by event_id."
+      - "Partitions sized for peak: 3,000 events/s with consumers at about 200 events/s each needs at least 15 partitions per slow consumer; choose more (for example 48) for headroom."
+      - "Observability: lag and oldest-message age per consumer group, DLQ depth, publish delay from outbox, end-to-end time from order to each effect."
+    estimates: |-
+      3,000 events per second at peak, about 1 KB each ≈ 3 MB/s into the topic; one day of retention ≈ 260 GB before replication at a sustained peak, far less on average.
+    rubric:
+      - {key: outbox, label: "Publishes via a transactional outbox (or CDC) so no event is lost between commit and publish", points: 3}
+      - {key: topology, label: "Separate consumer group or subscription per side effect so they fail and scale independently", points: 2}
+      - {key: idempotency, label: "Makes the loyalty consumer effectively-once with dedup in the same transaction", points: 2}
+      - {key: ordering, label: "Partitions by order_id to preserve per-order ordering and handles stale events", points: 2}
+      - {key: failures, label: "Retries with backoff, a dead-letter queue and a replay path", points: 2}
+      - {key: observability, label: "Names lag, DLQ depth and end-to-end latency metrics with alerts", points: 2}
+    follow_ups:
+      - prompt: Peak grows ten times to 30,000 orders per second. What changes?
+        look_for: More partitions (chosen ahead, since increasing partitions remaps keys), more consumers per group, batching in consumers, relay throughput (CDC instead of polling), broker capacity.
+      - prompt: The partner webhook is down for two hours. What happens to the other consumers and to the backlog?
+        look_for: Other groups are unaffected; webhook consumer retries with capped backoff then parks messages in a DLQ or a delay queue; replay after recovery with rate limiting toward the partner.
+      - prompt: The business now requires the email to be sent only if loyalty points were awarded. How does the design change?
+        look_for: Chain the steps (loyalty consumer emits PointsAwarded which the email consumer listens to) or a saga/orchestrator; adds latency and coupling.
+- key: sd.queues_async.interview
+  type: interview_question
+  title: "Interview question: can we have exactly-once delivery?"
+  skills: [sd.queues_async]
+  minutes: 10
+  difficulty: HARD
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 600}
+  body:
+    prompt: "A product manager asks for 'exactly-once delivery' of payment-captured events to a ledger service, because a duplicate would double-count revenue. Explain what is and is not achievable, and design the ledger consumer so revenue is counted once."
+    key_points:
+      - "Explains that over an unreliable network with crashes, delivery itself is at-most-once or at-least-once; a consumer can always crash between effect and ack."
+      - "Chooses at-least-once delivery so nothing is lost, plus an idempotent consumer for effectively-once processing."
+      - "Ledger entry keyed by a unique payment or event id with a unique constraint, inserted in the same transaction as the balance change."
+      - "Acknowledges or commits the offset only after the database commit."
+      - "Mentions Kafka transactions give exactly-once only within Kafka read-process-write; the external ledger still needs the unique key."
+      - Mentions reconciliation against the payment provider as a safety net.
+    model_answer: "Exactly-once delivery is not achievable end to end: the consumer can always crash after applying the event and before acknowledging, and the broker must then choose between redelivering (at-least-once) or not (at-most-once). For money we choose at-least-once and make processing idempotent. Each event carries the payment id; the ledger table has a unique constraint on it, and the consumer inserts the entry and updates the balance in one transaction, treating a unique violation as already applied, then commits the offset. Kafka transactions would help only if the ledger lived in Kafka. A daily reconciliation against the payment provider catches anything that slips through."
+    pitfalls:
+      - Promising exactly-once because a broker's documentation uses the phrase.
+      - Deduplicating in memory, which is lost on restart and not shared between consumers.
+    follow_ups:
+      - prompt: How long must you keep processed event ids?
+        look_for: At least as long as duplicates can arrive (retention and replay window); for a ledger the entry itself carries the id forever, so no separate expiry.
+      - prompt: Two different events arrive for the same payment (captured, then refunded) out of order. What do you do?
+        look_for: Per-payment ordering via partition key; state machine with versions; reject or park transitions that are not valid from the current state.
+- key: sd.queues_async.cards
+  type: revision_card
+  title: "Recall: queues and delivery"
+  skills: [sd.queues_async]
+  minutes: 5
+  body:
+    cards:
+      - front: At-most-once vs at-least-once?
+        back: Ack before processing (may lose) vs ack after processing (may duplicate).
+      - front: Effectively-once recipe?
+        back: At-least-once delivery plus dedup by message id in the same transaction as the effect.
+      - front: Where is ordering guaranteed in a partitioned log?
+        back: Within one partition only; key by entity id.
+      - front: What does the transactional outbox solve?
+        back: The dual write — the event row commits atomically with the business row.
+      - front: What is a dead-letter queue for?
+        back: Parking messages that keep failing so they do not block or loop forever.
+      - front: Scaling signal for consumers?
+        back: Consumer lag or age of the oldest message.
+
+# ---------------------------------------------------------------------------------------------- idempotency and retries
+- key: sd.idempotency_retries.lesson
+  type: lesson
+  title: Idempotency keys, retries, backoff and jitter
+  skills: [sd.idempotency_retries]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Retry only transient failures, only operations that are idempotent or protected by an idempotency key, with capped exponential backoff, jitter and a retry budget.
+    what: |-
+      - An operation is **idempotent** if performing it several times has the same effect as performing it once. `SET balance = 100` is idempotent; `balance = balance + 10` is not.
+      - An **idempotency key** is a unique client-generated identifier for one logical operation. The server stores the key with the outcome and returns that outcome for any repeat instead of executing again.
+      - A **retry policy** decides which failures to retry, how many times, and how long to wait between attempts: usually **exponential backoff** (wait doubles each attempt, up to a cap) with **jitter** (randomness so clients do not retry in lockstep).
+    why: |-
+      In distributed systems a timeout is ambiguous: the request may have failed, or succeeded with the response lost. Retrying makes transient failures invisible to users, but retrying a non-idempotent request (create payment) can perform it twice. And naive retries amplify outages: if every client retries immediately, a service that is struggling at 100% load receives 200% or 300%, and never recovers.
+    when: |-
+      Retry on transient errors: connection failures, timeouts, `503 Service Unavailable`, `429 Too Many Requests` (honouring `Retry-After`), and some `5xx`. Do not retry `400`, `401`, `403`, `404`, `409` or `422`: the same request will fail the same way. Use idempotency keys on every state-changing call that a client or an intermediate layer may retry: payments, orders, bookings, transfers, webhook deliveries.
+    how: |-
+      **Server-side idempotency key handling**
+
+      1. Client generates a key (a UUID) per logical operation and reuses it on every retry.
+      2. Server, in one transaction, inserts `(client_id, key, request_hash, status = IN_PROGRESS)` into a table with a unique constraint on `(client_id, key)`.
+      3. If the insert succeeds, execute the operation and store the response (status code and body) on the row, ideally in the same transaction as the effect.
+      4. If the key exists: same request hash and completed → return the stored response; still in progress → return `409` (or wait briefly); different request hash → reject with `422`, since the client reused a key for a different operation.
+      5. Expire keys after a window longer than any client's retry horizon (for example 24 hours).
+
+      **Client-side retry with capped exponential backoff and full jitter**
+
+      ```python
+      import random, time
+
+      RETRYABLE = {429, 502, 503, 504}
+
+      def call_with_retries(send, max_attempts=4, base=0.1, cap=5.0):
+          for attempt in range(max_attempts):
+              try:
+                  resp = send()                     # same idempotency key on every attempt
+              except (ConnectionError, TimeoutError):
+                  resp = None
+              if resp is not None and resp.status not in RETRYABLE:
+                  return resp                       # success or a non-retryable error
+              if attempt == max_attempts - 1:
+                  break
+              delay = random.uniform(0, min(cap, base * 2 ** attempt))   # full jitter
+              if resp is not None and resp.retry_after is not None:
+                  delay = max(delay, resp.retry_after)
+              time.sleep(delay)
+          raise RuntimeError("gave up after retries")
+      ```
+
+      **Limit amplification.** Retry at one layer only (usually the edge or the outermost client), not at every hop: three layers each making 3 attempts can turn one user request into 27 calls to the bottom service. Use a **retry budget** (for example, retries may add at most 10% to request volume) and **deadline propagation** (do not retry if the caller's deadline has passed). Pair with circuit breakers so a dead dependency is not hammered.
+    mental_model: |-
+      Every request travels a network that may drop the request or the response, and you cannot tell which. Idempotency makes "send again" safe; backoff and jitter make "send again" polite. Without the first, retries corrupt data; without the second, retries cause outages.
+    tradeoffs: |-
+      More retries hide more transient failures but increase tail latency and load during incidents. Short backoff recovers quickly from blips but worsens overload; long backoff is gentle but slow. Storing idempotency records costs a write per request and storage for the expiry window. Full jitter spreads load best but makes individual waits less predictable.
+    mistakes:
+      - Retrying non-idempotent operations without a key.
+      - Generating a new idempotency key on each retry, which defeats it.
+      - Retrying 4xx errors such as validation failures.
+      - Fixed delays or backoff without jitter, so all clients retry in synchronised waves.
+      - Retries at every layer of a call chain.
+      - Storing the idempotency key outside the transaction of the effect, leaving a window where the effect happened but the key was not recorded.
+      - Ignoring Retry-After.
+    interview: |-
+      Whenever a design includes a payment, a booking or a webhook, expect "what if the client retries?" and "what if the call to the payment provider times out?". State the idempotency key flow and the retry policy with numbers (attempts, base, cap, jitter), and explain where retries happen and how amplification is prevented.
+    explain_it:
+      - Why timeouts are ambiguous.
+      - Idempotency key storage, uniqueness and the in-progress and mismatch cases.
+      - Which errors are retryable.
+      - Exponential backoff with a cap and jitter, with numbers.
+      - Retry budget and single-layer retries to avoid amplification.
+    edge_cases:
+      - "Two retries arrive concurrently: the unique constraint lets one insert win; the other sees IN_PROGRESS."
+      - "The server crashes mid-operation leaving IN_PROGRESS forever: record a lease time and let a later retry take over after it expires, or reconcile."
+      - "Downstream calls made by the server (payment provider) need their own idempotency keys derived from the client's key."
+    misconceptions:
+      - "A GET retry is always safe — only if the GET truly has no side effects."
+      - "\"Exponential backoff alone prevents thundering herds\" — without jitter, clients that failed together retry together."
+- key: sd.idempotency_retries.check
+  type: concept_check
+  title: "Concept check: idempotency and retries"
+  skills: [sd.idempotency_retries]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: For each case, ask whether a retry could do harm.
+    questions:
+      - id: q1
+        kind: multi
+        prompt: Which operations are naturally idempotent?
+        options:
+          - "UPDATE account SET email = 'a@x.io' WHERE id = 7"
+          - "UPDATE account SET balance = balance - 10 WHERE id = 7"
+          - "DELETE FROM session WHERE id = 'abc'"
+          - "INSERT INTO payment (amount) VALUES (10) with an auto-generated id"
+        answer: [0, 2]
+        explanation: "Setting a value and deleting a specific row end in the same state however often they run. Decrementing and inserting with a fresh id change state on every run, so they need an idempotency key or a natural unique key."
+      - id: q2
+        kind: single
+        prompt: Which responses should a client retry automatically?
+        options:
+          - "400 Bad Request"
+          - "409 Conflict"
+          - "503 Service Unavailable"
+          - "422 Unprocessable Entity"
+        answer: [2]
+        explanation: "503 signals a temporary server condition. 400, 409 and 422 describe the request or the state; repeating the same request yields the same answer and only adds load."
+      - id: q3
+        kind: single
+        prompt: Why add jitter to exponential backoff?
+        options:
+          - To make retries faster
+          - So clients that failed at the same moment do not retry at the same moments, which would recreate the overload in waves
+          - Because exponential growth overflows
+          - To make retries deterministic
+        answer: [1]
+        explanation: "Without jitter, thousands of clients that failed together retry together at 100 ms, 200 ms, 400 ms, producing synchronised spikes. Randomising the wait spreads them out."
+      - id: q4
+        kind: single
+        prompt: A request passes through gateway → service A → service B → database. Each of the three callers makes up to 3 attempts. Worst case, how many calls can reach the database for one user request?
+        options: ["3", "9", "27", "81"]
+        answer: [2]
+        explanation: "3 × 3 × 3 = 27 when every layer exhausts its attempts. Retry at one layer and use retry budgets to avoid this multiplication."
+      - id: q5
+        kind: single
+        prompt: A client reuses an idempotency key with a different amount than the original request. Best server behaviour?
+        options:
+          - Execute the new request
+          - Return the stored result of the original request silently
+          - Reject it (for example 422) because the key was reused for a different operation
+          - Overwrite the stored result
+        answer: [2]
+        explanation: "Storing a hash of the request lets the server detect key misuse. Returning the old result silently would hide a client bug; executing or overwriting breaks the idempotency contract."
+      - id: q6
+        kind: short
+        prompt: Why should the idempotency record be written in the same transaction as the operation's effect?
+        model_answer: "Otherwise a crash between the two leaves an inconsistent pair: the effect happened but the key was not recorded (a retry executes again, causing a duplicate), or the key was recorded but the effect did not happen (a retry returns a success that never occurred). One transaction makes them commit or roll back together."
+        explanation: The same reasoning as the transactional outbox and the idempotent consumer.
+- key: sd.idempotency_retries.interview
+  type: interview_question
+  title: "Interview question: the payment call timed out"
+  skills: [sd.idempotency_retries, sd.api_design]
+  minutes: 12
+  difficulty: HARD
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: "Your checkout service calls an external payment provider to charge a card. The call times out after 10 seconds. The user is waiting. What do you do now, and how should the system be designed so this situation never charges twice or loses a charge?"
+    key_points:
+      - "States that a timeout is ambiguous: the charge may or may not have happened."
+      - Sends every charge with an idempotency key derived from the order (and supported by the provider), so a retry cannot double charge.
+      - "Retries a bounded number of times with backoff and jitter, within the user's deadline, using the same key."
+      - "If still unknown, records the payment as PENDING, tells the user the order is processing, and resolves it asynchronously by querying the provider or receiving its webhook."
+      - The checkout endpoint itself takes a client idempotency key so the user's double-click or app retry is safe.
+      - Reconciliation job compares provider records with local state.
+    model_answer: "A timeout means I do not know whether the card was charged. Because every charge request carries an idempotency key derived from the order id, I can safely retry with the same key a couple of times with jittered backoff while the user's deadline allows; the provider returns the original result if it already charged. If it is still unknown, I store the payment as PENDING and show 'processing', then resolve it through the provider's webhook or a status query, and a reconciliation job catches anything missed. Upstream, the checkout endpoint takes the client's idempotency key, so a double-click or a mobile retry returns the same order instead of creating a second one."
+    pitfalls:
+      - Retrying with a new key.
+      - Marking the order failed and letting the user pay again.
+    follow_ups:
+      - prompt: The provider does not support idempotency keys. What then?
+        look_for: Query by a merchant reference before retrying, never blind-retry the charge; reconcile; consider a provider that does.
+      - prompt: "What timeout and retry settings would you choose and why?"
+        look_for: Timeouts from the provider's latency percentiles (p99 plus margin), 2–3 attempts with capped exponential backoff and jitter, total bounded by the user-facing deadline.
+      - prompt: Thousands of payments go PENDING during a provider outage. What happens when it recovers?
+        look_for: Resolution jobs rate-limited towards the provider, prioritised by age, with idempotent state transitions; alerts on pending count.
+- key: sd.idempotency_retries.exercise
+  type: coding_exercise
+  title: "Exercise: an idempotent create-order handler"
+  skills: [sd.idempotency_retries]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 1200}
+  body:
+    prompt: |-
+      Write the server-side logic (Python with SQL, pseudocode for the framework parts is fine) for `POST /orders` with an `Idempotency-Key` header. Requirements: a retry with the same key and body returns the original response; a concurrent duplicate does not create a second order; the same key with a different body is rejected; a key whose first attempt crashed mid-way can be retried. Explain the table, the transaction boundaries and each branch.
+    constraints:
+      - The order and the idempotency record live in the same PostgreSQL database.
+      - Keys are unique per client and expire after 24 hours.
+    hints:
+      - Let a unique constraint decide which concurrent request wins.
+      - Store a hash of the request body next to the key.
+      - Record a lock expiry so an abandoned IN_PROGRESS row can be taken over.
+    solution:
+      language: python
+      code: |-
+        # CREATE TABLE idempotency (
+        #   client_id TEXT, key TEXT, request_hash TEXT NOT NULL,
+        #   status TEXT NOT NULL,              -- IN_PROGRESS | DONE
+        #   locked_until TIMESTAMPTZ, response_code INT, response_body JSONB,
+        #   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        #   PRIMARY KEY (client_id, key));
+
+        def create_order(db, client_id, key, body):
+            h = sha256_hex(canonical_json(body))
+            with db.transaction() as tx:                       # step 1: claim the key
+                row = tx.fetchone(
+                    "INSERT INTO idempotency (client_id, key, request_hash, status, locked_until) "
+                    "VALUES (%s, %s, %s, 'IN_PROGRESS', now() + interval '30 seconds') "
+                    "ON CONFLICT (client_id, key) DO UPDATE "
+                    "  SET locked_until = EXCLUDED.locked_until "
+                    "  WHERE idempotency.status = 'IN_PROGRESS' "
+                    "    AND idempotency.locked_until < now() "
+                    "    AND idempotency.request_hash = EXCLUDED.request_hash "
+                    "RETURNING status", (client_id, key, h))
+            if row is None:                                    # someone else owns or finished it
+                existing = db.fetchone("SELECT request_hash, status, response_code, response_body "
+                                       "FROM idempotency WHERE client_id = %s AND key = %s", (client_id, key))
+                if existing.request_hash != h:
+                    return 422, {"error": {"code": "IDEMPOTENCY_KEY_REUSED"}}
+                if existing.status == "DONE":
+                    return existing.response_code, existing.response_body   # replay stored result
+                return 409, {"error": {"code": "REQUEST_IN_PROGRESS"}}
+            with db.transaction() as tx:                       # step 2: effect + result atomically
+                order_id = tx.fetchval("INSERT INTO orders (client_id, items) VALUES (%s, %s) "
+                                       "RETURNING id", (client_id, body["items"]))
+                response = {"order_id": order_id, "status": "PLACED"}
+                tx.execute("UPDATE idempotency SET status = 'DONE', response_code = 201, "
+                           "response_body = %s WHERE client_id = %s AND key = %s",
+                           (json_dumps(response), client_id, key))
+            return 201, response
+      explanation: "The unique primary key makes exactly one concurrent request claim the key. The order insert and the DONE update share a transaction, so a crash leaves either nothing or both; a crash before step 2 leaves IN_PROGRESS with an expired lock, which the next retry with the same body re-claims. Different bodies are rejected, finished keys replay the stored response."
+    rubric:
+      - {key: unique_claim, label: "Uses a unique constraint (not a read-then-insert) to decide the winner", points: 3}
+      - {key: atomic_effect, label: "Writes the effect and the stored response in one transaction", points: 3}
+      - {key: replay, label: "Returns the stored response for a completed key with the same body", points: 1}
+      - {key: mismatch, label: "Rejects the same key with a different body", points: 1}
+      - {key: in_progress, label: "Handles concurrent in-progress duplicates and abandoned attempts", points: 2}
+    follow_ups:
+      - prompt: The order creation also calls an external inventory service. What changes?
+        look_for: The external call cannot join the transaction; pass a derived idempotency key to it, store intermediate state, or use an outbox to request reservation asynchronously.
+      - prompt: How do you expire old keys without hurting latency?
+        look_for: Partition the table by day and drop old partitions, or a batched background delete on created_at with an index.
+
+- key: sd.idempotency_retries.cards
+  type: revision_card
+  title: "Recall: idempotency and retries"
+  skills: [sd.idempotency_retries]
+  minutes: 5
+  body:
+    cards:
+      - front: Why is a timeout ambiguous?
+        back: The request may have succeeded with only the response lost.
+      - front: What makes a non-idempotent POST safe to retry?
+        back: A client idempotency key stored with the result under a unique constraint.
+      - front: Full-jitter backoff formula?
+        back: sleep = random(0, min(cap, base × 2^attempt)).
+      - front: Retryable status codes?
+        back: 429 (honour Retry-After), 502, 503, 504 and connection errors; not 400/409/422.
+      - front: Three layers × 3 attempts each?
+        back: Up to 27 calls at the bottom — retry at one layer, use a retry budget.
+
+# ---------------------------------------------------------------------------------------------- rate limiting
+- key: sd.rate_limiting.lesson
+  type: lesson
+  title: Rate limiting algorithms and where to put them
+  skills: [sd.rate_limiting]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Choose an algorithm by the burst behaviour you want (token bucket, leaky bucket, fixed or sliding window), key it by the right identity, and place limits at the edge, the gateway and in front of fragile dependencies.
+    what: |-
+      Rate limiting caps how many requests a client (user, API key, IP, tenant) may make in a time period, rejecting or delaying the excess. The common algorithms:
+
+      - **Token bucket**: a bucket holds up to `B` tokens and refills at `r` tokens per second; each request takes a token or is rejected. Allows bursts up to `B` and a long-run average of `r`.
+      - **Leaky bucket**: requests enter a bounded queue that drains at a constant rate; overflow is rejected. Produces a smooth output rate with no bursts downstream (at the cost of queueing delay).
+      - **Fixed window counter**: count requests per client per calendar window (for example per minute) and reject above the limit. Cheapest, but a client can send the full limit at the end of one window and again at the start of the next: up to twice the limit within a few seconds.
+      - **Sliding window log**: store each request's timestamp and count those in the last window. Exact, but memory grows with the limit per client.
+      - **Sliding window counter**: keep counts for the current and previous fixed windows and estimate `current + previous × (fraction of previous window still inside the sliding window)`. Close to exact with two counters per client.
+    why: |-
+      Without limits one client (a buggy script, a scraper, an attacker, or a retry storm) can exhaust shared capacity and degrade everyone. Limits protect availability, enforce fair use and pricing tiers, slow credential stuffing and brute force, and protect fragile or expensive dependencies (a payment provider with its own quota, a search cluster).
+    when: |-
+      Public and partner APIs (per API key and plan), authentication endpoints (per account and per IP, strict), expensive endpoints (exports, search), outbound calls to third-party quotas, and as load shedding during incidents.
+    how: |-
+      **Placement, from outside in**
+
+      - **Edge / CDN / WAF**: coarse per-IP limits and flood absorption before traffic reaches you.
+      - **API gateway or L7 load balancer**: per API key, user or tenant, per route; returns `429 Too Many Requests` with `Retry-After` and usually remaining-quota headers.
+      - **Inside services**: per-endpoint concurrency limits and limits that protect a specific dependency.
+      - **Client-side**: well-behaved clients throttle themselves and back off on 429.
+
+      **Distributed enforcement.** Many gateway instances must share counts. Common approach: a central Redis with the check-and-update done atomically (a Lua script, or `INCR` plus `EXPIRE` for fixed windows) keyed like `rl:{api_key}:{window}`. A plain read-then-write from the gateway races and lets bursts through. Alternatives: each of N instances enforces `limit / N` locally (no shared state, inaccurate when load is uneven), or local buckets that sync with the central store periodically. Decide **fail-open** (allow traffic when the limiter store is down, protecting availability) or **fail-closed** (reject, protecting the backend) per use case.
+
+      **Token bucket in a few lines** (lazy refill, no background timer):
+
+      ```python
+      import time
+
+      class TokenBucket:
+          def __init__(self, capacity: int, refill_per_second: int):
+              self.capacity = capacity
+              self.rate = refill_per_second
+              self.tokens = capacity
+              self.updated = time.monotonic()
+
+          def allow(self) -> bool:
+              now = time.monotonic()
+              self.tokens = min(self.capacity, self.tokens + (now - self.updated) * self.rate)
+              self.updated = now
+              if self.tokens >= 1:
+                  self.tokens -= 1
+                  return True
+              return False
+      ```
+
+      State per key is two numbers (tokens, last update), which makes it cheap to keep in Redis as a hash updated by a Lua script.
+    mental_model: |-
+      A token bucket is a prepaid card that recharges at a fixed speed: you can spend the whole balance at once (burst) but never faster than it recharges in the long run. A leaky bucket is a funnel: whatever you pour in, it drips out at one speed. Windows are a turnstile counter that resets on the clock.
+    tradeoffs: |-
+      Token bucket allows bursts (good UX for interactive clients, bad for a backend that cannot absorb them). Leaky bucket protects downstreams perfectly but adds queueing delay. Fixed windows are cheapest and allow boundary bursts of up to twice the limit; sliding logs are exact and memory-hungry; sliding counters are a good compromise. A central store gives accurate global limits at the cost of a network hop per request and a dependency; local limits are fast and approximate.
+    mistakes:
+      - Limiting only by IP, which punishes many users behind one NAT and misses attackers rotating IPs.
+      - Read-then-write counter updates in a distributed limiter, letting concurrent requests exceed the limit.
+      - "Returning 500 or 503 instead of 429 with Retry-After, so clients cannot back off correctly."
+      - Fixed windows for strict limits without accounting for the boundary burst.
+      - Making the limiter a hard dependency that takes down the API when its store is unavailable, without a fail-open or fail-closed decision.
+      - Rate limiting after the expensive work instead of before it.
+    interview: |-
+      Usually a sub-question: "how do you protect this API from abuse?" or "the partner API allows 100 calls per second, how do you stay under it?". Give the algorithm and why (bursts allowed or not), the key (API key, user, IP, tenant), the placement, the distributed state and its atomicity, the response contract, and the failure mode of the limiter itself.
+    explain_it:
+      - The algorithm and its burst behaviour.
+      - What identity the limit is keyed by.
+      - Where it is enforced (edge, gateway, service, client).
+      - How state is shared and updated atomically.
+      - The client contract (429, Retry-After) and fail-open versus fail-closed.
+    complexity: "Token bucket, leaky bucket and window counters are O(1) time and O(1) space per key; the sliding window log is O(limit) memory per key."
+    edge_cases:
+      - "Clock differences between gateway instances skew window boundaries; use the store's clock (Redis TIME inside the script) or monotonic deltas."
+      - "Outbound limits towards a third party are global across all your workers, so they need a shared limiter or a single dispatcher."
+      - "Bursty but legitimate traffic (page load firing 30 requests) needs a bucket capacity above the steady rate."
+- key: sd.rate_limiting.check
+  type: concept_check
+  title: "Concept check: rate limiting"
+  skills: [sd.rate_limiting]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Match the algorithm to the burst behaviour and the placement to the threat.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "A fixed window allows 100 requests per minute. What is the most a client can send within about two seconds?"
+        options: ["100", "About 200", "About 3", "Unlimited"]
+        answer: [1]
+        explanation: "100 in the last second of one window and 100 in the first second of the next both pass, so about 200 in two seconds. Sliding windows or a token bucket prevent this boundary burst."
+      - id: q2
+        kind: single
+        prompt: A token bucket has capacity 20 and refills 5 tokens per second. A client has been idle for a minute and then sends 50 requests at once. How many are allowed immediately?
+        options: ["5", "20", "50", "300"]
+        answer: [1]
+        explanation: "Tokens cap at the capacity, 20, however long the client was idle. 300 is the refill without the cap; after the burst the client gets about 5 more per second."
+      - id: q3
+        kind: single
+        prompt: A downstream payment provider rejects anything above 50 requests per second, with no bursts tolerated. Which algorithm fits best in front of it?
+        options: ["Token bucket with capacity 500", "Leaky bucket (queue drained at 50/s)", "Fixed window of 3,000 per minute", "No limit; rely on retries"]
+        answer: [1]
+        explanation: "A leaky bucket outputs a steady 50 per second, exactly what a burst-intolerant dependency needs. A large token bucket or a per-minute window would let bursts through; relying on retries creates a retry storm."
+      - id: q4
+        kind: multi
+        prompt: Which keys make sense for rate limiting a login endpoint?
+        options:
+          - Per target account (failed attempts per username)
+          - Per source IP
+          - Per country only
+          - Global across all users only
+        answer: [0, 1]
+        explanation: "Per account stops brute force against one user from many IPs; per IP stops one source from spraying many accounts. Country-only and global-only limits block legitimate users without targeting the attacker."
+      - id: q5
+        kind: single
+        prompt: Ten gateway instances share a Redis counter. Each does GET count, checks it against the limit, then SET count+1. What goes wrong?
+        options:
+          - Nothing; Redis is single-threaded
+          - Concurrent requests read the same value and all pass, so the limit is exceeded
+          - Redis rejects the SET
+          - Requests are double counted
+        answer: [1]
+        explanation: "Redis executes each command atomically, but GET and SET are two commands; between them other gateways read the same count. Use INCR (atomic) and compare its result, or a Lua script for the whole check-and-update."
+      - id: q6
+        kind: short
+        prompt: The Redis cluster that stores rate-limit counters becomes unavailable. Should the gateway fail open or fail closed? Justify for two different endpoints.
+        model_answer: "It depends on what the limit protects. For a general read API whose limit enforces fair use, fail open (allow traffic, perhaps with a conservative local in-memory limit) so a limiter outage does not become an API outage. For a login or OTP endpoint, where the limit is a security control against brute force, fail closed or fall back to a strict local limit, because letting unlimited attempts through is worse than temporary rejections."
+        explanation: The limiter's failure mode is a product and security decision, not a default.
+- key: sd.rate_limiting.exercise
+  type: coding_exercise
+  title: "Exercise: sliding window counter limiter"
+  skills: [sd.rate_limiting]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 1200}
+  body:
+    prompt: |-
+      Implement `allow(key, now)` for a per-key limit of `limit` requests per `window` seconds using the **sliding window counter** approximation: keep counts for the current and previous fixed windows only. Then explain its error compared with an exact sliding log, and how you would run it across many gateway instances.
+    examples:
+      - "limit = 10, window = 60: 6 requests at 0:50, 4 at 1:10 → at 1:15 the estimate is 4 + 6 × (45/60) = 8.5, so one more is allowed"
+    constraints:
+      - O(1) memory per key.
+      - Times are integer seconds; avoid floating-point comparisons by multiplying through.
+    hints:
+      - The current window index is now // window.
+      - The weight of the previous window is the part of it still inside the sliding window.
+      - Compare estimate < limit with integers by multiplying both sides by window.
+    solution:
+      language: python
+      code: |-
+        from dataclasses import dataclass
+
+        @dataclass
+        class Counts:
+            window_index: int = -1
+            current: int = 0
+            previous: int = 0
+
+        class SlidingWindowCounter:
+            def __init__(self, limit: int, window: int) -> None:
+                self.limit, self.window = limit, window
+                self.state: dict[str, Counts] = {}
+
+            def allow(self, key: str, now: int) -> bool:
+                c = self.state.setdefault(key, Counts())
+                idx = now // self.window
+                if idx != c.window_index:                     # roll the windows forward
+                    c.previous = c.current if idx == c.window_index + 1 else 0
+                    c.current, c.window_index = 0, idx
+                elapsed = now - idx * self.window             # seconds into current window
+                overlap = self.window - elapsed               # part of previous still in range
+                # estimate = current + previous * overlap / window, kept in integers
+                if c.current * self.window + c.previous * overlap >= self.limit * self.window:
+                    return False
+                c.current += 1
+                return True
+      explanation: "Two counters per key and integer arithmetic. The estimate assumes the previous window's requests were spread evenly; if they were bunched at its end, the true count is higher, so the error is bounded by the previous window's count and is small in practice."
+    rubric:
+      - {key: rollover, label: "Rolls windows correctly, including a gap of more than one window", points: 3}
+      - {key: weighting, label: "Weights the previous count by the overlapping fraction", points: 3}
+      - {key: integers, label: "Avoids float comparisons or handles them deliberately", points: 1}
+      - {key: error_explained, label: "Explains the even-distribution assumption and its error", points: 1}
+      - {key: distributed, label: "Describes atomic shared state (Redis Lua or INCR with keys per window) for many instances", points: 2}
+    follow_ups:
+      - prompt: Ten million active keys. How much memory in Redis, roughly?
+        look_for: Two small counters plus key overhead, on the order of 100 bytes per key, so about 1 GB; expire keys after two windows.
+      - prompt: How would a token bucket differ for the same limit?
+        look_for: Allows a burst up to capacity then steady refill; state is tokens plus last timestamp; different user experience at window edges.
+
+- key: sd.rate_limiting.interview
+  type: interview_question
+  title: "Interview question: protect a public API from abuse"
+  skills: [sd.rate_limiting, sd.load_balancing_cdn]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: "A public REST API has free and paid plans (60 and 1,000 requests per minute per API key), runs on 30 gateway instances, and was recently hit by a scraper rotating thousands of IPs and by a customer's buggy retry loop. Design the rate limiting: algorithm, keys, placement, shared state, client contract and failure behaviour."
+    key_points:
+      - "Token bucket (or sliding window counter) per API key with capacity sized for legitimate bursts and refill matching the plan."
+      - Layered placement — edge/WAF per-IP limits for floods, gateway per-key limits, service-level limits for expensive endpoints.
+      - "Shared state in Redis with an atomic Lua script per key; mentions the cost of a hop per request and local caching or batching to reduce it."
+      - "Returns 429 with Retry-After and remaining-quota headers so well-behaved clients back off."
+      - "Addresses the scraper: per-key limits make IP rotation useless if keys are required; anonymous traffic gets strict per-IP and fingerprint limits."
+      - "Addresses the retry loop: 429 plus Retry-After, and the client SDK uses backoff with jitter."
+      - States fail-open versus fail-closed when Redis is unavailable.
+    model_answer: "Per API key I would use a token bucket: the free plan refills one token per second with a capacity of about 10, the paid plan about 17 per second with a capacity of about 100, so page-load bursts pass but sustained rates match the plans. Enforcement sits at the gateway, with state in a Redis cluster updated by a Lua script that refills and takes a token atomically; keys are sharded by API key. The edge applies coarse per-IP limits to absorb floods, and expensive endpoints such as exports have their own lower limits. Over-limit responses are 429 with Retry-After and remaining-quota headers, and our SDK backs off with jitter, which handles the buggy retry loop. Requiring keys defeats IP rotation; unauthenticated endpoints get strict per-IP limits. If Redis is down, the gateway fails open with a conservative local per-instance limit for normal endpoints and fails closed for authentication endpoints."
+    pitfalls:
+      - Only per-IP limiting.
+      - A non-atomic shared counter.
+      - Ignoring the limiter's own failure mode.
+    follow_ups:
+      - prompt: Traffic grows ten times and the Redis hop adds noticeable latency. What do you change?
+        look_for: Local token buckets per instance that lease tokens in batches from Redis, accepting small overshoot; shard Redis by key; keep hot keys local.
+      - prompt: A paying customer complains they get 429 while under their quota. How do you debug?
+        look_for: Check which layer returned 429 (edge per-IP versus gateway per-key), shared NAT or proxy IPs, clock or window skew, uneven local limits per instance; expose the limiting layer in a response header and metrics per key.
+- key: sd.rate_limiting.cards
+  type: revision_card
+  title: "Recall: rate limiting"
+  skills: [sd.rate_limiting]
+  minutes: 5
+  body:
+    cards:
+      - front: Token bucket behaviour?
+        back: Bursts up to capacity B, long-run rate r tokens per second.
+      - front: Leaky bucket behaviour?
+        back: Constant output rate; excess queues or is dropped; no bursts downstream.
+      - front: Weakness of a fixed window?
+        back: Up to twice the limit across a window boundary.
+      - front: Sliding window counter estimate?
+        back: current + previous × fraction of the previous window still in range.
+      - front: Response for a limited request?
+        back: 429 Too Many Requests with Retry-After.
+      - front: Atomic distributed counter in Redis?
+        back: INCR (compare its result) or a Lua script for check-and-update.

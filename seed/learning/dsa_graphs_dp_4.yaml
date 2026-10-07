@@ -1,0 +1,1104 @@
+# Learning content: string and subsequence DP (LCS, edit distance, LIS), grid DP, interval and state-machine DP, DP on trees.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- string and subsequence DP
+- key: dsa.dp_strings.lesson
+  type: lesson
+  title: "String DP: LCS, edit distance and LIS"
+  skills: [dp.strings_subsequence, dp.fundamentals]
+  minutes: 30
+  difficulty: MEDIUM
+  body:
+    summary: "For two sequences, let dp[i][j] describe the first i items of one and the first j of the other; the last characters either match or force a choice. For one sequence, let dp[i] describe the best answer ending at i."
+    what: |-
+      Three classic sequence DPs cover most interview questions:
+
+      - **Longest common subsequence (LCS)** of strings `a` and `b`: `dp[i][j]` = LCS length of `a[:i]` and `b[:j]`. If `a[i-1] == b[j-1]`, `dp[i][j] = dp[i-1][j-1] + 1`; otherwise `max(dp[i-1][j], dp[i][j-1])`.
+      - **Edit distance** (Levenshtein): `dp[i][j]` = fewest insertions, deletions and replacements turning `a[:i]` into `b[:j]`. Base: `dp[i][0] = i`, `dp[0][j] = j`. If the last characters match, `dp[i-1][j-1]`; else `1 + min(dp[i-1][j] (delete), dp[i][j-1] (insert), dp[i-1][j-1] (replace))`.
+      - **Longest increasing subsequence (LIS)**: `dp[i]` = length of the longest increasing subsequence ending at `i` = `1 + max(dp[k])` over `k < i` with `a[k] < a[i]`; O(n²). The **patience** method keeps `tails[L]` = smallest possible tail of an increasing subsequence of length L + 1 and updates it with binary search: O(n log n).
+
+      A **subsequence** keeps order but may skip elements; a **substring** must be contiguous. That single word changes the transition.
+    why: |-
+      Diffs (`diff`, version control), spell correction, DNA alignment and fuzzy search are LCS and edit-distance problems; LIS appears in scheduling and in nested-envelope style problems. In interviews these are the canonical "2-D DP over prefixes", and once the prefix state is clear, many unfamiliar string problems (word break, interleaving strings, distinct subsequences) follow the same pattern.
+    when: |-
+      - Two strings or arrays and a question about matching, aligning, transforming or a common part: 2-D DP over prefix pairs, O(m × n).
+      - One sequence, "longest/shortest subsequence with property P": `dp[i]` ending at `i`, or a 1-D DP over prefixes (word break: `dp[i]` = can `s[:i]` be segmented).
+      - LIS with n up to 10⁵: O(n²) is too slow, use the tails array with `bisect`.
+    how: |-
+      ```python
+      def lcs(a: str, b: str) -> int:
+          m, n = len(a), len(b)
+          dp = [[0] * (n + 1) for _ in range(m + 1)]       # row 0 and column 0: empty prefix
+          for i in range(1, m + 1):
+              for j in range(1, n + 1):
+                  if a[i - 1] == b[j - 1]:
+                      dp[i][j] = dp[i - 1][j - 1] + 1          # use the match
+                  else:
+                      dp[i][j] = max(dp[i - 1][j], dp[i][j - 1])  # drop one last character
+          return dp[m][n]
+
+      def edit_distance(a: str, b: str) -> int:
+          prev = list(range(len(b) + 1))                   # row for the empty prefix of a
+          for i in range(1, len(a) + 1):
+              cur = [i] + [0] * len(b)
+              for j in range(1, len(b) + 1):
+                  if a[i - 1] == b[j - 1]:
+                      cur[j] = prev[j - 1]
+                  else:
+                      cur[j] = 1 + min(prev[j],             # delete a[i-1]
+                                       cur[j - 1],          # insert b[j-1]
+                                       prev[j - 1])         # replace
+              prev = cur
+          return prev[-1]
+
+      from bisect import bisect_left
+
+      def lis_length(nums: list[int]) -> int:
+          tails: list[int] = []                            # tails[L] = smallest tail of a length L+1 run
+          for x in nums:
+              i = bisect_left(tails, x)                    # strictly increasing: replace first tail >= x
+              if i == len(tails):
+                  tails.append(x)
+              else:
+                  tails[i] = x
+          return len(tails)
+      ```
+    mental_model: |-
+      Put one string along the top and the other down the side. Each cell answers the question for "these two prefixes", and it only looks up, left, or diagonally up-left. A match is a diagonal step (both strings consume a character together); a mismatch means one string must give up its last character, which is a step up or left. The answer is in the bottom-right corner, and the path back from it spells out the alignment.
+    tradeoffs: |-
+      Full tables cost O(m × n) memory; two rows reduce it to O(min(m, n)) but lose the information needed to reconstruct the subsequence or the edit script (Hirschberg's algorithm recovers it in linear space at about twice the time, rarely needed in interviews). LIS: O(n²) DP is easy to reconstruct and to adapt (longest chain under any compatibility rule); the O(n log n) tails method is fast but `tails` is not itself a valid subsequence, and reconstruction needs extra parent bookkeeping.
+    mistakes:
+      - "Off-by-one between dp indices and string indices: dp[i][j] covers a[:i], so compare a[i-1] and b[j-1]."
+      - Treating "substring" as "subsequence" or the reverse; longest common substring resets to 0 on a mismatch and takes the maximum over all cells.
+      - "In edit distance, forgetting the base row and column (`dp[i][0] = i`), which makes deletions free."
+      - "Using `bisect_right` for a strictly increasing LIS; it allows equal values (non-decreasing)."
+      - Returning `tails` as the LIS itself.
+      - In word break, testing every substring in O(n) and every split point, giving O(n³) without noticing; bound the inner loop by the longest dictionary word.
+    interview: |-
+      Draw the table for a three-letter example before coding; it makes the transition obvious to you and the interviewer. State the state precisely ("dp[i][j] is the edit distance between the first i letters of a and the first j of b"), explain each of the three edit operations as a move in the table, and give O(m × n) time with the two-row space optimisation. Expect: reconstruct the LCS or the edits, the O(n log n) LIS, and variants with weighted operations.
+    explain_it:
+      - State the prefix-pair state and the base row and column.
+      - Explain the match case (diagonal) and the mismatch case (up, left, or diagonal + 1).
+      - Say where the answer is and how to reconstruct the path.
+      - "Complexity: O(m × n) time, O(m × n) or O(min(m, n)) space."
+    example:
+      language: python
+      code: |-
+        def word_break(s: str, words: list[str]) -> bool:
+            vocab = set(words)
+            longest = max(map(len, vocab), default=0)
+            ok = [True] + [False] * len(s)          # ok[i]: s[:i] can be segmented
+            for i in range(1, len(s) + 1):
+                for k in range(max(0, i - longest), i):
+                    if ok[k] and s[k:i] in vocab:
+                        ok[i] = True
+                        break
+            return ok[len(s)]
+      explanation: "A 1-D prefix DP. Bounding k by the longest word keeps it O(n × L) slices of length up to L, i.e. O(n × L²) time, instead of O(n³)."
+    complexity: LCS and edit distance O(m × n) time, O(m × n) or O(min(m, n)) space; LIS O(n²) DP or O(n log n) with the tails array.
+    internals: |-
+      Why the tails method works: tails is always strictly increasing, and tails[L] is the smallest value that can end an increasing subsequence of length L + 1 among the elements seen so far. A new x either extends the longest run (append) or lowers the tail of the shortest run it can end (bisect_left position). Lowering a tail never hurts, because a smaller tail can be extended by at least as many future values. The length of tails is the LIS length even though its contents may mix different subsequences.
+    edge_cases:
+      - One or both strings empty (answer 0 for LCS; the other string's length for edit distance).
+      - Identical strings (LCS = length, distance 0).
+      - All-equal arrays for LIS (strict LIS is 1).
+- key: dsa.dp_strings.visual
+  type: visual_explanation
+  title: "Visual: filling the LCS table for abcde and ace"
+  skills: [dp.strings_subsequence]
+  minutes: 7
+  body:
+    summary: "Rows are prefixes of ace, columns are prefixes of abcde. A match copies the up-left diagonal plus one; a mismatch takes the larger of up and left."
+    frames:
+      - caption: Row 0 and column 0 are the empty prefix, so they are all 0.
+        diagram: |2-
+                  ""   a   b   c   d   e
+            ""     0   0   0   0   0   0
+            a      0   .   .   .   .   .
+            c      0   .   .   .   .   .
+            e      0   .   .   .   .   .
+      - caption: "Row a: a matches a (diagonal 0 + 1 = 1); every later cell takes max(up, left) = 1."
+        diagram: |2-
+                  ""   a   b   c   d   e
+            ""     0   0   0   0   0   0
+            a      0  [1]  1   1   1   1      a == a → dp[0][0] + 1
+            c      0   .   .   .   .   .
+            e      0   .   .   .   .   .
+      - caption: "Row c: c matches c in column 3, so it takes the diagonal (row a, column b) = 1, plus 1 = 2."
+        diagram: |2-
+                  ""   a   b   c   d   e
+            ""     0   0   0   0   0   0
+            a      0   1  (1)  1   1   1
+            c      0   1   1  [2]  2   2      c == c → diagonal 1 + 1
+            e      0   .   .   .   .   .
+      - caption: "Row e: only the last column matches; its diagonal (row c, column d) is 2, so the answer is 3."
+        diagram: |2-
+                  ""   a   b   c   d   e
+            ""     0   0   0   0   0   0
+            a      0   1   1   1   1   1
+            c      0   1   1   2  (2)  2
+            e      0   1   1   2   2  [3]     e == e → diagonal 2 + 1
+
+            answer dp[3][5] = 3
+      - caption: "Walk back from the corner: a diagonal step on each match spells the subsequence in reverse: e, c, a → ace."
+        diagram: |2-
+                  ""   a   b   c   d   e
+            ""    [0]  0   0   0   0   0
+            a      0  [1]←[1]  1   1   1
+            c      0   1   1  [2]←[2]  2
+            e      0   1   1   2   2  [3]
+
+            match → go diagonal and emit;  mismatch → go to the larger of up/left
+            15 cells, each O(1): O(m × n)
+- key: dsa.dp_strings.check
+  type: concept_check
+  title: "Concept check: LCS, edit distance and LIS"
+  skills: [dp.strings_subsequence]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Sketch a small table for the tracing questions.
+    questions:
+      - id: q1
+        kind: single
+        prompt: What is the edit distance between "horse" and "ros"?
+        options: ["2", "3", "4", "5"]
+        answer: [1]
+        explanation: "Replace h with r (rorse), delete r (rose), delete e (ros): 3. Fewer is impossible because only one letter of \"ros\" lines up and the lengths differ by two. 4 is what you get if you forget that replace is a single operation."
+      - id: q2
+        kind: single
+        prompt: "In the edit-distance table, which neighbouring cell corresponds to inserting b[j-1] into a?"
+        options: ["dp[i-1][j]", "dp[i][j-1]", "dp[i-1][j-1]", "dp[i+1][j]"]
+        answer: [1]
+        explanation: "After inserting b[j-1] at the end, it matches, so what remains is turning a[:i] into b[:j-1]: dp[i][j-1]. dp[i-1][j] is deletion of a[i-1], and the diagonal is replacement (or a free match)."
+      - id: q3
+        kind: single
+        prompt: "Running `lis_length([3, 4, 1])` from the lesson, what is `tails` at the end, and is it a real subsequence?"
+        options:
+          - "[3, 4], a real subsequence"
+          - "[1, 4], not a real subsequence (1 comes after 4)"
+          - "[1], because 1 resets the run"
+          - "[3, 4, 1]"
+        answer: [1]
+        explanation: "3 → [3]; 4 → [3, 4]; 1 replaces the first tail ≥ 1 → [1, 4]. The length 2 is correct, but [1, 4] is not in the array's order. Reconstruction needs parent indices."
+      - id: q4
+        kind: multi
+        prompt: Which statements are true?
+        options:
+          - Longest common substring uses dp[i][j] = dp[i-1][j-1] + 1 on a match and 0 on a mismatch, taking the maximum over all cells
+          - LCS can be computed in O(min(m, n)) extra space if only its length is needed
+          - "The O(n log n) LIS uses bisect_right for strictly increasing subsequences"
+          - Edit distance needs base cases dp[i][0] = i and dp[0][j] = j
+        answer: [0, 1, 3]
+        explanation: "For strictly increasing runs, an equal value must replace the existing tail rather than extend, which is bisect_left. bisect_right gives the longest non-decreasing subsequence."
+      - id: q5
+        kind: single
+        prompt: Two strings of length 10⁴ each. What do the LCS table's time and memory look like in Python?
+        options:
+          - "10⁸ cell updates and a 10⁸-cell table: too much memory for a list of lists; use two rows"
+          - "10⁴ updates, trivial"
+          - "O(m + n), trivial"
+          - "10⁸ updates but negligible memory"
+        answer: [0]
+        explanation: "m × n = 10⁸ cells. In CPython a list of lists that size needs about 800 MB for the 8-byte element pointers alone (64-bit build), before counting the int objects, and 10⁸ interpreted updates take far longer than a typical interview time limit. Two rows fix the memory; the time is the real limit at this size."
+      - id: q6
+        kind: short
+        prompt: Explain how you reconstruct one LCS string from the full table.
+        model_answer: "Start at dp[m][n]. If a[i-1] == b[j-1], that character is in the LCS: record it and move to (i-1, j-1). Otherwise move to whichever of dp[i-1][j] and dp[i][j-1] is larger (either on ties). Stop when i or j is 0, then reverse the recorded characters. O(m + n) extra time after the O(m × n) fill."
+        explanation: The walk back only works with the full table; the two-row version does not keep the information.
+- key: dsa.dp_strings.exercise
+  type: coding_exercise
+  title: "Exercise: return a longest common subsequence, not just its length"
+  skills: [dp.strings_subsequence]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 1200}
+  body:
+    prompt: |-
+      Write `lcs_string(a, b)` that returns one longest common subsequence of two strings (any one is accepted if several exist). Explain the table, the reconstruction, and the time and space. Then say what would change if the question asked for the longest common contiguous substring.
+    examples:
+      - "lcs_string('abcde', 'ace') == 'ace'"
+      - "lcs_string('AGGTAB', 'GXTXAYB') has length 4, for example 'GTAB'"
+      - "lcs_string('abc', 'def') == ''"
+    constraints:
+      - Both strings up to 2000 characters.
+    hints:
+      - Fill the usual LCS length table first.
+      - Walk back from the bottom-right corner; a match is a diagonal step that emits a character.
+      - Collect characters in reverse and reverse once at the end, instead of prepending to a string.
+    solution:
+      language: python
+      code: |-
+        def lcs_string(a, b):
+            m, n = len(a), len(b)
+            dp = [[0] * (n + 1) for _ in range(m + 1)]
+            for i in range(1, m + 1):
+                for j in range(1, n + 1):
+                    if a[i - 1] == b[j - 1]:
+                        dp[i][j] = dp[i - 1][j - 1] + 1
+                    else:
+                        dp[i][j] = max(dp[i - 1][j], dp[i][j - 1])
+            out, i, j = [], m, n
+            while i and j:
+                if a[i - 1] == b[j - 1]:
+                    out.append(a[i - 1])
+                    i, j = i - 1, j - 1
+                elif dp[i - 1][j] >= dp[i][j - 1]:
+                    i -= 1
+                else:
+                    j -= 1
+            return "".join(reversed(out))
+      explanation: "O(m × n) time and space for the table, O(m + n) for the walk back. Longest common substring would instead set dp[i][j] = 0 on a mismatch and remember the cell with the maximum value; the substring ends there."
+    rubric:
+      - {key: table, label: Correct prefix-pair table with the empty-prefix row and column, points: 3}
+      - {key: walk_back, label: Correct reconstruction that emits characters only on matches, points: 3}
+      - {key: efficient_build, label: Builds the result in reverse and joins once (no quadratic string building), points: 1}
+      - {key: complexity, label: "States O(m × n) time and space and why two rows are not enough here", points: 2}
+      - {key: substring, label: Explains the substring variant correctly, points: 1}
+    follow_ups:
+      - prompt: How would you produce a line-by-line diff of two files with this?
+        look_for: "Treat each line as a character (hash the lines), compute the LCS of the line sequences, and output lines not in the LCS as deletions or insertions while walking back."
+      - prompt: The strings are 10⁵ characters long. What now?
+        look_for: "O(m × n) is 10¹⁰, too slow. Mention that general LCS has no known strongly subquadratic algorithm; practical tools use Myers' O((m + n) × D) diff, fast when the difference D is small, or problem-specific structure."
+- key: dsa.dp_strings.interview
+  type: interview_question
+  title: "Interview question: explain edit distance from scratch"
+  skills: [dp.strings_subsequence]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    prompt: "A search feature should suggest the dictionary word closest to a misspelled query, where closeness is the minimum number of single-character insertions, deletions and replacements. Explain how you compute that distance between two words, including the state, the transitions, the base cases and the complexity, and how you would make suggestions fast enough over a large dictionary."
+    key_points:
+      - "State: dp[i][j] = distance between the first i characters of the query and the first j of the word."
+      - "Base cases: dp[i][0] = i and dp[0][j] = j (delete or insert everything)."
+      - "Transition: if the last characters match, dp[i-1][j-1]; else 1 + min of delete (dp[i-1][j]), insert (dp[i][j-1]) and replace (dp[i-1][j-1])."
+      - "O(m × n) time per pair, O(min(m, n)) space with two rows."
+      - Speeds up the dictionary search, for example by filtering candidates by length difference, stopping a row early once its minimum exceeds the current best, or using a BK-tree or trie traversal with the DP row.
+    model_answer: |-
+      I define dp[i][j] as the minimum edits to turn the first i letters of the query into the first j letters of the candidate. Turning a prefix into the empty string takes i deletions, and building a prefix from nothing takes j insertions, so row 0 and column 0 are 0..n and 0..m. For a cell, if the last letters are equal they cost nothing and I take the diagonal; otherwise I pay one for the cheapest of deleting the query's last letter (up), inserting the candidate's last letter (left) or replacing one with the other (diagonal). The answer is the bottom-right cell; each word pair costs O(m × n) with two rows of memory.
+
+      For a large dictionary, comparing against every word is too slow, so I would prune: skip words whose length differs from the query by more than the best distance so far, abandon a row once its minimum exceeds the best (distances never decrease further down), and, if this is a hot path, walk a trie of the dictionary carrying one DP row per trie node so shared prefixes are computed once, or index words in a BK-tree, which uses the triangle inequality of the metric.
+    pitfalls:
+      - Mixing up which neighbour is insert and which is delete without being able to justify it.
+      - Forgetting the base row and column.
+    follow_ups:
+      - prompt: Swapping two adjacent letters should count as one edit. How does the DP change?
+        look_for: "Damerau (optimal string alignment) variant: add dp[i-2][j-2] + 1 when a[i-1] == b[j-2] and a[i-2] == b[j-1]."
+      - prompt: Replacements cost 2 and insertions or deletions cost 1. What changes?
+        look_for: "Only the weights in the transition; the structure is the same. With replace cost 2, replacing is never better than delete plus insert, so the distance becomes m + n - 2 × LCS."
+      - prompt: Return the sequence of edits.
+        look_for: Keep the full table and walk back from the corner, choosing a neighbour that produced the cell's value and recording the operation.
+- key: dsa.dp_strings.guided
+  type: guided_problem
+  title: "Guided practice: longest common subsequence"
+  skills: [dp.strings_subsequence]
+  minutes: 30
+  difficulty: MEDIUM
+  problems: [40]
+  body:
+    guidance:
+      - Draw the table for two three-letter strings before coding and fill it by hand.
+      - Write the state as a comment, including the meaning of row 0 and column 0.
+      - Code the full table, then reduce it to two rows and say what you lose.
+      - Give O(m × n) time and the space of both versions.
+    hints:
+      - dp has (m + 1) × (n + 1) cells so the empty prefix has a row and a column.
+      - Compare a[i-1] with b[j-1], not a[i] with b[j].
+- key: dsa.dp_strings.timed
+  type: timed_problem
+  title: "Timed practice: edit distance, LIS and word segmentation"
+  skills: [dp.strings_subsequence]
+  minutes: 75
+  difficulty: MEDIUM
+  problems: [121, 120, 122]
+  body:
+    guidance:
+      - For edit distance, state the three operations as table moves before coding.
+      - For LIS, code the O(n²) version only if you are short on time; otherwise go straight to the tails array and explain bisect_left.
+      - For word segmentation, define ok[i] over prefixes and bound the inner loop by the longest word.
+      - Give the complexity of each first; aim for about 25 minutes per problem.
+- key: dsa.dp_strings.cards
+  type: revision_card
+  title: "Recall: string and subsequence DP"
+  skills: [dp.strings_subsequence]
+  minutes: 5
+  body:
+    cards:
+      - front: LCS transition?
+        back: "Match → dp[i-1][j-1] + 1; else max(dp[i-1][j], dp[i][j-1])."
+      - front: Edit distance base cases?
+        back: "dp[i][0] = i and dp[0][j] = j."
+      - front: Edit distance — which neighbour is insert, delete, replace?
+        back: Left is insert, up is delete, diagonal is replace.
+      - front: Longest common substring vs subsequence?
+        back: Substring resets to 0 on a mismatch and takes the max over all cells.
+      - front: O(n log n) LIS?
+        back: "tails array; bisect_left for strict, replace or append; answer len(tails)."
+      - front: Is the tails array an actual LIS?
+        back: No — only its length is meaningful.
+
+# ---------------------------------------------------------------------------------------------- grid DP
+- key: dsa.dp_grid.lesson
+  type: lesson
+  title: "Grid DP: paths when moves only go right and down"
+  skills: [dp.grid_paths, dp.fundamentals]
+  minutes: 20
+  difficulty: MEDIUM
+  body:
+    summary: "When every move goes right or down, the grid is a DAG; each cell's answer combines the cell above and the cell to the left, filled row by row."
+    what: |-
+      In a grid DP, `dp[r][c]` is the answer for paths from the start (usually the top-left) to cell `(r, c)`. If moves only go **right or down**, a cell can only be entered from above or from the left, so:
+
+      - **Count paths**: `dp[r][c] = dp[r-1][c] + dp[r][c-1]` (0 for blocked cells).
+      - **Minimum path sum**: `dp[r][c] = grid[r][c] + min(dp[r-1][c], dp[r][c-1])`.
+      - **Maximum collected**: the same with `max`, treating unreachable cells specially.
+
+      The first row and first column have only one way in, so initialise them separately (or pad the table with a sentinel row and column).
+    why: |-
+      Grid path problems are the most visual DP family and a common interview warm-up: robot paths, minimum cost through a matrix, maximum square of ones, dungeon health. They also teach the key question for any grid problem: **can paths go back?** If moves are restricted to right and down, there are no cycles and DP works; if moves go in all four directions with costs, cycles exist and you need a shortest-path algorithm instead.
+    when: |-
+      - Moves restricted to a fixed set of "forward" directions (right/down, or down/down-left/down-right): grid DP.
+      - Four-directional moves but a **strictly increasing** constraint (longest increasing path): still a DAG, so memoised DFS works in O(R × C).
+      - Four-directional moves with costs and no monotone constraint: Dijkstra or BFS, not DP.
+      - The constraint depends on the future (minimum starting health so you never drop to zero): fill **backwards** from the target.
+    how: |-
+      ```python
+      def min_path_sum(grid: list[list[int]]) -> int:
+          rows, cols = len(grid), len(grid[0])
+          dp = [0] * cols                       # dp[c] = best sum to (current row, c)
+          for r in range(rows):
+              for c in range(cols):
+                  if r == 0 and c == 0:
+                      dp[c] = grid[0][0]
+                  elif r == 0:
+                      dp[c] = dp[c - 1] + grid[r][c]            # only from the left
+                  elif c == 0:
+                      dp[c] = dp[c] + grid[r][c]                # only from above (old dp[c])
+                  else:
+                      dp[c] = min(dp[c], dp[c - 1]) + grid[r][c]  # above vs left
+          return dp[-1]
+      ```
+
+      The one-row trick: before `dp[c]` is overwritten it still holds the value for the cell **above**, and `dp[c - 1]` has already been updated to the cell on the **left** in the current row. That is exactly the two neighbours the transition needs.
+
+      Counting paths in an empty R × C grid has a closed form: the path is R - 1 downs and C - 1 rights in some order, so `math.comb(R + C - 2, R - 1)`; for a 3 × 7 grid that is C(8, 2) = 28. With obstacles, use the DP.
+    mental_model: |-
+      Water poured into the top-left corner that can only flow right or down. Each cell receives from at most two pipes (above and left) and passes its result on. Filling row by row, left to right, is pouring in the only order where both pipes into a cell are already full.
+    tradeoffs: |-
+      A full table makes reconstruction (which path?) easy; the one-row version uses O(C) memory (choose the shorter dimension as the row) but cannot reconstruct the path. Mutating the input grid in place saves memory but destroys it; ask first. For the empty grid count, the closed form is O(R + C) with exact Python integers, but it breaks as soon as obstacles appear.
+    mistakes:
+      - Initialising the whole first row or column as reachable when an obstacle sits in it; everything after the obstacle in that row or column is unreachable.
+      - Forgetting that the start cell itself may be blocked (answer 0 paths or -1).
+      - "Using 0 for \"unreachable\" in a max-collect DP where 0 is also a valid total; use None or a large negative sentinel."
+      - Applying grid DP to a problem that allows moving up or left, where cycles make the fill order invalid.
+      - "Mixing up `dp[r-1][c]` (above) and `dp[r][c-1]` (left) when converting to one row."
+    interview: |-
+      Say "moves only go right and down, so there are no cycles and each cell depends on the cell above and the cell to the left". Write the transition and the first row and column, give O(R × C) time, then offer the O(C)-space version. Follow-ups: obstacles, path reconstruction, two robots collecting at once (a 3-D DP over the step number and both columns), and what changes with four-directional moves.
+    explain_it:
+      - Why right/down moves make the grid a DAG.
+      - The transition and the first row and column.
+      - The fill order and the one-row space optimisation.
+      - "Complexity: O(R × C) time, O(C) space."
+    example:
+      language: python
+      code: |-
+        def count_paths(blocked: list[list[bool]]) -> int:
+            cols = len(blocked[0])
+            ways = [0] * cols
+            ways[0] = 1                                   # one way to stand on the start
+            for row in blocked:
+                for c in range(cols):
+                    if row[c]:
+                        ways[c] = 0                       # no path ends on a blocked cell
+                    elif c > 0:
+                        ways[c] += ways[c - 1]            # above (old ways[c]) + left
+            return ways[-1]
+      explanation: "With a block in the middle of a 3 × 3 grid the answer is 2. A blocked start gives 0 because ways[0] is reset on the first row. O(R × C) time, O(C) space."
+    complexity: O(R × C) time; O(R × C) space with the full table, O(min(R, C)) with one row.
+    edge_cases:
+      - 1 × 1 grid (the start is the end).
+      - Single row or single column (exactly one path unless blocked).
+      - Blocked start or blocked end.
+      - Negative cell values in min-sum (still fine for DP because there are no cycles).
+- key: dsa.dp_grid.check
+  type: concept_check
+  title: "Concept check: grid DP"
+  skills: [dp.grid_paths]
+  minutes: 8
+  difficulty: MEDIUM
+  body:
+    intro: Assume moves go right or down unless the question says otherwise.
+    questions:
+      - id: q1
+        kind: single
+        prompt: How many right/down paths cross an empty grid with 3 rows and 7 columns?
+        options: ["21", "28", "35", "10"]
+        answer: [1]
+        explanation: "Every path is 2 downs and 6 rights in some order: C(8, 2) = 28. 21 is C(7, 2), what you get by forgetting one move."
+      - id: q2
+        kind: single
+        prompt: "What does `min_path_sum([[1, 3, 1], [1, 5, 1], [4, 2, 1]])` return?"
+        options: ["7", "8", "6", "12"]
+        answer: [0]
+        explanation: "The path 1 → 3 → 1 → 1 → 1 sums to 7. The greedy choice of the smaller neighbour at each step (down to 1, then right to 5 or down to 4) gives a worse total, which is why every cell must compare both incoming paths."
+      - id: q3
+        kind: single
+        prompt: "In the one-row version, at the moment `dp[c] = min(dp[c], dp[c - 1]) + grid[r][c]` runs, what do `dp[c]` and `dp[c - 1]` hold?"
+        options:
+          - Both hold values from the previous row
+          - "dp[c] holds the cell above (previous row); dp[c - 1] holds the cell to the left (current row)"
+          - "dp[c] holds the cell to the left; dp[c - 1] the cell above"
+          - Both hold values from the current row
+        answer: [1]
+        explanation: "Left-to-right filling has already overwritten dp[c - 1] in this row, while dp[c] has not been touched yet in this row. That is why the compression works without a second array."
+      - id: q4
+        kind: multi
+        prompt: Which problems can be solved with a DP that fills cells in a fixed order?
+        options:
+          - Cheapest path moving only right or down
+          - Cheapest path moving in all four directions with positive costs
+          - Longest path that moves in four directions but must strictly increase in value
+          - Minimum starting health to cross a dungeon moving right or down
+        answer: [0, 2, 3]
+        explanation: "Strictly increasing values rule out cycles, so memoised DFS (a DP over the DAG) works. The dungeon is DP filled backwards from the exit. Free four-directional movement with costs has cycles, so the dependency order is unknown in advance: use Dijkstra."
+      - id: q5
+        kind: single
+        prompt: "In the `count_paths` example, the first row is [False, True, False] (a block in the middle). What is `ways` after the first row?"
+        options: ["[1, 0, 0]", "[1, 0, 1]", "[1, 1, 1]", "[0, 0, 0]"]
+        answer: [0]
+        explanation: "ways[0] = 1; ways[1] is blocked → 0; ways[2] = 0 + ways[1] = 0. Cells after a block in the first row are unreachable. Initialising the whole first row to 1 is the classic bug, giving [1, 0, 1]."
+      - id: q6
+        kind: short
+        prompt: Why does the minimum-starting-health dungeon problem fill the table from the bottom-right instead of the top-left?
+        model_answer: "The quantity you need at a cell depends on what happens after it, not before it: the health required on entering (r, c) is max(1, min(need[r+1][c], need[r][c+1]) - grid[r][c]). Going forwards you would have to track two things at once (current health and the lowest point so far), which is not a single optimal value per cell. Going backwards, each cell has one well-defined optimum."
+        explanation: Choosing the direction so that each cell's state is a single number is a recurring DP design decision.
+- key: dsa.dp_grid.exercise
+  type: coding_exercise
+  title: "Exercise: collect the most coins on a blocked floor"
+  skills: [dp.grid_paths]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 1200}
+  body:
+    prompt: |-
+      A robot starts at the top-left cell of a grid and must reach the bottom-right, moving only right or down. Each cell holds a non-negative number of coins, or -1 for a blocked cell. Write `max_coins(grid)` returning the most coins the robot can collect, or -1 if the bottom-right cannot be reached (or the start is blocked). Use O(cols) extra space and state the complexity.
+    examples:
+      - "max_coins([[0, 3, 1], [2, -1, 4], [1, 6, 0]]) == 9   (down, down, right, right)"
+      - "max_coins([[1, -1], [-1, 2]]) == -1"
+      - "max_coins([[5]]) == 5"
+    constraints:
+      - Up to 1000 × 1000 cells.
+    hints:
+      - Zero coins is a valid total, so you need a separate marker for "unreachable".
+      - Each cell takes the better of the reachable cells above and to the left.
+      - One row is enough if you fill left to right.
+    solution:
+      language: python
+      code: |-
+        def max_coins(grid):
+            cols = len(grid[0])
+            NONE = -1                                    # unreachable marker (totals are >= 0)
+            best = [NONE] * cols
+            for r, row in enumerate(grid):
+                for c, coins in enumerate(row):
+                    if coins == -1:
+                        best[c] = NONE
+                        continue
+                    if r == 0 and c == 0:
+                        best[c] = coins
+                        continue
+                    above = best[c]                      # previous row's value, not yet overwritten
+                    left = best[c - 1] if c > 0 else NONE
+                    prev = max(above, left)
+                    best[c] = prev + coins if prev != NONE else NONE
+            return best[-1]
+      explanation: "Totals are never negative, so -1 is a safe unreachable marker and max() ignores it whenever a real neighbour exists. O(R × C) time, O(C) space."
+    rubric:
+      - {key: transition, label: "Takes the max of above and left and adds the cell's coins", points: 3}
+      - {key: unreachable, label: Distinguishes unreachable from zero coins and propagates blocks correctly, points: 3}
+      - {key: start_end, label: Handles a blocked start and an unreachable end, points: 2}
+      - {key: space, label: "Uses one row and states O(R × C) time, O(C) space", points: 2}
+    follow_ups:
+      - prompt: Return the path as a string of R and D moves.
+        look_for: Keep the full table (or a parent choice per cell) and walk back from the end, choosing the neighbour that produced the value; reverse the moves.
+      - prompt: Two robots start at the top-left at the same time and both go to the bottom-right; a coin can be collected once. What state do you need?
+        look_for: "DP over step number t and the two robots' columns (rows follow from t): dp[t][c1][c2], adding the coins of both cells once if they coincide; O((R + C) × C²)."
+- key: dsa.dp_grid.guided
+  type: guided_problem
+  title: "Guided practice: counting paths and cheapest path"
+  skills: [dp.grid_paths]
+  minutes: 30
+  difficulty: MEDIUM
+  problems: [41, 123]
+  body:
+    guidance:
+      - Say why right/down moves make this DP (no cycles) before coding.
+      - For counting, write the full table first, then the one-row version, then mention the binomial closed form.
+      - For the cheapest path, handle the first row and first column explicitly.
+      - State O(R × C) time and O(C) space.
+    hints:
+      - "The counting answer for an m × n grid is C(m + n - 2, m - 1)."
+      - In one row, dp[c] is "above" and dp[c - 1] is "left" at update time.
+- key: dsa.dp_grid.timed
+  type: timed_problem
+  title: "Timed practice: longest increasing path in a matrix"
+  skills: [dp.grid_paths]
+  minutes: 40
+  difficulty: HARD
+  problems: [124]
+  body:
+    guidance:
+      - In the first two minutes, explain why four-directional moves are fine here (strictly increasing values mean no cycles, so the cells form a DAG).
+      - Use memoised DFS where each cell returns the longest increasing path starting from it.
+      - Mention the recursion depth risk and the iterative alternative (topological order by value, or Kahn's on the increasing-edge DAG).
+      - Give O(R × C) time and space before coding.
+- key: dsa.dp_grid.cards
+  type: revision_card
+  title: "Recall: grid DP"
+  skills: [dp.grid_paths]
+  minutes: 4
+  body:
+    cards:
+      - front: Unique right/down paths in an R × C grid?
+        back: C(R + C - 2, R - 1).
+      - front: Why is right/down grid DP valid?
+        back: No cycles; each cell depends only on the cell above and the cell to the left.
+      - front: One-row grid DP — what do dp[c] and dp[c - 1] hold at update time?
+        back: dp[c] is the cell above (old row); dp[c - 1] is the cell to the left (new row).
+      - front: Four-directional moves with positive costs?
+        back: Not a fixed-order DP; use Dijkstra.
+      - front: When do you fill a grid DP backwards?
+        back: When a cell's requirement depends on the path after it (minimum starting health).
+
+# ---------------------------------------------------------------------------------------------- interval and state-machine DP
+- key: dsa.dp_interval.lesson
+  type: lesson
+  title: Interval DP and state-machine DP
+  skills: [dp.interval_state_machine, dp.fundamentals]
+  minutes: 30
+  difficulty: HARD
+  body:
+    summary: "Interval DP solves dp[i][j] for a range from shorter ranges, filled by increasing length; state-machine DP tracks a small set of modes per step (holding, sold, cooling) and the legal transitions between them."
+    what: |-
+      Two DP shapes that look different from prefix DPs:
+
+      **Interval DP**: the state is a contiguous range, `dp[i][j]` = the answer for `a[i..j]`. It combines smaller ranges inside it, either by shrinking the ends (palindromes) or by choosing a split point `k` (merging, cutting, bursting). Typical costs: O(n²) states with O(1) transitions (longest palindromic subsequence) or O(n) transitions (matrix-chain order, burst balloons, minimum cost to cut a stick): O(n³).
+
+      **State-machine DP**: process the input left to right, and at each step keep one value per **state** of a small automaton. For stock trading with a one-day cooldown the states are **hold** (own a share), **sold** (sold today) and **rest** (no share, free to buy). Each day's values are computed from the previous day's values along the allowed arrows.
+    why: |-
+      Interval DP is the tool when the order of operations inside a range matters and the problem splits cleanly into a left part, a chosen element or split, and a right part. State-machine DP turns rules like "cooldown after selling", "at most two transactions" or "pay a fee per trade" into a handful of variables updated in O(1) per step, where a brute force would branch over every buy and sell day.
+    when: |-
+      - Interval DP signals: answer for a whole range built from sub-ranges; "merge adjacent", "burst", "cut", "remove and neighbours change", palindromic structure; n up to a few hundred (O(n³)) or a few thousand (O(n²)).
+      - State-machine signals: a sequence processed in order, with a small set of modes and rules about switching between them (buy/sell/cooldown, at most k transactions, last action, parity).
+    how: |-
+      Longest palindromic subsequence, filled so shorter ranges are ready first (i from right to left, j from left to right):
+
+      ```python
+      def longest_palindromic_subsequence(s: str) -> int:
+          n = len(s)
+          dp = [[0] * n for _ in range(n)]           # dp[i][j] for s[i..j]
+          for i in range(n - 1, -1, -1):
+              dp[i][i] = 1
+              for j in range(i + 1, n):
+                  if s[i] == s[j]:
+                      dp[i][j] = dp[i + 1][j - 1] + 2    # inner range is shorter: already done
+                  else:
+                      dp[i][j] = max(dp[i + 1][j], dp[i][j - 1])
+          return dp[0][n - 1] if n else 0
+      ```
+
+      Split-point interval DP (bursting balloons): pad the array with 1 at both ends and let `dp[i][j]` be the best score for bursting everything strictly between `i` and `j`. Choose `k` as the **last** balloon burst in that open interval: when it bursts, its neighbours are exactly `i` and `j`, and the left and right sides were independent.
+
+      ```python
+      def max_burst_score(nums: list[int]) -> int:
+          a = [1] + nums + [1]
+          n = len(a)
+          dp = [[0] * n for _ in range(n)]
+          for length in range(2, n):                 # distance between the two open ends
+              for i in range(n - length):
+                  j = i + length
+                  dp[i][j] = max(dp[i][k] + a[i] * a[k] * a[j] + dp[k][j] for k in range(i + 1, j))
+          return dp[0][n - 1]                       # [3, 1, 5, 8] gives 167
+      ```
+
+      State machine for trading with a one-day cooldown after each sale:
+
+      ```python
+      import math
+
+      def max_profit_with_cooldown(prices: list[int]) -> int:
+          hold, sold, rest = -math.inf, -math.inf, 0   # best profit in each state after the previous day
+          for p in prices:
+              prev_sold = sold
+              sold = hold + p                           # sell today: must have held yesterday
+              hold = max(hold, rest - p)                # keep holding, or buy from a rested state
+              rest = max(rest, prev_sold)               # yesterday's sale ends its cooldown today
+          return max(sold, rest)                        # [1, 2, 3, 0, 2] gives 3
+      ```
+
+      Order inside the loop matters: each new value must be computed from the **previous day's** values, so save any value you overwrite before it is read (here `prev_sold`; `hold` reads the old `rest` because `rest` is updated last).
+    mental_model: |-
+      Interval DP: think of the last action inside a range, not the first. The last balloon burst, the last cut made, the last matrix multiplication: fixing the last step splits the range into independent sub-ranges whose answers are already known. State machine: draw the circles (states) and arrows (actions with their profit or cost) on paper; the code is one line per arrow, run once per day.
+    tradeoffs: |-
+      Interval DP is expensive: O(n³) limits n to a few hundred in Python, and the 2-D table is O(n²) memory. Memoised recursion on `(i, j)` is often easier to get right than the fill order, at the price of recursion overhead. State-machine DP is O(n × states) time and O(states) memory, and it generalises cleanly (k transactions become 2k states), but an incorrect update order silently lets an action happen twice in one day.
+    mistakes:
+      - Filling an interval table row by row from the top, so `dp[i + 1][j - 1]` is not ready yet; fill by increasing length or with i descending.
+      - Choosing the first balloon to burst instead of the last, which leaves the two sides dependent on each other.
+      - Forgetting the padding 1s at the ends in bursting problems.
+      - In state machines, updating a state in place and then reading the new value for another state on the same day.
+      - Initialising impossible states with 0 instead of negative infinity, which lets you "sell" a share you never bought.
+    interview: |-
+      For interval problems, say the state as a range and the choice as "the last operation inside the range", then give O(n³) and the fill order. For trading problems, draw the state diagram first and name each arrow; interviewers reward the diagram because it makes the cooldown, fee and transaction limits obvious. Expect follow-ups such as at most k transactions (2k states, O(n × k)), adding a fee (subtract it on sell), or reconstructing the actions.
+    explain_it:
+      - "Interval: the range state, the last-operation choice, and the fill order by length."
+      - "State machine: the states, the arrows and their gains, and the initial values (negative infinity for impossible)."
+      - Why each update uses the previous step's values.
+      - "Complexity: O(n²) or O(n³) for interval DP; O(n × states) and O(states) space for state machines."
+    example:
+      language: python
+      code: |-
+        import math
+
+        def max_profit_with_fee(prices: list[int], fee: int) -> int:
+            hold, cash = -math.inf, 0
+            for p in prices:
+                hold, cash = max(hold, cash - p), max(cash, hold + p - fee)
+            return cash
+      explanation: "Two states, updated simultaneously from the previous day's values by tuple assignment. prices [1, 3, 2, 8, 4, 9] with fee 2 gives 8 (buy 1 sell 8, buy 4 sell 9). O(n) time, O(1) space."
+    complexity: Longest palindromic subsequence O(n²) time and space; split-point interval DP O(n³) time, O(n²) space; state-machine DP O(n × states) time, O(states) space.
+    edge_cases:
+      - Empty input or a single element.
+      - Prices that only fall (best profit 0, never trade).
+      - Ranges of length 1 and 2, where the inner range is empty.
+- key: dsa.dp_interval.check
+  type: concept_check
+  title: "Concept check: interval and state-machine DP"
+  skills: [dp.interval_state_machine]
+  minutes: 10
+  difficulty: HARD
+  body:
+    intro: Use the lesson's functions for the traces.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "What does `max_profit_with_cooldown([1, 2, 3, 0, 2])` return?"
+        options: ["2", "3", "4", "5"]
+        answer: [1]
+        explanation: "Buy at 1, sell at 2, cool down on the day priced 3, buy at 0, sell at 2: 1 + 2 = 3. Ignoring the cooldown would allow buy 1, sell 3, buy 0, sell 2 = 4, which is the tempting wrong answer."
+      - id: q2
+        kind: single
+        prompt: "In the cooldown machine, why is `hold` initialised to negative infinity rather than 0?"
+        options:
+          - To save memory
+          - Holding a share before any purchase is impossible; 0 would let the first sell earn money from nothing
+          - Because prices can be negative
+          - It makes no difference
+        answer: [1]
+        explanation: "With hold = 0, the first day's sold = 0 + p is a profit from a share never bought. Impossible states must be unreachable, which negative infinity guarantees under max()."
+      - id: q3
+        kind: single
+        prompt: Why does the bursting DP choose the LAST balloon to burst in an interval instead of the first?
+        options:
+          - It is faster
+          - When k is last, its neighbours are the fixed ends i and j, and the two sides are independent subproblems
+          - Choosing the first gives the same recurrence
+          - Bursting order does not affect the score
+        answer: [1]
+        explanation: "If k bursts first, the balloons left and right of it become neighbours of each other, so the two sides interact and are not independent. Fixing the last one keeps both boundaries known: score a[i] × a[k] × a[j]."
+      - id: q4
+        kind: single
+        prompt: "In `longest_palindromic_subsequence`, why does i run from n - 1 down to 0?"
+        options:
+          - It is an arbitrary choice
+          - dp[i][j] reads dp[i + 1][...], a row below, which must already be filled
+          - To handle empty strings
+          - It makes the algorithm O(n)
+        answer: [1]
+        explanation: "dp[i][j] needs dp[i + 1][j - 1], dp[i + 1][j] and dp[i][j - 1]. Descending i fills row i + 1 first, and ascending j fills dp[i][j - 1] first. Filling by increasing length is an equally valid order."
+      - id: q5
+        kind: multi
+        prompt: Which complexities are right?
+        options:
+          - Longest palindromic subsequence, O(n²) time
+          - Bursting balloons, O(n³) time
+          - Stock trading with at most k transactions as a state machine, O(n × k) time
+          - Stock trading with cooldown, O(n²) time
+        answer: [0, 1, 2]
+        explanation: "The cooldown machine has three states updated in O(1) per day: O(n). With k transactions there are 2k states per day: O(n × k)."
+      - id: q6
+        kind: short
+        prompt: Define the states and transitions for "at most two buy-sell transactions, no overlap".
+        model_answer: "Four states after each day: buy1 (bought the first share), sell1 (completed one transaction), buy2 (holding the second share), sell2 (completed two). Per price p: buy1 = max(buy1, -p); sell1 = max(sell1, buy1 + p); buy2 = max(buy2, sell1 - p); sell2 = max(sell2, buy2 + p). Initialise buys to negative infinity and sells to 0; answer sell2. Updating in this order on the same day is safe because buying and selling at the same price adds zero profit. O(n) time, O(1) space."
+        explanation: Each transaction adds two states; the same pattern gives O(n × k) for k transactions.
+- key: dsa.dp_interval.exercise
+  type: coding_exercise
+  title: "Exercise: longest palindromic subsequence with its fill order explained"
+  skills: [dp.interval_state_machine]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 1200}
+  body:
+    prompt: |-
+      Write `longest_pal_subseq(s)` returning the length of the longest subsequence of `s` that reads the same forwards and backwards. Explain the range state, the two transitions, and a fill order that guarantees every dependency is ready. Then answer: how many characters must be deleted at minimum to make `s` a palindrome?
+    examples:
+      - "longest_pal_subseq('bbbab') == 4   ('bbbb')"
+      - "longest_pal_subseq('cbbd') == 2"
+      - "longest_pal_subseq('a') == 1"
+    constraints:
+      - Up to 1000 characters.
+    hints:
+      - "dp[i][j] = answer for s[i..j]; a single character is a palindrome of length 1."
+      - If the ends match, they wrap the best answer for the inside.
+      - Otherwise drop one end or the other.
+    solution:
+      language: python
+      code: |-
+        def longest_pal_subseq(s):
+            n = len(s)
+            if n == 0:
+                return 0
+            dp = [[0] * n for _ in range(n)]
+            for i in range(n - 1, -1, -1):
+                dp[i][i] = 1
+                for j in range(i + 1, n):
+                    if s[i] == s[j]:
+                        dp[i][j] = dp[i + 1][j - 1] + 2      # inner empty when j == i + 1: dp is 0
+                    else:
+                        dp[i][j] = max(dp[i + 1][j], dp[i][j - 1])
+            return dp[0][n - 1]
+      explanation: "O(n²) time and space; a one-row version uses O(n) space. The minimum deletions to make s a palindrome is n minus this length. It also equals the LCS of s and its reverse."
+    rubric:
+      - {key: state, label: "Defines dp[i][j] over the range s[i..j] with the length-1 base case", points: 2}
+      - {key: transitions, label: Correct match and mismatch transitions including the length-2 case, points: 3}
+      - {key: order, label: Justifies a fill order (i descending or by length) that has every dependency ready, points: 3}
+      - {key: deletions, label: "Answers minimum deletions = n - LPS and states O(n²)", points: 2}
+    follow_ups:
+      - prompt: How does this relate to longest common subsequence?
+        look_for: "LPS(s) = LCS(s, reversed s); same O(n²) complexity, a useful cross-check."
+      - prompt: What changes for the longest palindromic substring (contiguous)?
+        look_for: "Boolean dp[i][j] = s[i] == s[j] and dp[i+1][j-1], or expand around each of the 2n - 1 centres in O(n²) time and O(1) space."
+- key: dsa.dp_interval.interview
+  type: interview_question
+  title: "Interview question: design a trading-rules DP from a state diagram"
+  skills: [dp.interval_state_machine]
+  minutes: 15
+  difficulty: HARD
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    prompt: "Given daily prices, you may hold at most one share at a time, must wait one full day after selling before buying again, and pay a fixed fee on every sale. Explain how you would model this as a DP: draw the states, the transitions, the initial values, the update order and the complexity. No full code is needed."
+    key_points:
+      - "Names three states: holding, just sold (cooling down), and resting (free to buy)."
+      - "Transitions: hold = max(hold, rest - p); sold = hold + p - fee; rest = max(rest, previous sold)."
+      - Initialises impossible states (hold, sold) to negative infinity and rest to 0.
+      - Explains that every update must use the previous day's values and saves the overwritten value or uses simultaneous assignment.
+      - "States O(n) time and O(1) space and that the answer is max(sold, rest)."
+    model_answer: |-
+      I would draw three circles. Rest means no share and free to buy; hold means owning one share; sold means I sold today and must cool down tomorrow. Arrows: rest → rest (do nothing), rest → hold (buy, minus p), hold → hold (keep), hold → sold (sell, plus p minus the fee), sold → rest (the cooldown day passes). So for each price p, from the previous day's values: new_hold = max(hold, rest - p), new_sold = hold + p - fee, new_rest = max(rest, sold). Before the first day, rest = 0 and the other two are negative infinity, because I cannot hold or have just sold anything yet. I compute all three from the old values (simultaneous assignment) so no action happens twice in one day. The answer is max(sold, rest) after the last day; ending while holding is never better. That is O(n) time and O(1) space.
+    pitfalls:
+      - Writing the transitions without a diagram and losing the cooldown.
+      - Charging the fee on both buy and sell.
+    follow_ups:
+      - prompt: Now allow at most k transactions. How do the states change?
+        look_for: "Add the transaction count to the state: hold[t] and free[t] for t = 0..k; O(n × k) time and O(k) space; if k ≥ n/2 the limit does not bind and the unlimited version applies."
+      - prompt: How would you reconstruct which days to buy and sell?
+        look_for: "Store each day's state values (O(n) space) and walk backwards, choosing at each day the arrow that produced the current state's value."
+- key: dsa.dp_interval.guided
+  type: guided_problem
+  title: "Guided practice: trading with a cooldown"
+  skills: [dp.interval_state_machine]
+  minutes: 30
+  difficulty: MEDIUM
+  problems: [125]
+  body:
+    guidance:
+      - Draw the three-state diagram with every arrow labelled before writing code.
+      - Write one update line per state, and decide which old values must be saved before overwriting.
+      - Initialise impossible states to negative infinity.
+      - Trace the five-day example by hand and confirm the answer.
+    hints:
+      - The state you can buy from is the rested one, not the one that sold yesterday.
+      - Return the best of the non-holding states.
+- key: dsa.dp_interval.timed
+  type: timed_problem
+  title: "Timed practice: two transactions and bursting order"
+  skills: [dp.interval_state_machine]
+  minutes: 75
+  difficulty: HARD
+  problems: [126, 127]
+  body:
+    guidance:
+      - For two transactions, name the four states and their updates aloud in the first three minutes, then code.
+      - For bursting, explain "choose the last balloon in the open interval" and the padding before any code; fill by increasing interval length.
+      - State O(n) and O(n³) respectively, and keep each within about 35 minutes.
+- key: dsa.dp_interval.cards
+  type: revision_card
+  title: "Recall: interval and state-machine DP"
+  skills: [dp.interval_state_machine]
+  minutes: 5
+  body:
+    cards:
+      - front: Fill order for interval DP?
+        back: By increasing range length (or i descending, j ascending).
+      - front: Bursting balloons — which balloon do you choose in a range?
+        back: The last one burst; its neighbours are then the fixed range ends.
+      - front: Typical cost of split-point interval DP?
+        back: O(n³) time, O(n²) space.
+      - front: States for trading with a cooldown?
+        back: Hold, sold (cooling down), rest (free to buy).
+      - front: Initial value of an impossible state?
+        back: Negative infinity, so max() can never choose it.
+
+# ---------------------------------------------------------------------------------------------- tree DP
+- key: dsa.dp_tree.lesson
+  type: lesson
+  title: DP on trees with post-order returns
+  skills: [dp.tree, trees.path_depth]
+  minutes: 25
+  difficulty: HARD
+  body:
+    summary: Each node computes its answer from its children's answers, so a post-order traversal that returns a small tuple per node solves tree DPs in O(n).
+    what: |-
+      In **tree DP** the state lives on nodes: `f(node)` describes the best answer for the subtree rooted at that node, often split into a few cases (node taken / not taken, has camera / covered / needs cover). Because a subtree's answer depends only on its children's answers, a **post-order** traversal (children first, then the node) computes everything in one pass.
+
+      Two recurring patterns:
+
+      - **Return a tuple of cases**: e.g. `(best if node is taken, best if node is skipped)` for "no two adjacent nodes" problems.
+      - **Return one thing, record another**: for path problems (diameter, maximum path sum), a node **returns** the best path going **down** into one child (so the parent can extend it) and **records** in an outer variable the best path that **bends** through the node (left + node + right), which cannot be extended upwards.
+    why: |-
+      Many tree questions are exponential if you try all subsets of nodes, but each node's decision only interacts with its parent and children. Tree DP captures that locality and gives O(n). It is also the clearest test of whether you understand "what a recursive call returns" versus "what the overall answer is", which is the most common source of wrong answers in tree problems.
+    when: |-
+      - "Choose nodes subject to a parent/child constraint" (independent set, vertex cover, cameras): return per-case values.
+      - "Longest or best path anywhere in the tree" (diameter, max path sum): return the downward best, record the bending best globally.
+      - "Answer for every node as the root" (sum of distances to all nodes): two passes, post-order then pre-order (rerooting).
+      - General trees given as edge lists: same idea with an adjacency list and a `parent` argument to avoid walking back up.
+    how: |-
+      Maximum sum with no parent-child pair both taken (binary tree):
+
+      ```python
+      def rob_tree(root) -> int:
+          def solve(node) -> tuple[int, int]:
+              if node is None:
+                  return 0, 0                               # (taken, skipped)
+              lt, ls = solve(node.left)
+              rt, rs = solve(node.right)
+              taken = node.val + ls + rs                    # children must be skipped
+              skipped = max(lt, ls) + max(rt, rs)           # children are free
+              return taken, skipped
+          return max(solve(root))
+      ```
+
+      Maximum path sum (any path, at least one node, values may be negative):
+
+      ```python
+      def max_path_sum(root) -> int:
+          best = root.val
+          def gain(node) -> int:
+              nonlocal best
+              if node is None:
+                  return 0
+              left = max(gain(node.left), 0)                # drop a negative branch
+              right = max(gain(node.right), 0)
+              best = max(best, node.val + left + right)     # path bending here: record, do not return
+              return node.val + max(left, right)            # the parent can extend only one branch
+          gain(root)
+          return best
+      ```
+    mental_model: |-
+      Each node is a manager who asks their direct reports for a short summary ("best if I am in, best if I am out"), combines the summaries in O(children) work, and hands one summary up. Nobody needs the whole org chart. For path problems, a manager also notes on a shared whiteboard "the best path through me", but can only hand up a path through one report, because a path cannot fork.
+    tradeoffs: |-
+      Recursive post-order is the clearest code but in CPython a skewed tree of 10⁴ nodes already exceeds the default recursion limit of 1000. Options: `sys.setrecursionlimit` (risky: the C stack can still overflow; running in a thread with a larger stack size is the usual workaround), or an iterative post-order (BFS or DFS order reversed, then process children before parents with arrays). Memoising on nodes with a dict also works for the "grandchildren" formulation of robbing but costs more memory and time than returning tuples.
+    mistakes:
+      - Returning the bending path (left + node + right) to the parent, which counts a forked path.
+      - Not clamping negative branch gains to 0 in max path sum, or clamping the node's own value (the path must contain at least one node).
+      - Initialising the global best to 0 when all values can be negative.
+      - Recomputing children by calling the recursive function twice per child (exponential time).
+      - In general trees, forgetting the parent check and recursing back up the edge you came from.
+      - Recursion depth on degenerate trees.
+    interview: |-
+      Before coding, say exactly what the recursive function returns and what it records, and why they differ. Then give O(n) time and O(h) stack space (h up to n for a skewed tree). Follow-ups: return the chosen nodes, general trees from an edge list, iterative versions for deep trees, and rerooting for per-node answers.
+    explain_it:
+      - What each call returns (and why it is a tuple or a downward value).
+      - What is recorded globally and why it cannot be returned.
+      - The base case for an empty child.
+      - "Complexity: O(n) time, O(h) recursion stack."
+    example:
+      language: python
+      code: |-
+        def diameter(root) -> int:
+            """Number of edges on the longest path between any two nodes."""
+            best = 0
+            def height(node) -> int:                      # nodes on the longest downward path
+                nonlocal best
+                if node is None:
+                    return 0
+                left, right = height(node.left), height(node.right)
+                best = max(best, left + right)            # edges on the path bending here
+                return 1 + max(left, right)
+            height(root)
+            return best
+      explanation: "For root 1 with children 2 and 3, where 2 has children 4 and 5, the diameter is 3 (4 → 2 → 1 → 3). O(n) time, O(h) stack."
+    complexity: O(n) time (each node does work proportional to its number of children), O(h) recursion stack or O(n) for iterative arrays.
+    internals: |-
+      Rerooting in one sentence: a first post-order pass computes subtree answers; a second pre-order pass pushes "the answer from everything outside my subtree" down from parent to child, so every node's whole-tree answer is available in O(n) total instead of O(n²) for n separate traversals.
+    edge_cases:
+      - Empty tree (decide the return value explicitly).
+      - Single node.
+      - All negative values (max path sum is the largest single value).
+      - Skewed trees (recursion depth).
+- key: dsa.dp_tree.check
+  type: concept_check
+  title: "Concept check: tree DP"
+  skills: [dp.tree]
+  minutes: 9
+  difficulty: HARD
+  body:
+    intro: "Trees are written as level-order lists with None for missing children, e.g. [3, 2, 3, None, 3, None, 1]."
+    questions:
+      - id: q1
+        kind: single
+        prompt: "What does `rob_tree` return for [3, 2, 3, None, 3, None, 1] (root 3; left child 2 with right child 3; right child 3 with right child 1)?"
+        options: ["6", "7", "8", "9"]
+        answer: [1]
+        explanation: "Leaves give (3, 0) and (1, 0). Node 2 → (2, 3); node 3 → (3, 1). Root: taken = 3 + 3 + 1 = 7, skipped = max(2, 3) + max(3, 1) = 6. Answer 7 (root plus both grandchildren). 6 comes from forgetting the root-taken case."
+      - id: q2
+        kind: single
+        prompt: "What does `max_path_sum` return for [-10, 9, 20, None, None, 15, 7]?"
+        options: ["34", "42", "35", "52"]
+        answer: [1]
+        explanation: "At node 20 the bending path 15 + 20 + 7 = 42 is recorded. The root would bend 9 + (-10) + 35 = 34, which is worse. 52 is what you get if the bending value were returned upward and extended again, counting a forked path."
+      - id: q3
+        kind: single
+        prompt: Why does `gain` return `node.val + max(left, right)` instead of `node.val + left + right`?
+        options:
+          - It is faster
+          - A path continuing to the parent can include only one child branch; using both would make it fork
+          - Because right is always smaller
+          - To avoid negative numbers
+        answer: [1]
+        explanation: "A path passes through a node at most once, so a path that continues upward enters from one child only. left + node + right is a complete path that ends there, so it is recorded globally, not returned."
+      - id: q4
+        kind: single
+        prompt: A binary tree is a single chain of 20000 nodes. What happens to the recursive solutions in CPython with default settings?
+        options:
+          - They run fine in O(n)
+          - RecursionError, because the depth exceeds the default limit of 1000
+          - They run in O(n²)
+          - They return wrong answers silently
+        answer: [1]
+        explanation: "Depth equals the tree height, here 20000. Use an iterative post-order (process nodes in reversed BFS order with arrays) or raise the limit and run in a thread with a larger stack."
+      - id: q5
+        kind: multi
+        prompt: "In the diameter function, which statements are true?"
+        options:
+          - "height returns the number of nodes on the longest downward path from the node"
+          - best records left + right, the number of edges on the path bending at the node
+          - The answer is the height of the root
+          - Each node is visited once, so the time is O(n)
+        answer: [0, 1, 3]
+        explanation: "The root's height only covers paths through the root going down one side; the longest path may bend at a deeper node and never touch the root. That is why best is tracked separately."
+      - id: q6
+        kind: short
+        prompt: Explain the difference between what a tree-DP function returns and what it records globally, using maximum path sum as the example.
+        model_answer: "It returns the best downward path starting at the node and going into at most one child (node.val + max(left, right), with negative branches clamped to 0), because only that can be extended by the parent. It records globally the best path that bends at the node (node.val + left + right), which is a complete path and cannot be extended. The answer is the global best, not the root's return value."
+        explanation: Separating "extendable" from "complete" answers is the core idea of every path-in-tree DP.
+- key: dsa.dp_tree.exercise
+  type: coding_exercise
+  title: "Exercise: plan the team party without recursion"
+  skills: [dp.tree]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 1200}
+  body:
+    prompt: |-
+      A company hierarchy is a tree: `boss[e]` is employee e's direct manager, or -1 for the head. Each employee has a fun score `fun[e]` (non-negative). Invite a set of employees with the maximum total fun such that no employee is invited together with their direct manager. Write `best_party(boss, fun)` without recursion (the hierarchy can be 10⁵ levels deep) and state the complexity.
+    examples:
+      - "best_party([-1, 0, 0, 1, 1, 2], [3, 2, 1, 10, 1, 1]) == 15   (invite 0, 3, 4 and 5)"
+      - "best_party([-1], [5]) == 5"
+      - "best_party([-1, 0, 1, 2], [1, 5, 1, 5]) == 10   (a chain: invite 1 and 3)"
+    constraints:
+      - Up to 10⁵ employees.
+    hints:
+      - Each employee needs two numbers - best for their subtree if they are invited, and if they are not.
+      - Build the children lists, then a BFS order from the head; processing that order in reverse handles every child before its manager.
+      - "invited = fun + sum of children's not-invited; not invited = sum of each child's better option."
+    solution:
+      language: python
+      code: |-
+        def best_party(boss, fun):
+            n = len(boss)
+            children = [[] for _ in range(n)]
+            head = -1
+            for e, b in enumerate(boss):
+                if b == -1:
+                    head = e
+                else:
+                    children[b].append(e)
+            order = [head]
+            i = 0
+            while i < len(order):                        # BFS: managers before their reports
+                order.extend(children[order[i]])
+                i += 1
+            invited = [0] * n
+            not_invited = [0] * n
+            for u in reversed(order):                    # reports before their managers
+                invited[u] = fun[u] + sum(not_invited[c] for c in children[u])
+                not_invited[u] = sum(max(invited[c], not_invited[c]) for c in children[u])
+            return max(invited[head], not_invited[head])
+      explanation: "Reversed BFS order is a valid post-order for this purpose: every child appears after its parent in BFS, so before it in the reversal. O(n) time and O(n) space, with no recursion."
+    rubric:
+      - {key: states, label: Two states per employee (invited / not invited) with correct transitions, points: 3}
+      - {key: order, label: Processes children before managers without recursion, points: 3}
+      - {key: answer, label: Returns the better of the head's two states, points: 1}
+      - {key: complexity, label: "States O(n) time and space and why recursion was avoided", points: 2}
+      - {key: tests, label: Checks the single-employee and chain cases, points: 1}
+    follow_ups:
+      - prompt: Return the guest list, not just the total.
+        look_for: "Walk from the head in BFS order with a flag: if the parent was invited, the child is not; otherwise invite the child when invited[c] > not_invited[c]."
+      - prompt: Fun scores can be negative. What changes?
+        look_for: "Nothing structural: not inviting anyone is still allowed, so the not-invited state already handles it; invited[u] may be negative and simply loses the max."
+- key: dsa.dp_tree.guided
+  type: guided_problem
+  title: "Guided practice: no parent-child pair in a binary tree"
+  skills: [dp.tree]
+  minutes: 25
+  difficulty: MEDIUM
+  problems: [128]
+  body:
+    guidance:
+      - Say what your helper returns before coding (a pair - best with this node taken, best with it skipped).
+      - Write the None base case, then the two transitions.
+      - Explain why returning a pair beats memoising on grandchildren.
+      - Give O(n) time and O(h) stack space.
+    hints:
+      - Taken means both children must be skipped.
+      - Skipped means each child independently takes its better option.
+- key: dsa.dp_tree.timed
+  type: timed_problem
+  title: "Timed practice: best path and minimum cameras"
+  skills: [dp.tree]
+  minutes: 70
+  difficulty: HARD
+  problems: [129, 130]
+  body:
+    guidance:
+      - For the best path, say what you return (downward gain) and what you record (bending path) before coding, and initialise the global best with a node value, not 0.
+      - For the cameras, define three states per node (has a camera, covered without a camera, not covered) and the post-order rule for each; decide what an empty child reports.
+      - Give O(n) time for both and finish each in about 30 minutes.
+- key: dsa.dp_tree.cards
+  type: revision_card
+  title: "Recall: tree DP"
+  skills: [dp.tree]
+  minutes: 4
+  body:
+    cards:
+      - front: Traversal order for tree DP?
+        back: Post-order — children's answers before the node's.
+      - front: No parent-child pair both taken — what does each node return?
+        back: (best if taken, best if skipped).
+      - front: Max path sum — what is returned vs recorded?
+        back: Return node + one best branch; record node + both branches.
+      - front: Why clamp branch gains at 0?
+        back: A negative branch is better left out of the path.
+      - front: Tree DP on a 10⁵-deep tree in Python?
+        back: Iterate in reversed BFS order with arrays instead of recursing.

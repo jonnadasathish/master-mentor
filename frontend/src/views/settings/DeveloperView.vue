@@ -113,6 +113,13 @@ onMounted(load)
       >
         Open catalog verification
       </RouterLink>
+      <RouterLink
+        :to="{ name: 'coverage' }"
+        class="btn btn-sm"
+        data-testid="coverage-link"
+      >
+        Content coverage report
+      </RouterLink>
     </section>
 
     <section class="card">

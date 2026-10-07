@@ -120,10 +120,10 @@ def test_roadmap(seeded_client: TestClient) -> None:
 
 
 def test_problems(seeded_client: TestClient) -> None:
-    assert ok(seeded_client, "/problems")["meta"]["count"] == 44
+    assert ok(seeded_client, "/problems")["meta"]["count"] == 137
     by_skill = ok(seeded_client, "/problems", skill="graph.traversal")["data"]
-    assert [p["id"] for p in by_skill] == [27, 28, 29, 30, 31]  # 4 primary + rotting-oranges (secondary)
-    assert ok(seeded_client, "/problems", difficulty="HARD")["meta"]["count"] == 4
+    assert [p["id"] for p in by_skill] == [27, 28, 29, 30, 31, 96, 100, 104]  # primary and secondary
+    assert ok(seeded_client, "/problems", difficulty="HARD")["meta"]["count"] == 24
     one = ok(seeded_client, "/problems/42")["data"]
     assert one["platform_key"] == "lru-cache"
     assert [s["skill"] for s in one["skills"] if s["primary"]] == ["design_ds.core"]

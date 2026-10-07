@@ -71,6 +71,7 @@ class ContentService:
             result=story.result,
             metric=story.metric,
             learning=story.learning,
+            tradeoffs=story.tradeoffs,
             competencies=comps,
             archived=story.archived_at is not None,
             created_at=story.created_at.replace(tzinfo=UTC),
@@ -107,6 +108,7 @@ class ContentService:
             result=payload.result,
             metric=payload.metric,
             learning=payload.learning,
+            tradeoffs=payload.tradeoffs,
             created_at=now,
             updated_at=now,
         )

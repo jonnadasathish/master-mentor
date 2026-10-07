@@ -24,7 +24,8 @@ class BehavioralStory(Base):
     action: Mapped[str] = mapped_column(Text, nullable=False)
     result: Mapped[str] = mapped_column(Text, nullable=False)
     metric: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    learning: Mapped[str | None] = mapped_column(Text, nullable=True)
+    learning: Mapped[str | None] = mapped_column(Text, nullable=True)  # reflection: what you learned
+    tradeoffs: Mapped[str | None] = mapped_column(Text, nullable=True)  # alternatives weighed (D-083)
     created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(UTC_DATETIME, nullable=False)
     archived_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)

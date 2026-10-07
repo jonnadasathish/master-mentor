@@ -45,6 +45,7 @@ from app.schemas.learning import (
     ContentSummary,
     CoverageOut,
     CoverageRowOut,
+    MockKitOut,
     NextActionOut,
     PracticeOut,
     ProblemBrief,
@@ -70,6 +71,17 @@ from app.services.catalog_service import CatalogService
 # Choice answers and explanations stay on the server until the check is graded. A short answer keeps its model
 # answer: the learner grades their own answer against it before submitting.
 HIDDEN_QUESTION_FIELDS = ("answer", "explanation")
+MOCK_TYPES = (
+    "interview_question",
+    "architecture_case",
+    "design_exercise",
+    "behavioral_question",
+    "debugging_exercise",
+    "coding_exercise",
+    "sql_exercise",
+    "timed_problem",
+)
+MOCK_KIT_SIZE = 5
 DEFAULT_PROBLEM_MINUTES = {"EASY": 15, "MEDIUM": 30, "HARD": 45}  # DEFAULT_EXPECTED_MINUTES (seed comment)
 
 
@@ -560,6 +572,51 @@ class LearningService:
                 for r in rows
             ],
         )
+
+    def mock_kits(self, per_round: int = MOCK_KIT_SIZE) -> list[MockKitOut]:
+        """Prompts for every round of the loop. Round types, scoring and readiness are the existing ones:
+        a kit only chooses what to rehearse, ordering skills by the gap engine's rank (most urgent first)."""
+        skills = self.skills()
+        ids = self._skill_ids()
+        gaps = self._evidence.gaps()
+        rank = {k: (gaps[ids[k]].rank if ids.get(k) in gaps else 9999) for k in skills}
+        status = {k: (gaps[ids[k]].status if ids.get(k) in gaps else "UNASSESSED") for k in skills}
+        progress = self._progress()
+        kits: list[MockKitOut] = []
+        for r in self._profile_config().get("interview_loop", []):
+            if not r.get("round_type"):
+                continue
+            components = [str(c) for c in r.get("components") or []]
+            candidates = [
+                c
+                for c in self.learning().content
+                if c.type in MOCK_TYPES
+                and skills.get(c.primary_skill) is not None
+                and skills[c.primary_skill].component in components
+                and (c.time_limit_seconds is not None or c.type == "timed_problem")
+            ]
+            candidates.sort(key=lambda c: (rank.get(c.primary_skill, 9999), c.position))
+            chosen: list[ContentItem] = []
+            seen_skills: set[str] = set()
+            for c in candidates:  # one prompt per skill first, so a kit spans the round
+                if c.primary_skill not in seen_skills and len(chosen) < per_round:
+                    chosen.append(c)
+                    seen_skills.add(c.primary_skill)
+            focus = sorted(
+                (k for k, s in skills.items() if s.component in components and s.required),
+                key=lambda k: (rank[k], k),
+            )[:3]
+            kits.append(
+                MockKitOut(
+                    round=str(r["round"]),
+                    round_type=str(r["round_type"]),
+                    minutes=int(r.get("minutes") or 0),
+                    components=components,
+                    focus_skills=[{"key": k, "name": skills[k].name, "status": status[k]} for k in focus],
+                    items=[self.summary(c, progress) for c in chosen],
+                )
+            )
+        return kits
 
     def curriculum(self) -> list[TrackOut]:
         return [self._track_out(t.key) for t in self.learning().tracks]

@@ -185,9 +185,14 @@ def as_mapping(report: GapReport) -> Mapping[str, object]:
     return report.by_skill()
 
 
+GOLDEN_PROBLEM_MAX_ID = 44
+
+
 def seed_problems(world: World) -> tuple[ProblemInfo, ...]:
     out = []
-    for p in catalog().problems:
+    # Golden scenarios are pinned to the original representative problems (ids 1-44, seed-v1). The seed-v2 bank is
+    # larger, which only changes which problem the picker chooses, never a rule (D-084), so SCENARIOS.md stays valid.
+    for p in (p for p in catalog().problems if p.id <= GOLDEN_PROBLEM_MAX_ID):
         count, last = world.attempts.get(p.id, (0, None))
         out.append(
             ProblemInfo(

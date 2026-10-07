@@ -294,3 +294,23 @@ Baseline work recorded outside its plan item (D-082): when `POST /assessments/se
 | GET | `/baseline` | Adds `phase` (`NOT_STARTED` / `IN_PROGRESS` / `ENOUGH_MEASURED` / `COMPLETE`), `personalization_threshold_pct`, `minutes_total`, `minutes_done`, `minutes_remaining`, `typical_daily_minutes` (average non-zero weekday budget), `estimated_days` (remaining ÷ typical, rounded up; a rough guide, the mentor schedules each day). |
 | GET | `/roadmap/personal` | Read-only (two engine evaluations: today and the previous day). `{as_of_date, calibration_phase, available, based_on{role, target_date, weeks_left, phase, measured_skills, required_skills, blocked_skills, overdue_reviews}, focus_now[≤ 5], sections{build, consolidate, sharpen, maintain, parked, unmeasured, later: {count, items[≤ 8]}}, why[≤ 3]{…metrics, prerequisites}, changes{since, changed, entered[], left[]}}`. Items carry score, target, status, reason codes, `declared_unknown`, unsatisfied prerequisites and `next_step_minutes` from the mission library. `changes` is empty when nothing was in focus before. |
 | GET | `/profile/state` | Read-only. `{counts, strong, developing, critical, unknown: {count, items[≤ 8]}, self_reported[{group_key, name, component, claims[], measured, total, skills[{score, target, confidence, status, declared_unknown}]}]}`. `measured` counts task evidence only; a "new to me" self-rating is listed with `declared_unknown = true`. |
+
+## 11. Learning layer (D-083, LEARNING_ENGINE.md)
+
+Read models carry what the UI needs to explain the current state, the recommendation, the reason and the evidence change; nothing is computed in the browser. Completions and session steps that record an observation return the write envelope (`effects` of the mentor run).
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/learning/curriculum` | tracks → topics → skills with score/target, gap status, content counts, done counts, coverage state |
+| GET | `/learning/tracks/{track}` | the same for one track plus `content{topic_key: ContentSummary[]}` in seed order |
+| GET | `/learning/content/{key}` | the item: type, minutes, difficulty, stages, observation kind, time limit, body (choice answers and explanations removed until graded; short answers keep their model answer), rubric, pass points, problems (with practice state), topic, the learner's progress |
+| POST | `/learning/content/{key}/complete` | `{answers{qid:[idx]}, self_grades{qid\|card:0-2}, ratings{criterion:0-2}, followups{i:0-2}, minutes?, notes_used, reference_used, hints_used, timed, time_seconds?, milestone?, defense, notes?, client_request_id?}` → `{content_key, points, passed, followup_points, questions[{id, earned, chosen, answer, explanation, model_answer}], observation, progress}`; 201; guided/timed problems → 409 (recorded on the problem page) |
+| GET | `/skills/{skill}/learning` | why it matters (tier label, target, rounds, unlocks, topic), state (score, label, confidence, gap status/type/focus), tabs `learn/practice/test/revision`, practice resolution `{case DIRECT\|RELATED\|CONCEPT\|UNCOVERED, direct[], related[{problem, via_skill, via_name, relation}], fallback_skill, fallback_relation}`, related skills, `next_action{kind START_SESSION\|RESUME_SESSION\|FALLBACK\|NONE, stage, reason, steps[], session_id, fallback_skill}`, coverage state |
+| POST | `/learning/sessions` | `{skill, stage?, plan_item_id?, budget_minutes?}` → the new session, or the active one for that skill or plan item (resume); 409 `NO_CONTENT` when nothing fits the stage |
+| GET | `/learning/sessions?status=` · `/learning/sessions/{id}` | session with steps, next position, outcome, `before{score, level}`, `after{score, level}` |
+| POST | `/learning/sessions/{id}/steps/{pos}/complete` | CONTENT `{completion}`, PROBLEM `{attempt}` (a ProblemAttemptInput for the step's problem), REFLECTION `{reflection}` → `{session, completion, attempt_id}`; 409 when the session is finished or the step is not pending |
+| POST | `/learning/sessions/{id}/steps/{pos}/skip` · `/learning/sessions/{id}/abandon` | audited |
+| GET | `/learning/coverage` | `{summary{all, required}{FULL, PARTIAL, UNMEASURED, CONTENT_GAP}, content_counts{type: n}, rows[]}` (Developer / System) |
+| GET | `/learning/mock-kits` | per loop round: `{round, round_type, minutes, components, focus_skills[], items[]}` |
+
+Additions to existing read models: `GET /problems` and `/problems/{ref}` add `practice_state` (derived) and `guide` (seed coaching metadata), and a LeetCode URL when none is stored; `GET /today` / `GET /plan/{date}` add `plan.learning{item_id: {stage, minutes, steps[], session_id}}` for pending skill missions (derived, never part of the frozen items).

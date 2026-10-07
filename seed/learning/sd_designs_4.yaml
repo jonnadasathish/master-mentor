@@ -1,0 +1,574 @@
+# Learning content: full system designs II — ride booking, notification platform, video platform, job queue, payment system, social feed, inventory.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- full design: ride booking
+- key: sdx.ride_booking.case
+  type: architecture_case
+  title: "Full design: ride booking and driver dispatch"
+  skills: [sd.distributed_coordination, sd.storage_search, sd.realtime_delivery, sd.consistency_cap, sd.database_scaling, sd.fault_tolerance, sd.capacity_estimation]
+  minutes: 60
+  difficulty: HARD
+  observation: {kind: SD_DESIGN, time_limit_seconds: 2700}
+  body:
+    prompt: |-
+      Design a ride-hailing service: riders request a ride from their location, the system finds and offers the trip to a nearby driver, the driver accepts, both see each other live on a map, the trip is priced and paid at the end. Focus on dispatch correctness and the location pipeline. Run the full 45-minute round.
+    requirements:
+      functional:
+        - Rider sees nearby drivers and an upfront price estimate, then requests a ride.
+        - The system offers the trip to suitable nearby drivers, one at a time, until one accepts.
+        - Rider and driver see each other's live location; trip status updates in real time.
+        - Trip completion triggers fare calculation and payment.
+        - Trip history for riders and drivers.
+      non_functional:
+        - A driver is never assigned two trips at once, and a trip never gets two drivers.
+        - Matching completes within seconds at peak.
+        - Live location delay of a few seconds at most.
+        - "Scale: 10 million trips per day, 1 million drivers online at peak sending a location every 4 seconds, many cities."
+        - A failure in one city's dispatch must not affect other cities.
+    approach:
+      - "Requirements: clarify ride types, pooled rides (out of scope), price estimate vs final fare, cities."
+      - "Estimates: trip requests per second versus driver location updates per second."
+      - "API: estimate, request trip, driver location stream, offer/accept, trip status stream."
+      - "Data: trips as a state machine; driver state (offline, available, offered, on trip); latest locations in a geo index; location history to cold storage."
+      - "Architecture: location ingestion, geo index per city, dispatch per city partition, trip service, pricing, payments, push channels."
+      - "Bottleneck: 250,000 location updates per second and nearby-driver queries; dispatch contention on the same drivers."
+      - "Trade-off: one owner per dispatch partition vs optimistic conditional updates; in-memory locations vs durability."
+      - "Failure: dispatch owner crash and split brain, driver app offline mid-offer, payment failure after the trip."
+      - "Observability and defense: time to match, offer acceptance rate, location freshness; summarise trade-offs."
+    estimates: |-
+      - Trips: 10 million per day ≈ 115 per second on average; assume about 400 per second at peak, with several estimate requests per trip (about 2,000 per second).
+      - Driver locations: 1 million / 4 s = 250,000 updates per second at peak. Each update is small (about 100 bytes with ids), about 25 MB per second of ingest.
+      - Geo index: 1 million latest positions × about 100 bytes ≈ 100 MB, small enough to keep in memory, partitioned by city for isolation and locality.
+      - Trip storage: 10 million × about 2 KB ≈ 20 GB per day.
+      - Location history (if kept for trip replay and disputes): 250,000 × 86,400 × 100 bytes is an upper bound of about 2 TB per day; keep only on-trip points at full rate.
+    hints:
+      - Who is allowed to change a driver's state, and how do you stop two dispatchers from doing it at once?
+      - Most location updates only need to overwrite a single value.
+    reference: |-
+      **API**: `POST /estimates {pickup, dropoff}`; `POST /trips {estimate_id}` with an idempotency key; drivers keep a WebSocket for offers and send location over it or `POST /drivers/me/location`; `POST /offers/{id}/accept`; riders subscribe to trip events.
+
+      **Data**: `trips(id, rider_id, driver_id, status, pickup, dropoff, fare, version)` in a relational store partitioned by city or region, transitions by conditional update; `driver_state(driver_id, status, current_trip, offer_id, version)` in the same partition; latest positions in an in-memory geo index (a grid of geohash or H3 cells per city, or Redis geo sets), entries expiring if a driver stops reporting.
+
+      **Dispatch**: each city (large cities split into zones) is a partition owned by exactly one dispatcher instance at a time. Ownership comes from a lease in a consensus-backed store (etcd or ZooKeeper), and the lease's epoch is a fencing token: every state write includes it, and the store rejects writes from an older epoch. This keeps two dispatchers from offering the same driver even during a failover. Within the partition: find available drivers in nearby cells, rank by ETA, offer to the best one by moving it `AVAILABLE -> OFFERED` with a conditional update, wait up to about 15 s, and on accept move trip `REQUESTED -> ACCEPTED` and driver `OFFERED -> ON_TRIP` in one transaction. Decline or timeout returns the driver to available and offers the next.
+
+      **Location path**: stateless ingestion, then a stream partitioned by city; consumers update the geo index and forward on-trip driver positions to the rider's push channel. Losing the in-memory index costs one update interval (4 s) to rebuild, so it does not need durable storage.
+
+      **Pricing and payment**: upfront estimate from route time and distance plus a per-cell demand multiplier computed every minute or so (eventually consistent is fine); final fare at completion; payment through the payment service with the trip id as idempotency key; failures go to a retry and collections flow, never block trip completion.
+
+      **Failure**: dispatcher crash: lease expires within seconds and a new owner takes over with a higher epoch, re-reading pending trips and offers; driver app offline mid-offer: offer times out; rider app offline: trip proceeds, state is on the server; region of the geo index lost: rebuild from the next updates, matching paused for seconds in that city only.
+
+      **Observability**: time from request to accepted match (p50/p95 per city), offer acceptance and timeout rates, location freshness for available drivers, dispatch lease changes (flapping alarm), payment failure rate.
+    rubric:
+      - {key: requirements, label: "States the exclusivity rule (one driver per trip, one trip per driver) and the scale per city", points: 1}
+      - {key: apis, label: "Defines estimate, idempotent trip request, offer/accept and location and trip push channels", points: 1}
+      - {key: data_model, label: "Models trip and driver state machines with versions and keeps latest location in a geo index", points: 2}
+      - {key: architecture, label: "Separates location ingestion, geo index, dispatch, trip, pricing and payment, and walks a request end to end", points: 2}
+      - {key: scalability, label: "Shows location updates (about 250,000 per second) dominate and partitions by city", points: 2}
+      - {key: reliability, label: "Isolates cities so one failing partition affects only that city", points: 1}
+      - {key: consistency, label: "Uses conditional transitions so a driver cannot hold two offers or trips", points: 2}
+      - {key: bottlenecks, label: "Deep dives on dispatch or the location path with numbers", points: 2}
+      - {key: tradeoffs, label: "Articulates single-owner partitions vs optimistic concurrency and in-memory vs durable locations", points: 2}
+      - {key: failure_modes, label: "Handles dispatcher failover with leases and fencing tokens, and offline apps mid-offer", points: 3}
+      - {key: observability, label: "Names time-to-match and location-freshness SLIs and alerts on lease flapping", points: 1}
+    follow_ups:
+      - prompt: Two dispatchers both believe they own the same city for a few seconds. What happens to a driver both try to offer?
+        look_for: "The conditional update with the fencing epoch lets only the current owner's write succeed; the stale owner's write is rejected and it stops acting."
+      - prompt: How do you find drivers near a city boundary or cell boundary?
+        look_for: "Query the pickup cell and its neighbours; cross-city boundaries handled by the owning partition of the pickup or a small overlap."
+      - prompt: Why offer to one driver at a time instead of broadcasting to five?
+        look_for: "Broadcasting speeds matching but causes many drivers to accept and be rejected (bad experience) and contention; one-at-a-time is simpler, with short timeouts; a hybrid offers to a small batch with first-accept-wins."
+      - prompt: Surge pricing must use fresh demand data. How fresh, and how is it computed?
+        look_for: "Counts of requests and available drivers per cell over the last few minutes from the streams, recomputed every minute; eventual consistency acceptable; the price shown is locked into the estimate the rider accepted."
+
+# ---------------------------------------------------------------------------------------------- full design: notification platform
+- key: sdx.notification.case
+  type: architecture_case
+  title: "Full design: multi-channel notification platform"
+  skills: [sd.fault_tolerance, sd.queues_async, sd.idempotency_retries, sd.rate_limiting, sd.realtime_delivery, sd.observability, sd.api_design]
+  minutes: 60
+  difficulty: HARD
+  observation: {kind: SD_DESIGN, time_limit_seconds: 2700}
+  body:
+    prompt: |-
+      Design an internal platform that other teams call to send notifications to users over mobile push, SMS, email and in-app inbox. It handles templates, user preferences and opt-outs, priorities (one-time passwords must not wait behind a marketing campaign), scheduling, rate limits and delivery status. Focus on reliability when providers fail. Run the full 45-minute round.
+    requirements:
+      functional:
+        - Send a notification to one user or to a segment, by template, on one or more channels.
+        - Respect user preferences, opt-outs and quiet hours, and per-user frequency caps.
+        - Support priorities (critical such as OTPs, transactional, marketing) and scheduled sends.
+        - Track status per notification (accepted, sent, delivered, failed) and expose it to the calling team.
+        - An in-app inbox users can read later.
+      non_functional:
+        - Critical notifications delivered to the provider within a few seconds even during a campaign.
+        - No duplicate sends from the platform's own retries, as far as providers allow.
+        - A failing provider or channel must not block the others.
+        - "Scale: about 1 billion notifications per day, campaign peaks of 10 times the average."
+        - Providers impose their own rate limits and have outages.
+    approach:
+      - "Requirements: confirm channels, priorities, segments, delivery tracking and which team owns templates."
+      - "Estimates: average and peak sends per second per channel; status events; storage for logs and inbox."
+      - "API: send with idempotency key; campaign/segment send; status query and callbacks."
+      - "Data: notification requests, per-channel delivery attempts with status, preferences, templates, inbox."
+      - "Architecture: intake API, preference and cap checks, priority queues per channel, channel workers, provider adapters, status ingestion from provider callbacks."
+      - "Bottleneck: campaign fan-out and provider rate limits; status callback volume."
+      - "Trade-off: at-least-once with de-duplication vs risk of a missed message; per-channel isolation vs shared workers."
+      - "Failure: provider outage, slow provider, poison messages, queue backlog, duplicate requests."
+      - "Observability and defense: per-priority delivery latency, provider error rates, oldest-message age, DLQ size."
+    estimates: |-
+      - Sends: 1 billion per day ≈ 11,600 per second on average; campaign peaks about 100,000 per second.
+      - Mix (assumed): push 60%, email 30%, SMS 5%, in-app 5%; SMS is the smallest volume but the most expensive and most rate-limited.
+      - Status events: each send produces one to three provider callbacks (sent, delivered, opened), so up to about 3 billion events per day.
+      - Delivery log: about 500 bytes per attempt × 1 billion ≈ 500 GB per day; keep 30 to 90 days hot, archive the rest.
+      - Critical traffic is small (perhaps 1% of volume) but has the strictest latency, which is why it needs its own lane.
+    hints:
+      - Separate queues and worker pools by channel and by priority.
+      - A retry is only safe if the provider call is idempotent or de-duplicated on your side.
+    reference: |-
+      **API**: `POST /v1/notifications {idempotency_key, user_id, template_id, params, channels?, priority, send_at?}` returns `notification_id`; `POST /v1/campaigns {segment_id, template_id, priority=marketing, schedule}`; `GET /v1/notifications/{id}`; optional status webhooks to callers.
+
+      **Intake**: validate, store the request keyed by `(caller, idempotency_key)` (a duplicate returns the original id), render or reference the template, check preferences, opt-outs, quiet hours and frequency caps (counters per user per channel per day), then enqueue one job per channel onto topics split by channel and priority (for example `push.critical`, `push.marketing`). Campaigns are expanded by a segment job that pages through users and enqueues at a controlled rate so it cannot flood the shared topics.
+
+      **Channel workers** (separate pools per channel and priority = bulkheads): call the provider adapter with a per-provider client-side rate limit matching the provider's quota, a short timeout, and a circuit breaker. Retryable failures (timeouts, 429, 5xx) go to a delay or retry topic with exponential backoff and jitter, up to a limit and an expiry time (an OTP older than a few minutes is useless; drop it and report failure). Non-retryable failures (invalid token, unsubscribed address) are recorded and, for invalid device tokens, the token is removed. After the last attempt, the job goes to a dead-letter queue for inspection.
+
+      **Duplicates**: the platform de-duplicates its own retries with a send record per `(notification_id, channel)`; where a provider supports a de-duplication or collapse key, it is set from that id. Providers can still deliver twice in rare cases, so delivery is at-least-once to the user.
+
+      **Provider failover**: SMS and email can use a secondary provider when the breaker on the primary opens; push depends on the platform providers (APNs, FCM) and can only be retried and queued.
+
+      **Status**: provider callbacks land on an ingestion endpoint, are de-duplicated by provider event id, and update the delivery record; events also go to analytics.
+
+      **In-app inbox**: written to a per-user store (partitioned by user id) and pushed over an open connection if the user is online.
+
+      **Failure modes**: provider outage (breaker opens, failover or queue with backoff, critical lane alerts); slow provider (timeouts plus bulkhead keep other channels flowing); poison message (attempt limit, DLQ); backlog after an outage (drain critical first, expire stale marketing instead of sending it late); duplicate requests from callers (idempotency key).
+
+      **Observability**: per-priority SLI, for example 99% of critical notifications handed to a provider within 5 s; oldest-message age per topic; provider error and latency per provider; breaker state changes; DLQ growth; opt-out and complaint rates for email reputation.
+    rubric:
+      - {key: requirements, label: "Captures priorities, preferences and caps, and provider limits as first-class requirements", points: 1}
+      - {key: apis, label: "Send API with an idempotency key, campaign API and status query or callbacks", points: 1}
+      - {key: data_model, label: "Stores requests, per-channel delivery attempts with status, preferences and frequency counters", points: 1}
+      - {key: architecture, label: "Intake, checks, per-channel and per-priority queues, workers, adapters and status ingestion, end to end", points: 2}
+      - {key: scalability, label: "Sizes average and campaign peaks and rate-limits campaign expansion", points: 2}
+      - {key: reliability, label: "Bulkheads by channel and priority so OTPs are never stuck behind a campaign or a failed provider", points: 3}
+      - {key: consistency, label: "Explains at-least-once delivery and how platform retries are de-duplicated", points: 2}
+      - {key: bottlenecks, label: "Deep dives on provider rate limits or campaign fan-out with numbers", points: 2}
+      - {key: tradeoffs, label: "Articulates trade-offs such as expiring stale notifications vs sending late, and failover cost", points: 2}
+      - {key: failure_modes, label: "Timeouts, backoff with jitter, circuit breakers, DLQ and provider failover described concretely", points: 3}
+      - {key: observability, label: "Per-priority latency SLI, oldest-message age and provider error alerts", points: 1}
+    follow_ups:
+      - prompt: An email provider starts returning 429 for 20 minutes during a campaign. Walk through what happens.
+        look_for: "Client-side rate limit lowers, retries back off with jitter, the breaker may open, transactional email fails over to a secondary provider, marketing email waits or expires, alerts fire on the error rate."
+      - prompt: A calling team's bug sends the same OTP request ten times in a second. What protects the user?
+        look_for: "Idempotency key de-duplication at intake; per-user per-template frequency cap as a second line."
+      - prompt: How do you send a campaign to 50 million users at the right local time in each time zone?
+        look_for: "Schedule per time zone bucket, expand segments gradually, throttle into the marketing lane, and expire sends that miss their window."
+
+# ---------------------------------------------------------------------------------------------- full design: video platform
+- key: sdx.video.case
+  type: architecture_case
+  title: "Full design: video upload and streaming platform"
+  skills: [sd.deep_dive_bottlenecks, sd.load_balancing_cdn, sd.storage_search, sd.queues_async, sd.capacity_estimation, sd.data_modeling, sd.caching]
+  minutes: 60
+  difficulty: HARD
+  observation: {kind: SD_DESIGN, time_limit_seconds: 2700}
+  body:
+    prompt: |-
+      Design a platform where creators upload videos and viewers stream them on phones, browsers and TVs with quality that adapts to their bandwidth. Include view counts and a basic home page of recommended videos (ranking is out of scope). Run the full 45-minute round and let the numbers pick your deep dive.
+    requirements:
+      functional:
+        - Creators upload large video files, resumable after network drops.
+        - Uploaded videos are processed into several resolutions and become watchable.
+        - Viewers stream with adaptive bitrate and can seek.
+        - Video pages show title, creator, view count; a home page lists videos.
+        - Creators see processing status.
+      non_functional:
+        - Playback starts within about 2 seconds for most viewers; rebuffering is rare.
+        - Uploaded video is never lost once the upload completes.
+        - A new upload becomes watchable within minutes for typical lengths.
+        - "Scale: 500,000 uploads per day, 1 billion views per day, global audience."
+        - View counts may lag by minutes.
+    approach:
+      - "Requirements: confirm upload sizes and lengths, target devices, live streaming (out of scope), regions."
+      - "Estimates: upload ingest per day, processing work, egress bandwidth for viewing (the dominant number)."
+      - "API: initiate upload (pre-signed, resumable), complete upload, get playback manifest, video metadata, record view."
+      - "Data: video metadata store, object storage for originals and segments, view counters."
+      - "Architecture: upload service, object storage, processing pipeline (queue, chunked transcoding, packaging), CDN, metadata service, counters."
+      - "Bottleneck: egress bandwidth (CDN) and transcoding throughput."
+      - "Trade-off: number of renditions vs storage and processing cost; push popular content to edges vs pull on demand; exact vs approximate view counts."
+      - "Failure: transcoding worker crash mid-job, CDN edge or origin issues, upload interrupted."
+      - "Observability and defense: playback start time, rebuffer ratio, processing time, CDN hit ratio."
+    estimates: |-
+      - Uploads: 500,000 per day ≈ 6 per second; assume an average raw file of about 300 MB, so about 150 TB of originals per day.
+      - Processing: assume 10 minutes average length, so 5 million minutes of video per day, each produced in about 5 renditions (for example 240p to 1080p) and packaged into segments of a few seconds. Renditions add storage of the same order as the originals.
+      - Viewing: 1 billion views per day, assume 5 minutes watched at an average 3 Mbit/s, so about 900 Mbit ≈ 110 MB per view, about 110 PB per day of egress. Spread over 86,400 s that is roughly 1.3 TB/s, about 10 Tbit/s on average and more at peak. Only a CDN with many edge locations can serve this; it is the dominant cost and bottleneck.
+      - Metadata reads: about 1 billion page views plus home pages, roughly 15,000 to 50,000 per second, small and highly cacheable.
+      - View events: 1 billion per day ≈ 12,000 per second, aggregated rather than written one by one.
+    hints:
+      - Never stream video bytes through your application servers.
+      - Transcoding a long video in one piece makes it slow and fragile; split it.
+    reference: |-
+      **API**: `POST /v1/uploads {size, content_type}` returns an upload id and pre-signed multipart part URLs (direct to object storage, each part retryable); `POST /v1/uploads/{id}/complete`; `GET /v1/videos/{id}` (metadata, status); `GET /v1/videos/{id}/manifest` returns an HLS or DASH manifest pointing at CDN URLs (signed if content is restricted); `POST /v1/videos/{id}/views` (batched by clients).
+
+      **Data**: `videos(id, creator_id, title, status, duration, renditions, created_at)` in a relational or document store, cached heavily; originals and segments in object storage (`originals/`, `segments/{video}/{rendition}/`); view counts in a counter store updated by aggregation.
+
+      **Processing pipeline**: the upload-complete event goes to a queue; a coordinator splits the original into chunks at keyframes, fans out chunk-by-rendition transcoding tasks to a worker pool (each task idempotent, writing to a deterministic output path), then packages segments and manifests and marks the video ready. A crash of one worker re-runs one chunk, not the whole video. Long videos finish in roughly the time of one chunk plus coordination, because chunks run in parallel. Optional: publish the low resolutions first so the video is watchable sooner.
+
+      **Delivery**: clients fetch the manifest, then segments from the CDN, switching renditions as bandwidth changes (adaptive bitrate). The CDN pulls from an origin shield (a mid-tier cache) on misses so object storage is not hit by every edge. Popular new videos can be pre-warmed; the long tail is served on demand with lower hit ratios. Cold videos move to cheaper storage tiers.
+
+      **View counts**: clients send view events; a stream consumer aggregates per video per minute and updates counters; displayed counts are cached and may lag minutes; bot filtering happens in the stream.
+
+      **Failure**: interrupted upload resumes by re-sending missing parts; transcoding failures retry per chunk with a limit, then mark the video failed and notify the creator; CDN edge failure is handled by the CDN's routing; origin overload is limited by the shield; metadata cache outage falls back to replicas.
+
+      **Observability**: playback start time and rebuffer ratio reported by clients (the true user SLIs), CDN hit ratio and origin egress, processing time from upload complete to ready (p50/p95), queue age for transcoding tasks, failure rate per stage.
+    rubric:
+      - {key: requirements, label: "Separates upload, processing and playback, and states latency and durability targets", points: 1}
+      - {key: apis, label: "Pre-signed resumable upload, completion, manifest and metadata endpoints; bytes never pass through app servers", points: 2}
+      - {key: data_model, label: "Metadata store plus object storage layout for originals, renditions and segments; aggregated view counters", points: 1}
+      - {key: architecture, label: "Upload, queue-driven chunked transcoding, packaging, CDN with origin shield, walked end to end", points: 2}
+      - {key: scalability, label: "Computes egress (about 10 Tbit/s average) and processing volume and draws conclusions from them", points: 3}
+      - {key: reliability, label: "Makes transcoding tasks idempotent and retryable per chunk, and uploads resumable", points: 2}
+      - {key: consistency, label: "Accepts eventual consistency for view counts and processing status, with reasons", points: 1}
+      - {key: bottlenecks, label: "Deep dives on CDN egress or transcoding throughput with numbers", points: 2}
+      - {key: tradeoffs, label: "Articulates rendition count vs cost, pre-warming vs on-demand caching, exact vs approximate counts", points: 2}
+      - {key: failure_modes, label: "Covers upload interruption, worker crash mid-job and origin overload", points: 1}
+      - {key: observability, label: "Uses client-side playback start and rebuffer ratio as SLIs, plus processing time", points: 2}
+    follow_ups:
+      - prompt: A creator with 50 million subscribers publishes a video. What happens at the CDN in the first minute?
+        look_for: "A burst of misses for the same segments; request coalescing at edges and the origin shield, plus pre-warming popular uploads, keeps the origin safe."
+      - prompt: How would you cut storage cost for the long tail of rarely watched videos?
+        look_for: "Move originals and rarely requested renditions to colder storage tiers; generate some renditions on demand or drop the highest ones for videos with few views."
+      - prompt: How do you stop people hot-linking or downloading paid videos?
+        look_for: "Signed, short-lived CDN URLs or cookies per viewer, token checks at the edge; full protection needs DRM, which is out of scope."
+
+# ---------------------------------------------------------------------------------------------- full design: job queue
+- key: sdx.job_queue.case
+  type: architecture_case
+  title: "Full design: distributed job queue with retries and scheduling"
+  skills: [sd.distributed_coordination, sd.queues_async, sd.fault_tolerance, sd.idempotency_retries, sd.database_scaling, sd.data_modeling, sd.observability]
+  minutes: 60
+  difficulty: HARD
+  observation: {kind: SD_DESIGN, time_limit_seconds: 2700}
+  body:
+    prompt: |-
+      Design a shared background-job service for many internal teams. Producers submit jobs (send an invoice, resize an image, sync a record) to named queues; workers in each team's services pick them up and run them. The service supports priorities, delayed and scheduled jobs, retries with backoff, a dead-letter queue, cancellation and visibility into job status. Focus on what happens when workers die mid-job. Run the full 45-minute round.
+    requirements:
+      functional:
+        - Submit a job to a named queue with payload, priority, optional run-at time, max attempts and an idempotency key.
+        - Workers claim jobs, report success or failure, and extend their claim for long jobs.
+        - Failed jobs retry with exponential backoff; exhausted jobs move to a dead-letter queue.
+        - Recurring schedules (cron-like) create jobs at the right times.
+        - Cancel a pending job; query job status and history.
+      non_functional:
+        - A submitted job is never lost.
+        - A job whose worker dies is picked up again within about a minute.
+        - Delivery is at-least-once; the service must help handlers achieve an exactly-once effect.
+        - "Scale: 100 million jobs per day, peaks of 10,000 submissions per second; payloads up to 64 KB."
+        - One team's flood of jobs must not starve another team's queues.
+    approach:
+      - "Requirements: confirm ordering needs (none across jobs, or per key), latency from run-at to start, payload size, tenancy."
+      - "Estimates: submissions, claims and completions per second; storage for pending and historical jobs."
+      - "API: submit (idempotent), claim batch with lease, heartbeat, complete/fail, cancel, status."
+      - "Data: jobs with state, run_at, priority, attempts, lease owner, lease expiry and lease version; history table."
+      - "Architecture: API tier, partitioned job store, claim path, lease reaper, scheduler for recurring jobs, DLQ, metrics."
+      - "Bottleneck: claim contention on the hottest queue; write rate per partition."
+      - "Trade-off: database-backed queue vs log-based broker; leases vs explicit locks; leader for scheduling vs leaderless polling."
+      - "Failure: worker crash, worker pause past lease (zombie completion), job store partition failover, poison jobs."
+      - "Observability and defense: queue age per queue, claim latency, retry and DLQ rates."
+    estimates: |-
+      - Jobs: 100 million per day ≈ 1,200 per second on average; peaks of 10,000 submissions per second.
+      - Writes: each job is about 3 to 4 state writes (submit, claim, complete, plus retries), so about 40,000 writes per second at peak, beyond a single relational primary for comfort; partition the store.
+      - Storage: payloads average perhaps 2 KB, so about 200 GB per day of job rows; finished jobs move to history and are deleted from the hot table after a short retention.
+      - Pending backlog: if consumers fall an hour behind at peak, 36 million pending jobs; the claim query must stay index-driven at that size.
+    hints:
+      - "A lease is a claim with an expiry; what stops a worker whose lease expired from completing the job after someone else claimed it?"
+      - Delayed jobs are just jobs whose run_at is in the future, if the claim query respects it.
+    reference: |-
+      **API**: `POST /queues/{q}/jobs {payload, priority, run_at?, max_attempts, idempotency_key}`; `POST /queues/{q}/claim {worker_id, max, lease_seconds}` returns jobs with `lease_version`; `POST /jobs/{id}/heartbeat {lease_version}`; `POST /jobs/{id}/complete {lease_version, result}`; `POST /jobs/{id}/fail {lease_version, error, retryable}`; `DELETE /jobs/{id}`; `GET /jobs/{id}`.
+
+      **Data**: `jobs(id, queue, partition, state, priority, run_at, attempts, max_attempts, lease_owner, lease_expires_at, lease_version, idempotency_key, payload)` with an index on `(queue, state, priority, run_at)`; unique `(queue, idempotency_key)` for submit de-duplication.
+
+      **Claim path** (PostgreSQL 9.5 or later): one statement selects ready jobs with `FOR UPDATE SKIP LOCKED` so concurrent workers skip each other's rows instead of blocking, and sets `state = 'RUNNING'`, `lease_owner`, `lease_expires_at = now() + lease`, `lease_version = lease_version + 1`.
+
+      ```sql
+      UPDATE jobs SET state = 'RUNNING', lease_owner = :worker,
+             lease_expires_at = now() + make_interval(secs => :lease), lease_version = lease_version + 1
+       WHERE id IN (SELECT id FROM jobs
+                     WHERE queue = :q AND state = 'READY' AND run_at <= now()
+                     ORDER BY priority, run_at
+                     LIMIT :n
+                     FOR UPDATE SKIP LOCKED)
+      RETURNING id, payload, lease_version;
+      ```
+
+      **Leases and fencing**: workers heartbeat to extend the lease; a reaper returns jobs whose lease expired to `READY` (or to `DEAD` after max attempts). `complete` and `fail` are conditional on `lease_version`, which acts as a fencing token: a worker that paused past its lease and then tries to complete a job someone else has re-claimed gets a conflict and must not commit its side effects. Because a job can still run twice (crash after side effect, before complete), handlers make side effects idempotent, keyed by job id.
+
+      **Retries and DLQ**: a retryable failure sets `run_at = now() + backoff with jitter` and increments attempts; past `max_attempts` the job is `DEAD` and visible in a DLQ view with its last error, with a replay action.
+
+      **Scheduling**: delayed jobs need no extra component, since claims require `run_at <= now()`. Recurring schedules are materialised by a scheduler that inserts the next occurrence with a unique `(schedule_id, fire_time)`; several scheduler instances can run, because the unique constraint makes duplicates harmless, or one leader can be elected with a lease to save work.
+
+      **Scale and isolation**: partition jobs by hash of job id across several database shards; workers claim from shards round-robin. Per-queue quotas and per-team concurrency limits stop one flood from starving others; very hot queues get their own partitions. Alternative: a log-based broker (Kafka-style) gives far higher throughput and cheap retention but makes per-job delays, priorities, individual retries and cancellation awkward; reasonable for high-volume, uniform event processing rather than a general job service.
+
+      **Observability**: age of the oldest ready job per queue (the key SLI), claim latency, jobs running past expected duration, lease expiries (signal of crashing or pausing workers), retry rate, DLQ size per queue, completion conflicts from stale leases.
+    rubric:
+      - {key: requirements, label: "Defines at-least-once semantics, lease timing target and tenant isolation explicitly", points: 1}
+      - {key: apis, label: "Idempotent submit, claim with lease, heartbeat, complete/fail carrying a lease version, cancel", points: 2}
+      - {key: data_model, label: "Job row with state, run_at, attempts, lease expiry and lease version, with the right index", points: 2}
+      - {key: architecture, label: "Claim path, reaper, retry and DLQ flow, scheduler, walked end to end", points: 2}
+      - {key: scalability, label: "Computes write rate per job and partitions the store; claims stay index-driven with a backlog", points: 2}
+      - {key: reliability, label: "Recovers jobs from dead workers via lease expiry within the target", points: 1}
+      - {key: consistency, label: "Uses lease version as a fencing token and explains why handlers must still be idempotent", points: 3}
+      - {key: bottlenecks, label: "Deep dives on claim contention (SKIP LOCKED, batching) or partition write rate with numbers", points: 2}
+      - {key: tradeoffs, label: "Compares a database-backed queue with a log-based broker and leader vs leaderless scheduling", points: 2}
+      - {key: failure_modes, label: "Covers worker crash, zombie worker after pause, poison jobs and store failover", points: 2}
+      - {key: observability, label: "Oldest-ready-job age per queue as SLI, plus lease expiries and DLQ growth", points: 1}
+    follow_ups:
+      - prompt: A worker pauses for two minutes, its lease expires, another worker runs the job, then the first worker wakes up. Walk through what happens.
+        look_for: "Second claim increments lease_version; the first worker's complete with the old version is rejected; its side effects must be idempotent or fenced at the resource with the job id or version."
+      - prompt: A team needs jobs for the same customer to run in order. How do you support that?
+        look_for: "Ordering key: only one RUNNING job per key (claim skips keys with a running job, or partition by key to a single consumer), at the cost of parallelism for that key."
+      - prompt: Why not let the reaper be a single elected leader?
+        look_for: "Possible, but every instance can run the reaper's conditional update safely; electing a leader adds failover delay and coordination for little gain."
+
+# ---------------------------------------------------------------------------------------------- full design: payment system
+- key: sdx.payment.case
+  type: architecture_case
+  title: "Full design: payment system with a ledger"
+  skills: [sd.consistency_cap, sd.idempotency_retries, sd.fault_tolerance, sd.security_design, sd.data_modeling, sd.queues_async, sd.observability]
+  minutes: 60
+  difficulty: HARD
+  observation: {kind: SD_DESIGN, time_limit_seconds: 2700}
+  body:
+    prompt: |-
+      Design the payment system for a marketplace: buyers pay by card or wallet through external payment service providers (PSPs), the marketplace keeps a commission, sellers are owed the rest, and refunds are possible. Merchants and internal services get status through webhooks. The scale is moderate; the difficulty is correctness. Run the full 45-minute round.
+    requirements:
+      functional:
+        - Create and confirm a payment for an order (authorise, then capture), through one of several PSPs.
+        - Full and partial refunds.
+        - Record every money movement in a ledger (buyer paid, commission, seller payable, PSP fees).
+        - Notify the order service and merchants of payment state changes.
+        - Daily reconciliation with each PSP's settlement report.
+      non_functional:
+        - Never charge a buyer twice for one order; never lose a record of money that moved.
+        - Amounts exact; every ledger transaction balances.
+        - Card numbers never stored or logged by the marketplace.
+        - Full audit trail; historical records immutable.
+        - "Scale: about 10 million payments per day, peaks around 10 times the average."
+    approach:
+      - "Requirements: confirm payment methods, authorise/capture timing, currencies, refunds, payouts (out of scope)."
+      - "Estimates: payments and ledger entries per second at peak; storage; PSP latency."
+      - "API: create payment intent with idempotency key, confirm, refund, webhook ingestion from PSPs, outbound webhooks."
+      - "Data: payment state machine, PSP attempts, double-entry ledger, idempotency records, outbox."
+      - "Architecture: payment API, payment orchestrator, PSP adapters, ledger service, webhook ingestion, outbox publisher, reconciliation job."
+      - "Bottleneck: correctness under timeouts rather than throughput; hot ledger accounts."
+      - "Trade-off: CP choice for the ledger (reject rather than accept unrecorded payments); synchronous vs asynchronous capture."
+      - "Failure: PSP timeout with unknown outcome, duplicate and out-of-order PSP webhooks, crash between PSP call and database write."
+      - "Observability and defense: payment success rate by PSP, unknown-state count and age, reconciliation mismatches."
+    estimates: |-
+      - Payments: 10 million per day ≈ 115 per second on average; peaks about 1,200 per second.
+      - Ledger: about 4 to 6 entries per payment (buyer, commission, seller payable, PSP fee, both sides), so about 7,000 entries per second at peak, fine for a well-indexed relational database, partitioned later if needed.
+      - Storage: about 2 KB per payment with attempts and entries ≈ 20 GB per day; kept for years for audit.
+      - PSP calls take hundreds of milliseconds to seconds and occasionally time out; design for unknown outcomes, not for speed.
+    hints:
+      - A timeout from the PSP does not mean the charge failed.
+      - Store money as integers in minor units with a currency code.
+    reference: |-
+      **API**: `POST /v1/payments {order_id, amount_minor, currency, method_token}` with an `Idempotency-Key` header; `POST /v1/payments/{id}/capture`; `POST /v1/payments/{id}/refunds {amount_minor}` with its own key; `POST /psp/{name}/webhooks`.
+
+      **Idempotency**: store `(key, request_hash, response)`; a repeat with the same key returns the stored response; the same key with a different body is rejected. The order id also has a unique active payment, so a client that loses its key still cannot create two payments for one order.
+
+      **State machine**: `CREATED -> AUTHORIZING -> AUTHORIZED -> CAPTURING -> CAPTURED`, with `FAILED`, `CANCELED`, `REFUNDED` / `PARTIALLY_REFUNDED`, and an explicit `UNKNOWN` for timed-out PSP calls. Transitions are conditional updates on the current state and version.
+
+      **PSP call**: before calling, persist the attempt with our attempt id, and pass that id as the PSP's idempotency key or merchant reference. On timeout, mark `UNKNOWN` and resolve by querying the PSP by reference (immediately with backoff, then by a sweeper); never retry with a new reference. Card data is collected by the PSP's hosted fields or SDK and we only see a token, which keeps most of the system out of PCI DSS card-data scope.
+
+      **Ledger**: double-entry, append-only `ledger_entries(txn_id, account_id, amount_minor, currency, created_at)` where each transaction's entries sum to zero; balances derived or maintained by the same transaction. Ledger entries and the payment state change are written in one database transaction, together with an outbox row for the event. Corrections are new reversing entries, never updates. Hot accounts (the marketplace's commission account) can be split into sub-accounts or updated in batches.
+
+      **Consistency choice**: the payment and ledger store is a single-leader relational database with synchronous replication to a standby for RPO near zero. If the primary is unreachable, payments are rejected (CP) rather than accepted without a durable record.
+
+      **Webhooks**: inbound PSP webhooks are at-least-once and may arrive out of order: de-duplicate by PSP event id, apply only transitions valid from the current state, and fetch the authoritative status from the PSP when in doubt. Outbound events come from the outbox via a relay to a queue, then signed webhooks to merchants with retries.
+
+      **Reconciliation**: daily, compare each PSP settlement file with the ledger by reference; mismatches (missing captures, fee differences, unknown-state payments) go to an investigation queue; resolved by adjusting entries.
+
+      **Observability**: authorisation success rate per PSP and per method, latency per PSP, count and age of `UNKNOWN` payments, outbox lag, webhook delivery failures, reconciliation mismatch counts; audit log of every state change.
+    rubric:
+      - {key: requirements, label: "States the correctness rules (no double charge, no lost record, balanced ledger, no card data) as requirements", points: 1}
+      - {key: apis, label: "Idempotency keys on create, capture and refund, with stored responses and request hashing", points: 2}
+      - {key: data_model, label: "Payment state machine, PSP attempts and a double-entry append-only ledger in minor units", points: 2}
+      - {key: architecture, label: "Orchestrator, PSP adapters, ledger, outbox, webhook ingestion and reconciliation, walked end to end", points: 2}
+      - {key: scalability, label: "Sizes payments and ledger writes and notes hot ledger accounts", points: 1}
+      - {key: reliability, label: "Outbox for events and synchronous standby for near-zero RPO", points: 1}
+      - {key: consistency, label: "Writes state and ledger in one transaction and chooses CP for money with a stated reason", points: 3}
+      - {key: bottlenecks, label: "Deep dives on unknown outcomes or a hot account with a concrete mechanism", points: 2}
+      - {key: tradeoffs, label: "Articulates trade-offs such as rejecting payments during a primary outage vs risking unrecorded money", points: 2}
+      - {key: failure_modes, label: "Handles PSP timeouts with an UNKNOWN state, duplicate and out-of-order webhooks, crash between call and write", points: 3}
+      - {key: observability, label: "Tracks unknown-state count and age and reconciliation mismatches, with alerts", points: 1}
+    follow_ups:
+      - prompt: The service crashes after the PSP approved the charge but before the database recorded it. How is that recovered?
+        look_for: "The attempt was persisted before the call with our reference; a sweeper finds AUTHORIZING attempts older than a threshold and queries the PSP by reference, then records the outcome; reconciliation is the final safety net."
+      - prompt: Why not use floating-point numbers for amounts?
+        look_for: "Binary floating point cannot represent most decimal fractions exactly, so sums drift; use integers in minor units (or exact decimals) with explicit rounding rules."
+      - prompt: A refund is requested while the capture is still in flight. What happens?
+        look_for: "The state machine forbids refunding an uncaptured payment; either queue the refund until captured or cancel the authorisation instead; conditional transitions prevent races."
+      - prompt: How would you add a second PSP for resilience?
+        look_for: "Routing per method and region with health-based failover for new payments only; an in-flight payment stays with its PSP; reconciliation per PSP."
+
+# ---------------------------------------------------------------------------------------------- full design: social feed
+- key: sdx.social_feed.case
+  type: architecture_case
+  title: "Full design: social news feed"
+  skills: [sd.tradeoff_articulation, sd.realtime_delivery, sd.caching, sd.database_scaling, sd.queues_async, sd.capacity_estimation, sd.data_modeling]
+  minutes: 60
+  difficulty: HARD
+  observation: {kind: SD_DESIGN, time_limit_seconds: 2700}
+  body:
+    prompt: |-
+      Design the home feed of a social network: users follow other users, post text and images, and see a feed of recent posts from people they follow, roughly newest first with light ranking. Some accounts have tens of millions of followers. Make your fan-out choice explicit and defend it. Run the full 45-minute round.
+    requirements:
+      functional:
+        - Create a post with text and optional images.
+        - Follow and unfollow users.
+        - Home feed of posts from followed accounts, paginated, roughly newest first.
+        - Deleted posts and posts from blocked or unfollowed users disappear from feeds.
+      non_functional:
+        - Feed loads in under about 300 ms at p99 at the server.
+        - A new post appears in followers' feeds within seconds (minutes acceptable for very large accounts).
+        - "Scale: 200 million daily active users, 10 feed loads per user per day, 20 million posts per day, average 300 followers, some accounts above 10 million."
+        - High availability for reading feeds; posting may degrade gracefully.
+    approach:
+      - "Requirements: confirm ranking depth, freshness expectations, celebrity accounts, privacy rules."
+      - "Estimates: feed reads per second, posts per second, fan-out writes per second, feed cache size."
+      - "API: create post, follow/unfollow, get feed with cursor."
+      - "Data: posts by id, follow graph in both directions, per-user feed lists of post ids, per-author recent posts."
+      - "Architecture: post service, fan-out workers, feed cache, feed service that merges and hydrates, media via CDN."
+      - "Bottleneck: fan-out writes for large accounts; hydration of many posts per feed load."
+      - "Trade-off: fan-out on write vs on read vs hybrid; precomputing feeds for inactive users; freshness vs cost."
+      - "Failure: fan-out backlog, feed cache loss, deleted post already fanned out."
+      - "Observability and defense: feed latency SLI, fan-out lag, cache hit ratio; defend the hybrid choice."
+    estimates: |-
+      - Feed reads: 200 million × 10 = 2 billion per day ≈ 23,000 per second on average; assume about 70,000 per second at peak.
+      - Posts: 20 million per day ≈ 230 per second on average, about 700 per second at peak.
+      - Fan-out on write: 20 million posts × 300 followers = 6 billion feed inserts per day ≈ 70,000 per second on average; a single post from an account with 10 million followers alone is 10 million inserts.
+      - Feed cache: 200 million users × 500 post ids × 8 bytes ≈ 800 GB of ids, plus overhead, so roughly 1 to 2 TB across a cache cluster; caching only active users reduces it.
+      - Hydration: each feed page shows about 20 posts, so 70,000 × 20 = 1.4 million post lookups per second at peak, served from a post cache with batch gets.
+    hints:
+      - Reads outnumber posts by about 100 to 1; who should pay the cost, the writer or the reader?
+      - "Store ids in feeds, not post bodies."
+    reference: |-
+      **API**: `POST /v1/posts`; `PUT/DELETE /v1/users/{id}/follow`; `GET /v1/feed?cursor=&limit=20` returns post views and the next cursor.
+
+      **Data**: `posts(post_id, author_id, body, media_refs, created_at, visibility)` sharded by post id (ids sortable by time, for example a Snowflake-style id); follow graph stored twice, `followers(author_id, follower_id)` and `following(user_id, author_id)`, each sharded by its first column; feed lists of post ids per user in a cache cluster (trimmed to about 500); per-author recent-post lists for pull.
+
+      **Hybrid fan-out**: for authors below a threshold (say 100,000 followers, tuned by measurement), a post event goes to a queue and fan-out workers page through followers and push the post id into each active follower's feed list (users inactive for a month are skipped and rebuilt on return). For authors above the threshold, nothing is fanned out; at read time the feed service merges the user's feed list with recent posts from the large accounts they follow (usually few per user), fetched from a hot per-author cache.
+
+      **Read path**: get feed ids, merge with large-author posts, filter (deleted, blocked, unfollowed, visibility) at hydration time, batch-get post bodies and author info from caches, apply light ranking (recency plus simple engagement signals), return with a cursor based on the last post id. Media is served from object storage through a CDN.
+
+      **Defence of the choice**: pure push makes celebrity posts cost tens of millions of writes and minutes of lag; pure pull makes every one of 70,000 reads per second merge hundreds of authors. Hybrid pays write cost where it is small and read cost where it is concentrated on a few authors.
+
+      **Failure**: fan-out backlog during a spike delays freshness but not availability (alert on lag); feed cache node loss is rebuilt lazily from the following list and per-author recent posts for affected users (slower first load); deleted post already in feed lists is removed by filtering at read time, with an asynchronous clean-up; post service down: reading continues from caches, posting returns errors or queues.
+
+      **Observability**: feed latency SLI (p99 under 300 ms), fan-out lag (post time to inserted in follower feeds) p95, cache hit ratios for feed lists and posts, rebuild rate, empty-feed rate.
+    rubric:
+      - {key: requirements, label: "States read/write ratio, freshness and the large-account case explicitly", points: 1}
+      - {key: apis, label: "Post, follow and cursor-paginated feed endpoints", points: 1}
+      - {key: data_model, label: "Posts by time-sortable id, follow graph in both directions, feed lists of ids, per-author recent posts", points: 2}
+      - {key: architecture, label: "Post service, fan-out workers, feed cache and feed service with hydration, end to end", points: 2}
+      - {key: scalability, label: "Computes fan-out writes, feed cache size and hydration lookups per second", points: 2}
+      - {key: reliability, label: "Reading survives post-service and fan-out problems; cache loss is rebuilt lazily", points: 1}
+      - {key: consistency, label: "Accepts eventual freshness and filters deletions and blocks at read time", points: 2}
+      - {key: bottlenecks, label: "Deep dives on celebrity fan-out or hydration with numbers", points: 2}
+      - {key: tradeoffs, label: "Defends hybrid fan-out with the four-part statement (choice, driver, cost, revisit condition)", points: 3}
+      - {key: failure_modes, label: "Covers fan-out backlog, cache node loss and deleted posts", points: 1}
+      - {key: observability, label: "Feed latency SLI and fan-out lag metrics", points: 1}
+    follow_ups:
+      - prompt: Where exactly do you put the threshold between push and pull authors, and how would you tune it?
+        look_for: "Measure write cost per post against extra read merge cost; start with a follower-count threshold, adjust by measured fan-out lag and read latency; can also consider follower activity."
+      - prompt: A user unfollows someone. When do that account's posts leave the feed?
+        look_for: "Immediately at read time by filtering against the following list; the stale ids are cleaned lazily."
+      - prompt: Product wants a ranked feed instead of newest first. What changes?
+        look_for: "Candidate generation stays (ids from push and pull), a ranking stage scores a few hundred candidates per load using features from a store, cursors become ranking-session based; cost and latency rise."
+
+# ---------------------------------------------------------------------------------------------- full design: inventory
+- key: sdx.inventory.case
+  type: architecture_case
+  title: "Full design: inventory and stock reservation for e-commerce"
+  skills: [sd.consistency_cap, sd.database_scaling, sd.data_modeling, sd.caching, sd.queues_async, sd.deep_dive_bottlenecks, sd.distributed_coordination]
+  minutes: 60
+  difficulty: HARD
+  observation: {kind: SD_DESIGN, time_limit_seconds: 2700}
+  body:
+    prompt: |-
+      Design the inventory system for an online retailer with many warehouses. It must show availability on product pages, reserve stock during checkout, commit or release reservations when payment succeeds or fails, and record receipts and adjustments from warehouses. A flash sale can send tens of thousands of checkout attempts per second at one product. Run the full 45-minute round.
+    requirements:
+      functional:
+        - Track on-hand and reserved quantity per product (SKU) per warehouse.
+        - Reserve stock at checkout with an expiry; commit on payment; release on failure, cancel or expiry.
+        - Show availability (in stock, low stock, out of stock) on product and search pages.
+        - Record warehouse receipts, returns and count adjustments.
+        - Full history of stock movements.
+      non_functional:
+        - Do not sell stock that does not exist (no overselling), including during flash sales.
+        - Product-page availability may lag by seconds.
+        - Reservations are idempotent per order line.
+        - "Scale: 10 million SKUs, average 5 warehouses each; 5 million orders per day; flash sales of 50,000 reservation attempts per second on one SKU."
+        - Checkout must keep working for other products during a flash sale.
+    approach:
+      - "Requirements: clarify reservation timing (cart or checkout), expiry, backorders, multi-warehouse split shipments."
+      - "Estimates: stock rows, normal reservation rate, flash-sale rate on one SKU, availability reads."
+      - "API: get availability, reserve (idempotent), commit, release, record movement."
+      - "Data: stock rows with on_hand and reserved, reservations with expiry, append-only movement ledger."
+      - "Architecture: inventory service, stock store, reservation sweeper, availability cache fed by change events, warehouse integration."
+      - "Bottleneck: one hot SKU row during a flash sale."
+      - "Trade-off: strong consistency for reservations vs eventual for display; splitting stock into buckets vs single row; Redis counters vs database."
+      - "Failure: payment never confirms, sweeper down, warehouse count disagrees with system, cache out of date."
+      - "Observability and defense: oversell count (should be zero), reservation latency, expiry rate, stock drift from counts."
+    estimates: |-
+      - Stock rows: 10 million SKUs × 5 warehouses = 50 million rows × about 200 bytes ≈ 10 GB; fits one database, partitioned by SKU for write scale.
+      - Normal reservations: 5 million orders × about 3 lines = 15 million per day ≈ 170 per second on average, perhaps 1,000 per second at peak.
+      - Flash sale: 50,000 attempts per second on one SKU, for a stock of perhaps 10,000 units, so most attempts must fail fast.
+      - Availability reads: product and search pages, perhaps 50,000 per second at peak, served from cache.
+      - Movement ledger: a few movements per order line plus warehouse events, tens of millions of rows per day, append-only.
+    hints:
+      - A single conditional UPDATE can check and reserve atomically.
+      - A row lock held for 1 ms caps that row at about 1,000 updates per second.
+    reference: |-
+      **API**: `GET /v1/availability?skus=` (cached); `POST /v1/reservations {order_id, lines[{sku, qty}], ttl}` idempotent per `(order_id, line)`; `POST /v1/reservations/{id}/commit`; `POST /v1/reservations/{id}/release`; `POST /v1/movements` for receipts and adjustments from warehouses.
+
+      **Data**: `stock(sku, warehouse_id, on_hand, reserved, version)`; `reservations(id, order_id, line_no, sku, warehouse_id, qty, state, expires_at)` with unique `(order_id, line_no)`; `stock_movements(id, sku, warehouse_id, delta_on_hand, delta_reserved, reason, ref, created_at)` append-only.
+
+      **Reserve**: choose a warehouse (nearest with stock), then in one transaction insert the reservation and run a conditional update that only succeeds if enough is available:
+
+      ```sql
+      UPDATE stock SET reserved = reserved + :qty, version = version + 1
+       WHERE sku = :sku AND warehouse_id = :wh AND on_hand - reserved >= :qty;
+      -- 0 rows updated: not enough stock, try another warehouse or report out of stock
+      ```
+
+      No separate lock is needed; the row update is linearizable on the leader. Commit decrements both `on_hand` and `reserved`; release decrements `reserved`. A sweeper releases expired reservations (claiming them with `SKIP LOCKED` so several sweepers can run). Every change also appends a movement row in the same transaction, which is the audit trail and the source for reconciliation.
+
+      **Cross-service flow**: checkout runs a saga: reserve stock, authorise payment, commit stock, confirm order; on failure, compensations release the reservation or cancel the authorisation. Reservations expire as a backstop if the saga's coordinator dies.
+
+      **Flash-sale deep dive**: one row at 50,000 attempts per second cannot work. Options, combinable: put an admission queue or waiting room in front of the sale so attempts arrive at a rate the store can handle; split the SKU's stock into N buckets (for example 50 rows each holding a share), reserving from a random bucket and trying another if empty, which divides contention by N at the cost of a slightly harder "last few units" phase; or hold the sale's stock as a counter in Redis decremented atomically by a Lua script, with each successful decrement written durably to the database asynchronously, accepting that a Redis failure requires rebuilding the counter from the database before resuming. Out-of-stock is then answered from a cached flag without touching the row.
+
+      **Display**: an availability cache per SKU updated from change events (and refreshed periodically), showing coarse states; eventual consistency is acceptable because the reservation is the source of truth.
+
+      **Failure**: payment never confirms (reservation expires and stock returns); sweeper down (expired reservations hold stock longer, alert on expired-but-active count); warehouse count differs from system (adjustment movement, investigate shrinkage); availability cache stale (worst case a customer sees in stock and fails at reservation, with a clear message).
+
+      **Observability**: oversell incidents (committed above on-hand, target zero), reservation p99 latency and conflict rate, share of reservations expiring, expired-but-active count, drift between system and physical counts per warehouse.
+    rubric:
+      - {key: requirements, label: "States no-oversell, reservation expiry and display staleness as explicit requirements", points: 1}
+      - {key: apis, label: "Idempotent reserve, commit and release, availability and movement endpoints", points: 1}
+      - {key: data_model, label: "Stock with on-hand and reserved, reservations with expiry and unique order line, append-only movements", points: 2}
+      - {key: architecture, label: "Inventory service, sweeper, availability cache via events, warehouse integration and the checkout saga", points: 2}
+      - {key: scalability, label: "Separates normal load from the flash-sale hot row and sizes both", points: 2}
+      - {key: reliability, label: "Expiry as a backstop for abandoned or failed checkouts; other products unaffected by a flash sale", points: 1}
+      - {key: consistency, label: "Atomic conditional decrement for reservations; eventual consistency only for display, with reason", points: 3}
+      - {key: bottlenecks, label: "Deep dives on the hot SKU with numbers and at least one concrete fix (buckets, admission, atomic counter)", points: 3}
+      - {key: tradeoffs, label: "Articulates trade-offs such as buckets vs single row and Redis counter vs database", points: 2}
+      - {key: failure_modes, label: "Covers unconfirmed payments, sweeper outage and count drift", points: 1}
+      - {key: observability, label: "Oversell count, reservation latency and expired-but-active metrics", points: 1}
+    follow_ups:
+      - prompt: Why is reading available stock and then updating it in two statements wrong?
+        look_for: "Two transactions can both read enough stock and both reserve (lost update or write skew under weaker isolation); the condition must be inside the update, or the row locked first."
+      - prompt: Some products allow backorders. How does the model change?
+        look_for: "A per-SKU policy allows available to go below zero up to a limit, with orders marked backordered; the conditional update uses the limit instead of zero."
+      - prompt: Two warehouses together have enough stock but neither alone does. What do you do?
+        look_for: "Split the line across warehouses with one reservation per warehouse in the same transaction or saga step, or offer a split shipment; releases must undo all parts."
+      - prompt: The Redis counter for a flash sale is lost mid-sale. How do you recover safely?
+        look_for: "Pause the sale, rebuild the counter from durable reservations in the database (stock minus committed and active reservations), then resume; never resume from a guess."

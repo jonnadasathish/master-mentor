@@ -25,7 +25,7 @@ const copy = computed(() => {
       return {
         eyebrow: 'Calibration',
         title: 'We have enough evidence to build your initial roadmap.',
-        body: "You can look at your personal roadmap now. The remaining assessments will sharpen it, so it's worth finishing them.",
+        body: "These assessments will continue to sharpen your roadmap, but they don't block today's learning.",
         action: 'Continue calibration',
       }
     case 'COMPLETE':

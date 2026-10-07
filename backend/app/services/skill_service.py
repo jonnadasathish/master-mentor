@@ -92,6 +92,13 @@ def _state_out(row: SkillState | None) -> SkillStateOut:
     )
 
 
+def _first_kind(kind: object) -> str | None:
+    """A template may allow several observation kinds (a list); the page names the first, never a list."""
+    if isinstance(kind, list | tuple):
+        return str(kind[0]) if kind else None
+    return None if kind is None else str(kind)
+
+
 class SkillService:
     def __init__(self, session: Session, clock: Clock) -> None:
         self._s = session
@@ -250,7 +257,7 @@ class SkillService:
                 template_key=t.key if t else None,
                 minutes=t.minutes if t else None,
                 pass_rule=t.pass_rule if t else None,
-                observation_kind=str(t.observation.get("kind")) if t else None,
+                observation_kind=_first_kind(t.observation.get("kind")) if t else None,
             )
         return SkillDetail(
             **base.model_dump(),

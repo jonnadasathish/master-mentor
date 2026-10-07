@@ -77,7 +77,11 @@ def test_cold_start_plan_is_the_battery_and_is_frozen(plan_env: tuple[TestClient
     # Sunday budget 75 => B01 + B02 = 75, nothing else fits
     assert (plan["budget_minutes"], plan["allocated_minutes"], plan["unallocated_minutes"]) == (75, 75, 0)
     assert plan["message"]["rule"] == "CALIBRATION" and first["calibration"]["active"] is True
-    assert [p["key"] for p in plan["items"][1]["problems"]] == ["LEETCODE:3sum", "LEETCODE:group-anagrams"]
+    # greedy cover over the seed-v2 bank (the golden scenarios stay pinned to the original problems, D-084)
+    assert [p["key"] for p in plan["items"][1]["problems"]] == [
+        "LEETCODE:3sum",
+        "LEETCODE:continuous-subarray-sum",
+    ]
     call(client, "POST", "/problem-attempts", SOLVED, status=201)  # mid-day observation
     again = today(client)
     assert again["plan"]["id"] == plan["id"] and again["plan"]["items"] == plan["items"]  # plan never changes

@@ -81,8 +81,8 @@ def _end(sentence: str) -> str:
 
 def r_calibration(c: _Ctx) -> Message | None:
     cal = c.inputs.calibration
-    if not cal.calibration_mode:
-        return None
+    if not cal.calibration_mode or cal.hybrid:
+        return None  # hybrid day: the learning mission's own message rule speaks (D-086)
     keys = [i.battery_item_key for i in c.plan.items if i.battery_item_key] or [
         i.candidate_key for i in c.plan.items if i.candidate_type == "DIAGNOSTIC"
     ]

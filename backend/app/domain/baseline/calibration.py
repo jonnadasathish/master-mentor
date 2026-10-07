@@ -34,6 +34,14 @@ class CalibrationStatus:
     assessed_required: int
     assessed_pct: int  # floor
     calibration_mode: bool
+    # assessed_pct >= CALIBRATION_MIN_ASSESSED_PCT: a first personal roadmap can be read from the engines.
+    # With the battery still open (ENOUGH_MEASURED) the mentor also plans one learning mission (D-086).
+    enough_measured: bool = False
+
+    @property
+    def hybrid(self) -> bool:
+        """Battery open but enough measured: learning is primary, the remaining battery secondary (D-086)."""
+        return self.enough_measured and not self.battery_complete
 
 
 @dataclass(frozen=True)
@@ -76,6 +84,7 @@ def calibration_status(
         assessed_required=assessed,
         assessed_pct=pct,
         calibration_mode=(not complete) or pct < int(ruleset.CALIBRATION_MIN_ASSESSED_PCT),
+        enough_measured=pct >= int(ruleset.CALIBRATION_MIN_ASSESSED_PCT),
     )
 
 

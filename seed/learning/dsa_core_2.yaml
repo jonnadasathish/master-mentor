@@ -1,0 +1,651 @@
+# Learning content: DSA foundations — two pointers and sliding window.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- two pointers
+- key: dsa.two_pointers.lesson
+  type: lesson
+  title: Two pointers, and the elimination argument that makes them correct
+  skills: [two_pointers.core]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Two indices move under an invariant so that every step safely discards a whole row of candidate pairs, turning O(n²) pair checks into O(n).
+    what: |-
+      Two pointers is a family of techniques where two indices walk over one or two sequences and each step moves one of them by a rule you can justify. Three shapes:
+
+      - **Opposite ends:** `lo` starts at 0 and `hi` at `n - 1` and they move toward each other. Used on sorted data (pair sums), on symmetric questions (palindromes, reversal) and on "area between two ends" questions.
+      - **Same direction (read/write, slow/fast):** one index scans, the other marks a boundary. Used for in-place filtering and partitioning.
+      - **Two sequences:** one index per sorted input, advancing the one with the smaller value (merging, intersection).
+    why: |-
+      The brute force for pair questions checks all n(n-1)/2 pairs. On sorted data a single comparison tells you that one end can never be part of an answer with **any** remaining partner, so you can drop it. Each step removes one index for good, so there are at most n steps: O(n) time and O(1) extra space, which also beats the O(n)-space hash-map approach when the input is already sorted.
+    when: |-
+      - The input is sorted, or sorting it does not lose information you need (you do not need original indices, or you sort pairs of value and index).
+      - The question involves pairs or triples with a sum or difference condition.
+      - Symmetry: compare the first with the last, move inward.
+      - In-place partitioning or deduplication.
+      - "Not when the input is unsorted and you need original indices with O(n) time: use a hash map instead."
+    how: |-
+      Opposite-end pair sum on a sorted array:
+
+      ```python
+      lo, hi = 0, len(a) - 1
+      while lo < hi:
+          s = a[lo] + a[hi]
+          if s == target:
+              return lo, hi
+          if s < target:
+              lo += 1        # a[lo] + (largest remaining) is too small: a[lo] pairs with nothing
+          else:
+              hi -= 1        # a[hi] + (smallest remaining) is too big: a[hi] pairs with nothing
+      ```
+
+      For triples (three numbers summing to zero), sort, fix the first element `i`, and run the pair search on `i + 1..n - 1`: O(n²) instead of O(n³). Skip equal neighbours for `i`, and after each match skip equal values on both sides, to avoid duplicate triples.
+
+      For "most water between two lines", move the **shorter** line inward: the area with the shorter line as one end can only shrink as the other end moves in, because width decreases and height is capped by that shorter line.
+    mental_model: |-
+      Picture the n × n grid of all pairs (i, j). The state `(lo, hi)` is one cell. Each comparison eliminates an entire row (all pairs using `lo`) or an entire column (all pairs using `hi`) without checking them, because sortedness bounds every value in it. Invariant: **if an answer exists, it lies within `[lo, hi]`**. You must be able to say which row or column you just eliminated and why.
+    tradeoffs: |-
+      If the input is unsorted, sorting costs O(n log n) and destroys original indices; a hash map gives O(n) average time but O(n) memory. Two pointers give O(1) extra space and deterministic O(n) after sorting. For "count pairs" variants, two pointers count in bulk (`hi - lo` pairs at once), which a hash map cannot do for inequality conditions.
+    mistakes:
+      - Using opposite-end pointers on unsorted data, where the elimination argument does not hold.
+      - Moving the wrong pointer (for container problems, moving the taller line).
+      - "Using `while lo <= hi` for pair problems, which pairs an element with itself."
+      - Skipping duplicates before recording the first answer, or not at all, producing repeated triples.
+      - Returning indices of the sorted copy when the question asks for original indices.
+      - Forgetting that the outer fixed index in triple problems also needs duplicate skipping.
+    interview: |-
+      Say the elimination argument aloud: "the sum is too small, and `a[hi]` is the largest value left, so `a[lo]` cannot be in any pair; move `lo`". Interviewers often ask why moving the other pointer would be wrong, how to avoid duplicate results, and how the idea extends to triples (O(n²)) or to counting pairs below a target.
+    explain_it:
+      - State the invariant (the answer, if any, is inside the current range).
+      - For each branch, say which candidates are eliminated and why sortedness proves it.
+      - Explain termination (the range shrinks by one every step).
+      - Give time (O(n) after an O(n log n) sort if needed) and O(1) extra space.
+    example:
+      language: python
+      code: |-
+        def sorted_squares(nums: list[int]) -> list[int]:
+            """nums is sorted and may contain negatives; return the squares, sorted."""
+            n = len(nums)
+            out = [0] * n
+            lo, hi = 0, n - 1
+            for pos in range(n - 1, -1, -1):   # fill from the largest square down
+                if abs(nums[lo]) > abs(nums[hi]):
+                    out[pos] = nums[lo] * nums[lo]
+                    lo += 1
+                else:
+                    out[pos] = nums[hi] * nums[hi]
+                    hi -= 1
+            return out
+
+        assert sorted_squares([-4, -1, 0, 3, 10]) == [0, 1, 9, 16, 100]
+      explanation: The largest square is always at one of the two ends, so comparing the ends decides the next output from the back. O(n) time instead of O(n log n) for squaring and sorting.
+    complexity: O(n) for one opposite-end pass; O(n log n) if you must sort first; O(n²) for triples with one fixed index. O(1) extra space apart from the output.
+    edge_cases:
+      - Fewer than two elements.
+      - All elements equal (duplicate skipping).
+      - No valid pair at all.
+      - Negative values when squaring or summing.
+    misconceptions:
+      - "Two pointers always need sorted input — palindrome and partition variants do not; only the sum-elimination argument needs order."
+      - "The nested while loops for duplicate skipping make it O(n²) — each index still moves at most n times in total."
+- key: dsa.two_pointers.visual
+  type: visual_explanation
+  title: "Visual: which pointer moves, and what it eliminates"
+  skills: [two_pointers.core]
+  minutes: 6
+  body:
+    summary: Searching a sorted array for a pair summing to 10. Every step removes one end for good.
+    frames:
+      - caption: "1 + 11 = 12 is too big. 11 plus the smallest remaining value is already too big, so 11 pairs with nothing: move hi."
+        diagram: |-
+          index:  0  1  2  3  4   5
+          value:  1  3  4  6  8  11
+                  lo                hi     sum 12 > 10  ->  hi -= 1
+      - caption: "1 + 8 = 9 is too small. 1 plus the largest remaining value is too small, so 1 pairs with nothing: move lo."
+        diagram: |-
+          index:  0  1  2  3  4   5
+          value:  1  3  4  6  8  11
+                  lo           hi    x  sum 9 < 10  ->  lo += 1
+      - caption: "3 + 8 = 11 is too big: drop 8. Then 3 + 6 = 9 is too small: drop 3."
+        diagram: |-
+          index:  0  1  2  3  4   5
+          value:  1  3  4  6  8  11
+                  x  lo     hi x  x     11 > 10 -> hi -= 1 ;  then 3 + 6 = 9 < 10 -> lo += 1
+      - caption: "4 + 6 = 10. Found after 5 comparisons instead of up to 15 pairs."
+        diagram: |-
+          index:  0  1  2  3  4   5
+          value:  1  3  4  6  8  11
+                  x  x  lo hi x  x      sum 10 == 10  ->  return (2, 3)
+- key: dsa.two_pointers.check
+  type: concept_check
+  title: "Concept check: two pointers"
+  skills: [two_pointers.core]
+  minutes: 8
+  difficulty: MEDIUM
+  body:
+    intro: For each question, say which pointer moves and what that move eliminates.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "Sorted array [1, 2, 4, 7, 11], target 9, lo = 0, hi = 4. Which pointer moves first, and why?"
+        options:
+          - hi moves left, because 1 + 11 = 12 > 9 and 11 is too big even with the smallest value
+          - lo moves right, because the sum is not equal to the target
+          - Both move inward together
+          - lo moves right, because 1 is the smallest value
+        answer: [0]
+        explanation: "The sum is too big, so the larger end must go: no partner can make 11 small enough. Moving lo would make the sum bigger still. Moving both can skip a valid pair such as (2, 7)."
+      - id: q2
+        kind: single
+        prompt: What does this return for `f([-1, 1, 2, 3, 1], 2)`?
+        code:
+          language: python
+          code: |-
+            def f(a, t):
+                a.sort()
+                lo, hi, count = 0, len(a) - 1, 0
+                while lo < hi:
+                    if a[lo] + a[hi] < t:
+                        count += hi - lo
+                        lo += 1
+                    else:
+                        hi -= 1
+                return count
+        options: ["2", "3", "4", "5"]
+        answer: [1]
+        explanation: "It counts pairs with sum below t. Sorted: [-1, 1, 1, 2, 3]. -1 + 3 = 2 is not < 2, so hi moves. -1 + 2 = 1 < 2, so all 3 pairs (-1 with 1, 1, 2) count at once and lo moves. The remaining sums 1 + 2 and 1 + 1 are not below 2. Total 3. The tempting 4 counts -1 + 3, which equals t."
+      - id: q3
+        kind: single
+        prompt: In the "most water between two vertical lines" problem, why is it correct to move the shorter line inward?
+        options:
+          - Every container that keeps the shorter line and moves the other end inward is narrower and no taller, so none can beat the current one
+          - Moving the taller line could make the width larger
+          - Because the shorter line is always at the left end
+          - It is a heuristic that works on most inputs
+        answer: [0]
+        explanation: "Height is capped by the shorter line, and width only shrinks as the other end moves in. So all pairs using the shorter line are dominated by the current pair and can be eliminated. It is a proof, not a heuristic."
+      - id: q4
+        kind: multi
+        prompt: Which of these require the input to be sorted (or sorted first) for an opposite-end two-pointer solution?
+        options:
+          - Find a pair with a given sum
+          - Check whether a string is a palindrome
+          - Maximum water between two lines
+          - Find all triples that sum to zero
+        answer: [0, 3]
+        explanation: "Sum elimination needs order. The palindrome check compares mirror positions, and the water problem uses the original positions (sorting would destroy widths)."
+      - id: q5
+        kind: single
+        prompt: In the triples-summing-to-zero problem, after recording a triple (i, lo, hi), what should happen next?
+        options:
+          - Move lo right and hi left, then skip values equal to the ones just used on both sides
+          - Return immediately
+          - Move only lo right
+          - Restart lo and hi from the ends
+        answer: [0]
+        explanation: "Both ends of the found pair are used up for this i; skipping equal neighbours prevents emitting the same triple again. Moving only lo would find the same hi value again with a duplicate lo."
+      - id: q6
+        kind: short
+        prompt: State the invariant of the sorted pair-sum search and justify the update when the sum is too small.
+        model_answer: "Invariant: if a valid pair exists, both of its indices are within [lo, hi]. If a[lo] + a[hi] < target, then a[lo] plus any a[j] with j <= hi is at most a[lo] + a[hi] (sorted), so also too small; a[lo] belongs to no valid pair inside the range, and lo += 1 keeps the invariant."
+        explanation: Being able to state this is the difference between remembering the trick and being able to adapt it.
+- key: dsa.two_pointers.exercise
+  type: coding_exercise
+  title: "Exercise: count distinct pairs with a target sum in a sorted array"
+  skills: [two_pointers.core]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 900}
+  body:
+    prompt: |-
+      Given a sorted list of integers that may contain duplicates, return the number of **distinct value pairs** (a, b) with a <= b, a + b equal to the target, using two different positions. Use O(1) extra space.
+    examples:
+      - "[1, 1, 2, 2, 3, 3], target 4 -> 2  (1+3 and 2+2)"
+      - "[2, 2, 2, 2], target 4 -> 1"
+      - "[1, 5], target 4 -> 0"
+    constraints:
+      - Up to 10⁵ elements; values may be negative.
+    hints:
+      - Start from the usual opposite-end pair search.
+      - On a match, both values are used up; move both pointers.
+      - Then skip every element equal to the one you just left, on both sides.
+    solution:
+      language: python
+      code: |-
+        def count_distinct_pairs(nums: list[int], target: int) -> int:
+            lo, hi, count = 0, len(nums) - 1, 0
+            while lo < hi:
+                s = nums[lo] + nums[hi]
+                if s < target:
+                    lo += 1
+                elif s > target:
+                    hi -= 1
+                else:
+                    count += 1
+                    lo += 1
+                    hi -= 1
+                    while lo < hi and nums[lo] == nums[lo - 1]:
+                        lo += 1
+                    while lo < hi and nums[hi] == nums[hi + 1]:
+                        hi -= 1
+            return count
+      explanation: Each index moves inward at most once overall, so O(n) time despite the inner loops, and O(1) space. The guards lo < hi keep the skips inside the range.
+    rubric:
+      - {key: correct, label: "Returns 2, 1 and 0 on the three examples", points: 4}
+      - {key: duplicates, label: Skips duplicates only after a match and on both sides, points: 2}
+      - {key: argument, label: Justifies each pointer move with the elimination argument, points: 2}
+      - {key: complexity, label: Explains why the nested skip loops are still O(n) overall, points: 2}
+    follow_ups:
+      - prompt: The input is unsorted and you may not modify it. What now?
+        look_for: Either copy and sort (O(n log n), O(n) space) or a hash set of seen values plus a set of recorded pairs (O(n) average).
+      - prompt: Count index pairs instead of distinct value pairs. What changes when values repeat?
+        look_for: Count runs of equal values on each side and multiply; when both ends hold the same value with c copies, add c(c-1)/2 and stop.
+- key: dsa.two_pointers.interview
+  type: interview_question
+  title: "Interview question: count pairs below a target in linear time"
+  skills: [two_pointers.core, execution.brute_force_to_optimal]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: Given an unsorted list of integers and a target, count index pairs i < j whose values sum to strictly less than the target. Explain the brute force, then an approach faster than O(n²), why it is correct, and its complexity. Code is optional; the argument is what is assessed.
+    key_points:
+      - "Brute force checks every pair: O(n²) time, O(1) space."
+      - "Sorting does not change the answer (pairs of positions map one-to-one to pairs of sorted positions), so sort first: O(n log n)."
+      - "With lo and hi at the ends: if a[lo] + a[hi] < target, then a[lo] pairs with every index in lo+1..hi, so add hi - lo and move lo; otherwise a[hi] is too big for every remaining partner, so move hi."
+      - "Total O(n log n) time (sort dominates) and O(1) extra space with an in-place sort."
+    model_answer: "The count does not depend on order, so I sort. Then lo = 0, hi = n - 1. If a[lo] + a[hi] < target, every partner between lo and hi is at most a[hi], so all hi - lo pairs with a[lo] qualify: add them and advance lo. Otherwise a[hi] fails even with the smallest remaining value, so decrement hi. Each step removes one index, so the scan is O(n), the sort O(n log n), extra space O(1) if I may sort in place."
+    pitfalls:
+      - Reaching for a hash map, which does not help with an inequality condition.
+      - Adding 1 instead of hi - lo, which falls back to counting pairs one by one.
+      - Using <= when the condition is strict.
+    follow_ups:
+      - prompt: Extend it to count triples with sum below the target. What is the complexity?
+        look_for: Fix the first index and run the same count on the rest; O(n²) total.
+      - prompt: What if you may not modify or copy the input (read-only, memory-limited)?
+        look_for: Without sorting there is no linear elimination; options are O(n²) with O(1) space, or explaining the trade-off and asking which constraint can be relaxed.
+      - prompt: Count pairs whose sum lies in a range [low, high].
+        look_for: count_below(high + 1) - count_below(low), reusing the same function.
+- key: dsa.two_pointers.guided
+  type: guided_problem
+  title: "Guided practice: opposite-end pointers"
+  skills: [two_pointers.core]
+  minutes: 30
+  difficulty: MEDIUM
+  problems: [53, 5]
+  body:
+    guidance:
+      - "Before coding each problem, write one sentence: \"when the condition is X, I move pointer Y because every pair using it is eliminated\"."
+      - For the sorted pair problem, note that the returned indices may need an offset; read the expected output format.
+      - For the water problem, compute the area from width (hi - lo) and the shorter height; move the shorter side and explain why.
+      - Dry-run each on a three-element input before submitting.
+    hints:
+      - "Pair sum: too small means the left value pairs with nothing."
+      - "Water: moving the taller line can never increase the height cap."
+- key: dsa.two_pointers.timed
+  type: timed_problem
+  title: "Timed practice: triples and trapped water"
+  skills: [two_pointers.core]
+  minutes: 60
+  difficulty: HARD
+  problems: [4, 54]
+  body:
+    guidance:
+      - "Triples summing to zero: sort, fix i, two-pointer the rest; skip duplicates for i and after each match. Say O(n²) before coding."
+      - "Trapped water: water above index i is min(max on the left, max on the right) - height[i]. Move the side with the smaller running maximum, because its water level is already decided."
+      - Work under the timer without hints and state time and space for each.
+- key: dsa.two_pointers.cards
+  type: revision_card
+  title: "Recall: two pointers"
+  skills: [two_pointers.core]
+  minutes: 5
+  body:
+    cards:
+      - front: Sorted pair sum is too small. Which pointer moves and why?
+        back: lo moves right; a[lo] is too small even with the largest remaining value.
+      - front: Invariant of opposite-end pair search?
+        back: If an answer exists, it lies within [lo, hi].
+      - front: Container with most water — which line moves?
+        back: The shorter one; every pair keeping it is narrower and no taller.
+      - front: Complexity of triples summing to zero?
+        back: O(n²) — sort, fix one index, two-pointer the rest.
+      - front: Count pairs with sum below target, when a[lo] + a[hi] < target?
+        back: Add hi - lo and move lo.
+
+# ---------------------------------------------------------------------------------------------- sliding window
+- key: dsa.sliding_window.lesson
+  type: lesson
+  title: Sliding window, fixed and variable, with the window kept valid
+  skills: [sliding_window.core]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Maintain a contiguous window and its summary (sum, counts, distinct count) incrementally; each index enters once and leaves once, so the scan is O(n).
+    what: |-
+      A sliding window is a contiguous range `[left, right]` over an array or string, plus a small **state** describing it (a sum, a character count map, the number of distinct values). The window moves right one element at a time; elements that leave on the left are removed from the state.
+
+      - **Fixed size k:** add `nums[right]`, remove `nums[right - k]`.
+      - **Variable size:** grow by moving `right`, and shrink by moving `left` until the window satisfies the condition again.
+    why: |-
+      The brute force for "best substring/subarray with property P" enumerates O(n²) windows and often re-scans each one: O(n³) or O(n²). Consecutive windows overlap in all but one element, so updating the state in O(1) per step removes the re-scan, and moving `left` only forward removes the quadratic enumeration. Total work: each index is added once and removed once, 2n updates.
+    when: |-
+      - The answer is a **contiguous** subarray or substring.
+      - The question says longest, shortest, maximum or count, with a condition such as "at most k distinct", "no repeats", "sum at least target", "contains all of these characters".
+      - **Monotonicity holds:** if a window is invalid, every larger window containing it is also invalid (or, for shortest-window problems, if a window is valid every larger window is valid). This is what makes moving `left` forward safe.
+      - Not when values can be negative and the condition is on the sum: use prefix sums instead.
+    how: |-
+      **Fixed size:**
+
+      ```python
+      window = sum(nums[:k])
+      best = window
+      for right in range(k, len(nums)):
+          window += nums[right] - nums[right - k]
+          best = max(best, window)
+      ```
+
+      **Variable, longest valid window** (shrink while invalid, then record):
+
+      ```python
+      left = 0
+      for right, x in enumerate(items):
+          add(x)
+          while invalid():
+              remove(items[left])
+              left += 1
+          best = max(best, right - left + 1)
+      ```
+
+      **Variable, shortest valid window** (record while valid, then shrink):
+
+      ```python
+      left = 0
+      for right, x in enumerate(items):
+          add(x)
+          while valid():
+              best = min(best, right - left + 1)
+              remove(items[left])
+              left += 1
+      ```
+
+      **Counting windows:** for "at most k" conditions, every window ending at `right` and starting in `[left, right]` is valid, so add `right - left + 1` per step. "Exactly k" is `at_most(k) - at_most(k - 1)`.
+    mental_model: |-
+      Two hands on a ruler: the right hand only moves right, the left hand only moves right, and the left never passes the right. Invariant for longest-window problems: **after the shrink loop, `[left, right]` is the longest valid window ending at `right`**. Because a window that is invalid stays invalid when extended, there is never a reason to move `left` back.
+    tradeoffs: |-
+      The window needs O(1) or O(alphabet) memory and O(n) time, but only works under monotonicity. With negative numbers use prefix sums plus hashing (O(n) memory). When the window needs its maximum or minimum, a running sum is not enough: pair the window with a monotonic deque. A count map with deletion of zero entries keeps `len(counts)` equal to the number of distinct values; keeping zeros is faster but then you must track the distinct count separately.
+    mistakes:
+      - Recording the answer before the shrink loop in a longest-window problem, so an invalid window is counted.
+      - Recording after the shrink loop in a shortest-window problem, so the best valid window is missed.
+      - Not deleting zero-count keys when using `len(counts)` as the distinct count.
+      - "Moving `left` backwards with a last-seen index (`left = last[ch] + 1` without `max`), which re-admits a repeated character."
+      - Applying a window to sums with negative numbers.
+      - Off-by-one window length; it is `right - left + 1` for inclusive ends.
+    interview: |-
+      Say which template you use and why monotonicity holds: "adding a character can only add duplicates, so once the window has a duplicate, every larger window does too; I shrink from the left". Expect follow-ups such as "exactly k instead of at most k", "return the window, not its length", or "what if the input is a stream".
+    explain_it:
+      - Define the window state and how add and remove update it in O(1).
+      - State the validity condition and why it is monotonic.
+      - "Say where the answer is recorded (after shrinking for longest, inside the loop for shortest)."
+      - Prove O(n) by counting pointer moves, not loop nesting.
+    example:
+      language: python
+      code: |-
+        def longest_with_sum_at_most(nums: list[int], limit: int) -> int:
+            """nums are non-negative; longest subarray whose sum is <= limit."""
+            left = total = best = 0
+            for right, x in enumerate(nums):
+                total += x
+                while total > limit:           # invalid: shrink from the left
+                    total -= nums[left]
+                    left += 1
+                best = max(best, right - left + 1)   # longest valid window ending at right
+            return best
+
+        assert longest_with_sum_at_most([3, 1, 2, 7, 1, 1], 6) == 3   # [3, 1, 2]
+        assert longest_with_sum_at_most([7], 6) == 0
+      explanation: Non-negative values make the sum monotonic in window size, so shrinking is always safe. When a single element exceeds the limit, left passes right and the length is 0. O(n) time, O(1) space.
+    complexity: O(n) time for fixed and variable windows (each index added and removed at most once); O(1) or O(alphabet) extra space for the state.
+    edge_cases:
+      - k larger than the input length for fixed windows.
+      - A single element that already violates the condition.
+      - The whole input is one valid window.
+      - Empty input.
+    misconceptions:
+      - "A while loop inside a for loop is O(n²) — here left moves at most n times in total, so O(n)."
+      - "Any subarray question is a sliding window — only when validity is monotonic in window size."
+- key: dsa.sliding_window.worked
+  type: worked_example
+  title: "Worked example: shortest subarray with sum at least a target"
+  skills: [sliding_window.core, execution.brute_force_to_optimal]
+  minutes: 12
+  difficulty: MEDIUM
+  body:
+    problem: Given positive integers and a target, return the length of the shortest contiguous subarray whose sum is at least the target, or 0 if none exists.
+    steps:
+      - title: Clarify
+        text: "All values positive (this matters), target positive, return a length. Example: [2, 3, 1, 2, 4, 3] with target 7 gives 2 ([4, 3])."
+      - title: Brute force
+        text: "Try every start and extend until the sum reaches the target: O(n²). The waste: after finding the shortest window from start i, the search from i + 1 starts over at length 1, although its end can only be at or after the previous end."
+      - title: Name the monotonicity
+        text: "Values are positive, so extending a window increases its sum and shrinking decreases it. If [left, right] is valid, every window that contains it is valid, so the shortest window ending at right is found by shrinking left while the window stays valid."
+      - title: Apply the shortest-window template
+        text: "Record inside the shrink loop, before removing the left element."
+        code:
+          language: python
+          code: |-
+            def shortest_at_least(target: int, nums: list[int]) -> int:
+                best = len(nums) + 1
+                left = total = 0
+                for right, x in enumerate(nums):
+                    total += x
+                    while total >= target:
+                        best = min(best, right - left + 1)
+                        total -= nums[left]
+                        left += 1
+                return 0 if best == len(nums) + 1 else best
+      - title: Dry-run
+        text: "Sums by right: 2, 5, 6, 8 (valid: best 4, drop 2 -> 6), 10 (best 4, drop 3 -> 7, best 3, drop 1 -> 6), 9 (best 3, drop 2 -> 7, best 2, drop 4 -> 3). Answer 2."
+      - title: What if values can be zero or negative?
+        text: "Zeros are fine (monotonic, not strictly). Negatives break the argument; the known O(n) approach then uses prefix sums with a monotonic deque of prefix indices."
+    takeaways:
+      - Check monotonicity before choosing a window; positivity is usually what provides it.
+      - Shortest-window problems record inside the shrink loop; longest-window problems record after it.
+      - A sentinel such as n + 1 distinguishes "no answer" from a real length.
+    complexity: O(n) time, O(1) extra space.
+- key: dsa.sliding_window.check
+  type: concept_check
+  title: "Concept check: sliding window"
+  skills: [sliding_window.core]
+  minutes: 8
+  difficulty: MEDIUM
+  body:
+    intro: Trace the code; the bugs here are the ones that pass small tests.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "This version drops the `max` in the left update. What does it return for \"abba\" (the correct answer is 2)?"
+        code:
+          language: python
+          code: |-
+            def longest_unique(s):
+                last, left, best = {}, 0, 0
+                for right, ch in enumerate(s):
+                    if ch in last:
+                        left = last[ch] + 1          # should be max(left, last[ch] + 1)
+                    last[ch] = right
+                    best = max(best, right - left + 1)
+                return best
+        options: ["1", "2", "3", "4"]
+        answer: [2]
+        explanation: "At the second b, left becomes 2. At the final a, last['a'] is 0, so left jumps back to 1 and the window \"bba\" (length 3) is accepted even though it repeats b. With max, left stays at 2 and the answer is 2."
+      - id: q2
+        kind: single
+        prompt: "What does this return for `nums = [1, 3, -1, -3, 5, 3, 6, 7]` and `k = 3`?"
+        code:
+          language: python
+          code: |-
+            def f(nums, k):
+                window = sum(nums[:k])
+                best = window
+                for right in range(k, len(nums)):
+                    window += nums[right] - nums[right - k]
+                    best = max(best, window)
+                return best
+        options: ["14", "16", "13", "21"]
+        answer: [1]
+        explanation: "Window sums are 3, -1, 1, 5, 14, 16; the maximum is 16 (window [3, 6, 7]). 14 is the window before it; 21 is the sum of the last four values, not three."
+      - id: q3
+        kind: multi
+        prompt: For which problems is a variable sliding window (with left only moving right) correct?
+        options:
+          - Longest substring without repeating characters
+          - Shortest subarray of positive numbers with sum at least a target
+          - Count subarrays with sum exactly k when values can be negative
+          - Longest substring with at most k distinct characters
+        answer: [0, 1, 3]
+        explanation: "The three chosen conditions are monotonic in window size. With negative values a sum can drop back after growing, so moving left forward may discard answers; that problem needs prefix sums and hashing."
+      - id: q4
+        kind: single
+        prompt: In the shortest-valid-window template, where must the answer be recorded?
+        options:
+          - Inside the while-valid loop, before removing the left element
+          - After the while loop finishes
+          - Before adding the right element
+          - Only once, after the for loop
+        answer: [0]
+        explanation: "After the loop the window is no longer valid, so recording there misses the best valid window. Recording after the loop is the correct place for longest-window problems, which is why the two get mixed up."
+      - id: q5
+        kind: single
+        prompt: A variable window has a for loop over right and a nested while loop over left. What is its time complexity on n elements, assuming O(1) add and remove?
+        options: ["O(n)", "O(n log n)", "O(n²)", "O(n × k)"]
+        answer: [0]
+        explanation: "left only increases and never exceeds n, so the while body runs at most n times in total across the whole for loop. 2n pointer moves: O(n)."
+      - id: q6
+        kind: short
+        prompt: State the invariant of the longest-substring-with-at-most-k-distinct-characters window and explain when left moves.
+        model_answer: "State: counts of characters in s[left..right], with zero counts deleted, so len(counts) is the number of distinct characters. Invariant after the shrink loop: the window has at most k distinct characters and is the longest such window ending at right. left moves only while len(counts) > k, removing s[left] and deleting its key when its count reaches 0."
+        explanation: Naming the state, the invariant and the shrink condition is the whole template; the code follows from it.
+- key: dsa.sliding_window.exercise
+  type: coding_exercise
+  title: "Exercise: write the variable-window template from memory"
+  skills: [sliding_window.core, hashing.lookup_frequency]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 900}
+  body:
+    prompt: |-
+      Without looking anything up, write `longest_k_distinct(s, k)` returning the length of the longest substring of `s` that contains at most `k` distinct characters. Write the invariant as a comment first.
+    examples:
+      - "longest_k_distinct(\"eceba\", 2) == 3   (\"ece\")"
+      - "longest_k_distinct(\"aa\", 1) == 2"
+      - "longest_k_distinct(\"abc\", 0) == 0"
+    constraints:
+      - Up to 10⁵ characters, any characters.
+      - O(n) time.
+    hints:
+      - The state is a count per character in the window.
+      - Shrink while the number of distinct characters exceeds k; delete keys that reach zero.
+      - Record the length after the shrink loop.
+    solution:
+      language: python
+      code: |-
+        from collections import defaultdict
+
+        def longest_k_distinct(s: str, k: int) -> int:
+            counts: dict[str, int] = defaultdict(int)
+            left = best = 0
+            # invariant after shrinking: s[left..right] has <= k distinct characters
+            for right, ch in enumerate(s):
+                counts[ch] += 1
+                while len(counts) > k:
+                    out = s[left]
+                    counts[out] -= 1
+                    if counts[out] == 0:
+                        del counts[out]
+                    left += 1
+                best = max(best, right - left + 1)
+            return best
+      explanation: With k = 0 the shrink loop empties the window every time, so the length recorded is 0. O(n) time, O(k) space for the counts.
+    rubric:
+      - {key: correct, label: Passes the three examples including k = 0, points: 4}
+      - {key: invariant, label: Writes the invariant before the loop, points: 2}
+      - {key: zero_keys, label: Deletes zero-count keys (or tracks distinct count separately), points: 2}
+      - {key: complexity, label: Explains O(n) by counting pointer moves, points: 2}
+    follow_ups:
+      - prompt: Return the number of substrings with at most k distinct characters instead of the length.
+        look_for: Add right - left + 1 after each shrink, since every start in [left, right] gives a valid window.
+      - prompt: Now count substrings with exactly k distinct characters.
+        look_for: at_most(k) - at_most(k - 1).
+- key: dsa.sliding_window.interview
+  type: interview_question
+  title: "Interview question: exactly k distinct values"
+  skills: [sliding_window.core, execution.brute_force_to_optimal]
+  minutes: 15
+  difficulty: HARD
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    prompt: Count the contiguous subarrays of an integer array that contain exactly k distinct values. Explain why a single sliding window does not directly work, how you would still solve it in linear time, and the complexity. Walk through a small example.
+    key_points:
+      - "Exactly k is not monotonic: a window with too few distinct values may become valid by growing, and a valid one may become invalid, so one left pointer cannot be moved safely."
+      - "At most k is monotonic, and the number of windows ending at right with at most k distinct values is right - left + 1."
+      - "exactly(k) = at_most(k) - at_most(k - 1)."
+      - "O(n) time (two linear passes) and O(k) space for the count maps."
+      - "Checks the formula on an example, e.g. [1, 2, 1, 2, 3] with k = 2 gives 12 - 5 = 7."
+    model_answer: "With exactly k, extending the window can turn it from invalid (k - 1 distinct) to valid, so the shrink decision is not monotonic. But 'at most k distinct' is: once a window exceeds k, every larger one does too. For each right, after shrinking, all starts in [left, right] are valid, so at_most(k) adds right - left + 1. Subarrays with exactly k distinct values are those with at most k minus those with at most k - 1. For [1, 2, 1, 2, 3], at_most(2) = 12 and at_most(1) = 5, so 7. Two O(n) passes, O(k) memory."
+    pitfalls:
+      - Trying to shrink and grow a single window around exactly k and missing windows.
+      - Adding 1 per valid window instead of right - left + 1.
+    follow_ups:
+      - prompt: Can you do it in one pass?
+        look_for: Keep two left pointers (one for at most k, one for at most k - 1) in the same loop and add their difference; still O(n).
+      - prompt: Where else does the "exactly = at most minus at most" trick apply?
+        look_for: Subarrays with exactly k odd numbers, binary subarrays with a given sum (non-negative values) — any monotonic at-most count.
+      - prompt: What if the values arrive as an unbounded stream and you only need the count so far?
+        look_for: The same incremental pointers work online; memory is bounded by the distinct values inside the windows.
+- key: dsa.sliding_window.guided
+  type: guided_problem
+  title: "Guided practice: variable and fixed windows"
+  skills: [sliding_window.core]
+  minutes: 35
+  difficulty: MEDIUM
+  problems: [6, 56]
+  body:
+    guidance:
+      - "No repeated characters: define the state (a set or a last-seen index map), the condition, and say why it is monotonic before writing code."
+      - "With a last-seen map, move left to max(left, last[ch] + 1) so it never moves backwards; test on \"abba\"."
+      - "Permutation inside a string: the window has a fixed size (the pattern length); compare counts and update them in O(1) per slide."
+      - State O(n) time and the space of the state for each.
+    hints:
+      - The longest window ending at each right is what you record.
+      - A fixed window adds one character on the right and removes one on the left every step.
+- key: dsa.sliding_window.timed
+  type: timed_problem
+  title: "Timed practice: harder windows"
+  skills: [sliding_window.core]
+  minutes: 60
+  difficulty: HARD
+  problems: [55, 7]
+  body:
+    guidance:
+      - "Character replacement: the window is valid while its length minus the count of its most frequent letter is at most k; explain why the stale maximum does not break correctness."
+      - "Minimum window containing all characters: keep need counts and a count of satisfied characters; record inside the shrink loop."
+      - Solve both under the timer without hints, then state complexity and the monotonicity argument.
+- key: dsa.sliding_window.cards
+  type: revision_card
+  title: "Recall: sliding window"
+  skills: [sliding_window.core]
+  minutes: 5
+  body:
+    cards:
+      - front: Condition for a variable sliding window to be correct?
+        back: Validity is monotonic in window size (e.g. non-negative values, at-most constraints).
+      - front: Longest-window template — where is the answer recorded?
+        back: After the shrink-while-invalid loop.
+      - front: Shortest-window template — where is the answer recorded?
+        back: Inside the while-valid loop, before removing the left element.
+      - front: Count windows with exactly k distinct values?
+        back: at_most(k) - at_most(k - 1).
+      - front: Why is a window with a nested while loop O(n)?
+        back: left and right each move at most n times in total.
+      - front: Window over sums with negative values?
+        back: Not valid; use prefix sums with a hash map.

@@ -14,7 +14,7 @@ TAIL = "No new material until the baseline is complete."
 def ctx(*items: tuple[str | None, str, str], mode: bool = True) -> Any:
     """Just what the rule reads: calibration facts and the plan's items (battery key, candidate key, type)."""
     plan_items = [SimpleNamespace(battery_item_key=b, candidate_key=k, candidate_type=t) for b, k, t in items]
-    calibration = SimpleNamespace(calibration_mode=mode, assessed_required=8, required=123)
+    calibration = SimpleNamespace(calibration_mode=mode, hybrid=False, assessed_required=8, required=123)
     inputs = SimpleNamespace(calibration=calibration)
     return SimpleNamespace(inputs=inputs, plan=SimpleNamespace(items=plan_items))
 
@@ -63,3 +63,10 @@ def test_outside_calibration_there_is_no_message() -> None:
 def test_same_inputs_give_the_same_message() -> None:
     items = (("M0-B01", "BASE:M0-B01", "BASELINE"), ("M0-B02", "BASE:M0-B02", "BASELINE"))
     assert r_calibration(ctx(*items)) == r_calibration(ctx(*items))
+
+
+def test_a_hybrid_day_has_no_calibration_message() -> None:
+    """D-086: "No new material until the baseline is complete" would contradict today's learning mission."""
+    c = ctx(("M0-B03", "BASE:M0-B03", "BASELINE"))
+    c.inputs.calibration.hybrid = True
+    assert r_calibration(c) is None

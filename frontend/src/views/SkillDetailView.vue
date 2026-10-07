@@ -430,7 +430,7 @@ watch(key, load)
                 :key="p.id"
               >
                 <RouterLink
-                  :to="{ name: 'problem', params: { problemKey: p.key.split(':').slice(1).join(':') } }"
+                  :to="{ name: 'problem', params: { problemKey: p.key } }"
                   class="ptitle"
                 >
                   {{ p.title }}
@@ -453,7 +453,7 @@ watch(key, load)
                 :key="r.problem.id"
               >
                 <RouterLink
-                  :to="{ name: 'problem', params: { problemKey: r.problem.key.split(':').slice(1).join(':') } }"
+                  :to="{ name: 'problem', params: { problemKey: r.problem.key } }"
                   class="ptitle"
                 >
                   {{ r.problem.title }}

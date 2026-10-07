@@ -26,6 +26,8 @@ from tests.catalog_helpers import (
     clear_catalog,
     copy_seed,
     retire_learning_skill,
+    retire_problem_skill,
+    scrub_problem_refs,
 )
 
 pytestmark = pytest.mark.db
@@ -36,8 +38,8 @@ EXPECTED = {
     "skill_prerequisites": 134,
     "role_profiles": 1,
     "role_skill_targets": 133,
-    "problems": 44,
-    "problem_skills": 77,
+    "problems": 137,
+    "problem_skills": 242,
     "mission_templates": 86,
     "roadmap_milestones": 18,
     "roadmap_milestone_skills": 133,
@@ -143,6 +145,8 @@ def test_changed_seed_updates_deactivates_and_records_new_version(
     load(catalog_session)
     skill_ids_before = {s.skill_key: s.id for s in catalog_session.scalars(select(Skill))}
 
+    retired_problems: list[int] = []
+
     def change(raw: dict[str, Any]) -> None:
         bump_version(raw, "seed-v3")
         problems = raw["problem_catalog"]["problems"]
@@ -152,8 +156,8 @@ def test_changed_seed_updates_deactivates_and_records_new_version(
             {
                 **problems[1],
                 "id": 900,
-                "platform_key": "valid-anagram",
-                "title": "Valid Anagram",
+                "platform_key": "zigzag-conversion",
+                "title": "Zigzag Conversion",
                 "is_canonical": False,
             }
         )
@@ -164,13 +168,18 @@ def test_changed_seed_updates_deactivates_and_records_new_version(
         raw["role_profile:backend_fullstack_sde2"]["skill_tiers"]["T4"].remove("math.number_basics")
         raw["roadmap"]["tracks"]["dsa_coding"][2]["skills"].remove("math.number_basics")
         retire_learning_skill(raw, "math.number_basics")
+        retired_problems.extend(retire_problem_skill(raw, "math.number_basics"))
+        scrub_problem_refs(raw, [*retired_problems, 44])
 
     seed = copy_seed(tmp_path, mutate=change)
     lock_seed_dir(seed)
     report = load(catalog_session, seed)
 
     assert report.changed and report.seed_version == "seed-v3"
-    assert report.tables["problems"].inserted == 1 and report.tables["problems"].deactivated == 1
+    assert report.tables["problems"].inserted == 1
+    assert report.tables["problems"].deactivated == 1 + len(
+        retired_problems
+    )  # single-number + the skill's own
     assert report.tables["skills"].deactivated == 1
     assert report.tables["role_skill_targets"].deleted == 1
     assert report.tables["roadmap_milestone_skills"].deleted == 1

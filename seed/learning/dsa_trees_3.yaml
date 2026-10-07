@@ -1,0 +1,1065 @@
+# Learning content, DSA (3/4): binary tree traversals, height/diameter/path problems, LCA and construction, and binary search trees.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- tree traversal
+- key: dsa.tree_traversal.lesson
+  type: lesson
+  title: "Tree traversals: DFS orders, BFS by level, recursive and iterative"
+  skills: [trees.traversal, recursion.fundamentals]
+  minutes: 30
+  difficulty: EASY
+  body:
+    summary: Every tree algorithm is a traversal plus a decision about when to do the work — before the children (pre-order), between them (in-order), after them (post-order) or level by level (BFS).
+    what: |-
+      A binary tree node holds a value and two child references:
+
+      ```python
+      class TreeNode:
+          def __init__(self, val=0, left=None, right=None):
+              self.val, self.left, self.right = val, left, right
+      ```
+
+      - **Pre-order** (node, left, right): work on the way down. Copying or serialising a tree, passing state from parent to child.
+      - **In-order** (left, node, right): on a binary search tree this visits values in sorted order.
+      - **Post-order** (left, right, node): work on the way up, after the children's answers are known. Height, size, diameter, deleting a tree.
+      - **Level-order** (BFS): visit by distance from the root using a queue. Anything that says "level", "row", "nearest", "minimum depth" or "view from the side".
+    why: |-
+      Interviews use trees to test recursion, state passing and complexity reasoning at the same time. Most tree problems are short once you pick the right order: "does the parent need the children's results?" (post-order) or "does the child need the parent's state?" (pre-order). Production code walks trees too: DOM and JSON documents, file systems, ASTs, category hierarchies, org charts.
+    when: |-
+      - Use DFS (recursive) by default; it is the shortest code and O(h) memory.
+      - Use BFS when the answer is organised by level or when you want the shallowest match first (stopping early).
+      - Use an iterative DFS with an explicit stack when the tree can be deeper than about 1000 levels, CPython's default recursion limit.
+    how: |-
+      **Recursive DFS** — the order is only where the "visit" line sits:
+
+      ```python
+      def inorder(node, out):
+          if node is None:
+              return
+          inorder(node.left, out)
+          out.append(node.val)       # move this line up for pre-order, down for post-order
+          inorder(node.right, out)
+      ```
+
+      **Iterative in-order** — go left as far as possible pushing nodes, then pop, visit, and move to the right child:
+
+      ```python
+      def inorder_iter(root):
+          out, stack, node = [], [], root
+          while stack or node:
+              while node:
+                  stack.append(node)
+                  node = node.left
+              node = stack.pop()
+              out.append(node.val)
+              node = node.right
+          return out
+      ```
+
+      **Iterative pre-order**: pop a node, visit it, push the right child then the left child (so the left is popped first).
+
+      **Level-order BFS** with `collections.deque`; record the queue length at the start of each level so you know where the level ends:
+
+      ```python
+      from collections import deque
+
+      def levels(root):
+          if root is None:
+              return []
+          out, q = [], deque([root])
+          while q:
+              level = []
+              for _ in range(len(q)):       # exactly the nodes of this level
+                  node = q.popleft()
+                  level.append(node.val)
+                  if node.left:
+                      q.append(node.left)
+                  if node.right:
+                      q.append(node.right)
+              out.append(level)
+          return out
+      ```
+    mental_model: |-
+      Picture walking around the outside of the tree, starting left of the root and keeping the tree on your right hand. You pass every node three times: on its left side (pre-order), underneath it (in-order) and on its right side (post-order). BFS is different: it is a flood that rises one level at a time.
+    tradeoffs: |-
+      Recursive DFS uses O(h) stack — O(log n) on a balanced tree, O(n) on a degenerate one, which can hit the recursion limit. BFS uses O(w) queue memory, where w is the widest level, up to about n/2 on a complete tree. Iterative DFS has the same O(h) bound without the recursion limit, at the cost of more code. Morris traversal achieves O(1) extra space by temporarily rewiring null right pointers, but it mutates the tree during the walk.
+    mistakes:
+      - Using `list.pop(0)` as a queue; it is O(n) per pop. Use `deque.popleft()`.
+      - Reading `len(q)` inside the inner loop instead of once per level, so nodes from the next level leak into the current one.
+      - Pushing the left child first in iterative pre-order, which visits the right subtree first.
+      - Forgetting the `None` root case.
+      - "Calling recursion \"O(1) space\": the call stack is O(h)."
+    interview: |-
+      Say which order you need and why ("post-order, because a node's height depends on its children"). State time O(n) and space O(h) for DFS or O(w) for BFS. Typical follow-ups: do it iteratively, return levels in zigzag order, the right side view, the minimum depth (BFS stops early), and in-order of a BST is sorted.
+    explain_it:
+      - Which traversal and why the work belongs at that point.
+      - The base case for None.
+      - Time O(n), every node visited once.
+      - "Space: O(h) stack for DFS (log n balanced, n skewed), O(w) queue for BFS."
+    example:
+      language: python
+      code: |-
+        def max_depth_bfs(root) -> int:
+            """Number of levels, iteratively; no recursion limit."""
+            from collections import deque
+            if root is None:
+                return 0
+            depth, q = 0, deque([root])
+            while q:
+                depth += 1
+                for _ in range(len(q)):
+                    node = q.popleft()
+                    for child in (node.left, node.right):
+                        if child:
+                            q.append(child)
+            return depth
+      explanation: O(n) time, O(w) space for the widest level. The recursive one-liner 1 + max(depth(left), depth(right)) is O(h) space instead.
+    complexity: O(n) time for every traversal; O(h) extra for DFS (recursive or explicit stack), O(w) for BFS; h ranges from log n to n, w up to about n/2.
+    edge_cases:
+      - Empty tree.
+      - A single node.
+      - A degenerate tree (every node has only a left child), which makes h = n.
+      - Duplicate values, which do not matter for traversal but matter for BST questions.
+    misconceptions:
+      - "\"BFS always uses less memory than DFS.\" On a wide, shallow tree BFS holds a whole level; DFS holds one path."
+      - "\"In-order means sorted.\" Only on a binary search tree."
+- key: dsa.tree_traversal.visual
+  type: visual_explanation
+  title: "Visual: traversal orders, the in-order stack and the BFS queue"
+  skills: [trees.traversal]
+  minutes: 8
+  body:
+    summary: One six-node tree walked four ways, then the explicit stack of iterative in-order and the queue of level-order.
+    frames:
+      - caption: The tree used in every frame.
+        diagram: |-
+          tree:
+                  1
+                /   \
+               2     3
+              / \     \
+             4   5     6
+      - caption: "The four orders. Pre-order visits a node first, in-order between its subtrees, post-order last."
+        diagram: |-
+          pre-order   (node, left, right):  1  2  4  5  3  6
+          in-order    (left, node, right):  4  2  5  1  3  6
+          post-order  (left, right, node):  4  5  2  6  3  1
+          level-order (by depth):          [1] [2, 3] [4, 5, 6]
+      - caption: "Iterative in-order: push while going left, pop to visit, then step right."
+        diagram: |-
+          step  action                 stack (top right)   output
+          ----  ---------------------  ------------------  ------------------
+           1    push 1, 2, 4 (left)    [1, 2, 4]
+           2    pop 4, visit, right=∅  [1, 2]              4
+           3    pop 2, visit, right=5  [1]                 4 2
+           4    push 5                 [1, 5]
+           5    pop 5, visit, right=∅  [1]                 4 2 5
+           6    pop 1, visit, right=3  []                  4 2 5 1
+           7    push 3; pop 3, visit   []                  4 2 5 1 3
+           8    push 6; pop 6, visit   []                  4 2 5 1 3 6
+          max stack size = 3 = height of the tree → O(h)
+      - caption: "Level-order BFS: the queue length at the start of a level is exactly that level's size."
+        diagram: |-
+          level  queue at start   size  popped → children appended   level output
+          -----  ---------------  ----  ---------------------------  ------------
+            0    [1]               1    1 → 2, 3                     [1]
+            1    [2, 3]            2    2 → 4, 5 ; 3 → 6             [2, 3]
+            2    [4, 5, 6]         3    no children                  [4, 5, 6]
+          max queue size = 3 = widest level → O(w)
+- key: dsa.tree_traversal.check
+  type: concept_check
+  title: "Concept check: traversal orders"
+  skills: [trees.traversal]
+  minutes: 10
+  difficulty: EASY
+  body:
+    intro: "Trees are drawn as text. Write the order down before choosing."
+    questions:
+      - id: q1
+        kind: single
+        prompt: What is the post-order traversal of this tree?
+        code:
+          language: text
+          code: |-
+            tree:
+                  8
+                 / \
+                3   10
+               / \    \
+              1   6    14
+                 / \
+                4   7
+        options: ["1 4 7 6 3 14 10 8", "8 3 1 6 4 7 10 14", "1 3 4 6 7 8 10 14", "1 4 6 7 3 10 14 8"]
+        answer: [0]
+        explanation: "Post-order finishes both subtrees before the node: left subtree 1 4 7 6 3, right subtree 14 10, then 8. The second option is pre-order and the third is in-order (sorted, because this is a BST)."
+      - id: q2
+        kind: single
+        prompt: "You need the number of nodes in every node's subtree. Which order computes it in one traversal?"
+        options: ["Pre-order", "In-order", "Post-order", "Level-order from the root"]
+        answer: [2]
+        explanation: "size(node) = 1 + size(left) + size(right) needs both children's results first, which is post-order. Pre-order and top-down BFS reach the node before its children are known."
+      - id: q3
+        kind: single
+        prompt: "On the six-node tree 1(2(4, 5), 3(-, 6)), what does walk return? Note the push order."
+        code:
+          language: python
+          code: |-
+            def walk(root):
+                out, stack = [], [root]
+                while stack:
+                    node = stack.pop()
+                    if node:
+                        out.append(node.val)
+                        stack.append(node.left)
+                        stack.append(node.right)
+                return out
+        options: ["1 2 4 5 3 6", "1 3 6 2 5 4", "4 5 2 6 3 1", "1 2 3 4 5 6"]
+        answer: [1]
+        explanation: "The right child is pushed last, so it is popped first: node, right, left = 1 3 6 2 5 4. Reversed, that is 4 5 2 6 3 1, the post-order — a known trick. Pre-order needs the right child pushed first."
+      - id: q4
+        kind: single
+        prompt: For a perfect binary tree with n nodes, what are the peak memory of recursive DFS and of BFS?
+        options: ["O(log n) and O(log n)", "O(log n) and O(n)", "O(n) and O(log n)", "O(1) and O(n)"]
+        answer: [1]
+        explanation: "DFS holds one root-to-leaf path, about log₂ n frames. BFS holds the last level, about n/2 nodes, which is O(n). Assuming BFS is always lighter is the tempting mistake."
+      - id: q5
+        kind: multi
+        prompt: Which techniques correctly group BFS output by level?
+        options:
+          - "Read len(queue) at the start of each level and pop exactly that many nodes"
+          - "Enqueue (node, depth) pairs and append each value to the list for its depth"
+          - "Use a stack instead of a queue"
+          - "Start a new level whenever a popped node has no children"
+        answer: [0, 1]
+        explanation: "Both the size snapshot and explicit depth tags identify level boundaries. A stack gives DFS order, and leaves can appear in the middle of a level, so the last option splits levels wrongly."
+      - id: q6
+        kind: short
+        prompt: Why is recursive DFS O(h) space, and what is h in the best and worst case?
+        model_answer: "At any moment the call stack holds one frame per node on the current root-to-node path, so the maximum is the height h. For a balanced tree h is about log₂ n; for a degenerate (linked-list shaped) tree h = n, which in CPython can also exceed the default recursion limit of 1000."
+        explanation: Interviewers expect the call stack to be included in space complexity.
+- key: dsa.tree_traversal.exercise
+  type: coding_exercise
+  title: "Exercise: zigzag level order"
+  skills: [trees.traversal, queue.deque]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 900}
+  body:
+    prompt: |-
+      Return the values of a binary tree level by level, alternating direction: the first level left to right, the second right to left, and so on.
+    examples:
+      - "For the tree 1(2(4, 5), 3(-, 6)): [[1], [3, 2], [4, 5, 6]]"
+      - "Empty tree: []"
+    hints:
+      - Do a normal level-order BFS with a size snapshot per level.
+      - Reverse every second level's list, or append to a deque from the left on odd levels.
+      - Do not change the order in which children are enqueued; only the output order changes.
+    solution:
+      language: python
+      code: |-
+        from collections import deque
+
+        def zigzag(root) -> list[list[int]]:
+            if root is None:
+                return []
+            out, q, left_to_right = [], deque([root]), True
+            while q:
+                level = deque()
+                for _ in range(len(q)):
+                    node = q.popleft()
+                    if left_to_right:
+                        level.append(node.val)
+                    else:
+                        level.appendleft(node.val)
+                    if node.left:
+                        q.append(node.left)
+                    if node.right:
+                        q.append(node.right)
+                out.append(list(level))
+                left_to_right = not left_to_right
+            return out
+      explanation: O(n) time, O(w) extra space for the queue and the current level.
+    rubric:
+      - key: correct
+        label: "Correct output including empty and single-node trees"
+        points: 4
+      - key: level_boundary
+        label: "Uses a per-level size snapshot or depth tags"
+        points: 2
+      - key: order_trick
+        label: "Changes only output order (reverse or appendleft), not enqueue order"
+        points: 2
+      - key: complexity
+        label: "States O(n) time and O(w) space"
+        points: 2
+    follow_ups:
+      - prompt: Return only the last value of each level. Can you do it with DFS?
+        look_for: "Right side view; DFS visiting right first and recording the first value seen at each new depth, O(h) space."
+      - prompt: What if the tree is 10⁶ levels deep and one node wide?
+        look_for: BFS is fine (queue size 1); recursive DFS would hit the recursion limit.
+- key: dsa.tree_traversal.guided
+  type: guided_problem
+  title: "Guided practice: depth and mirror"
+  skills: [trees.traversal]
+  minutes: 20
+  difficulty: EASY
+  problems: [20, 83]
+  body:
+    guidance:
+      - Write the contract of the recursive function in one line before coding.
+      - "Maximum depth: post-order; also write the BFS version and compare memory."
+      - "Mirror: swap children at each node; say whether pre-order or post-order both work and why."
+    hints:
+      - depth(None) = 0.
+      - Swapping before or after recursing both work because each node is swapped exactly once.
+- key: dsa.tree_traversal.timed
+  type: timed_problem
+  title: "Timed practice: level order and right side view"
+  skills: [trees.traversal]
+  minutes: 30
+  difficulty: MEDIUM
+  problems: [21, 84]
+  body:
+    guidance:
+      - Use a deque and a size snapshot; state O(n) time and O(w) space before coding.
+      - "Right side view: give both the BFS (last of each level) and the right-first DFS answer, then code one."
+      - Trace a tree whose deepest level has only a left node; it must still appear in the view.
+- key: dsa.tree_traversal.interview
+  type: interview_question
+  title: "Interview question: nearest leaf in a huge, lopsided tree"
+  skills: [trees.traversal]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: "A binary tree has 10⁶ nodes; one branch is 500,000 levels deep and there is a leaf at depth 3. You need the minimum depth (the number of nodes on the shortest root-to-leaf path). Which traversal do you use and why? Compare it with recursive DFS on time, memory and failure modes."
+    key_points:
+      - "BFS level by level returns as soon as it pops the first leaf, so it touches only the top few levels here."
+      - "Recursive DFS must explore the deep branch, O(n) time, and would exceed CPython's recursion limit at depth 500,000."
+      - "A leaf is a node with no children; a node with one child is not a leaf, so min(left, right) on a None child is wrong."
+      - "BFS memory is O(w) of the levels visited; DFS memory is O(h)."
+    model_answer: BFS, because the question asks for the shallowest leaf and BFS discovers nodes in order of depth; it stops at depth 3 after touching only a handful of nodes. A recursive DFS must visit the whole deep branch before it can be sure, and at 500,000 levels it raises RecursionError in CPython. If DFS is required, use an explicit stack and prune branches deeper than the best found so far. Careful with the definition — a node with one child is not a leaf.
+    pitfalls:
+      - Computing 1 + min(depth(left), depth(right)) without handling a missing child, which returns 1 for a root with only one child.
+      - Saying DFS and BFS are equivalent because both are O(n) in the worst case.
+    follow_ups:
+      - prompt: Write the iterative post-order traversal without recursion.
+        look_for: Stack of (node, visited) pairs or two stacks; a node is emitted only after both children are processed.
+      - prompt: How would you traverse in O(1) extra space?
+        look_for: Morris traversal using temporary threads through null right pointers, restored afterwards; it mutates the tree during the walk.
+- key: dsa.tree_traversal.cards
+  type: revision_card
+  title: "Recall: tree traversals"
+  skills: [trees.traversal]
+  minutes: 5
+  body:
+    cards:
+      - front: Pre-, in-, post-order positions of the visit?
+        back: Before the children, between them, after them.
+      - front: Which order computes heights and sizes?
+        back: Post-order, because it needs the children's results.
+      - front: How do you know where a BFS level ends?
+        back: Snapshot len(queue) at the start of the level.
+      - front: Space of DFS vs BFS?
+        back: O(h) stack vs O(w) queue.
+      - front: Iterative pre-order push order?
+        back: Push right, then left, so left is popped first.
+      - front: Reverse of node-right-left order?
+        back: Post-order.
+
+# ---------------------------------------------------------------------------------------------- height, diameter, paths
+- key: dsa.tree_paths.lesson
+  type: lesson
+  title: "Height, diameter and path sums: return one thing, record another"
+  skills: [trees.path_depth, trees.traversal]
+  minutes: 30
+  difficulty: MEDIUM
+  body:
+    summary: Path problems are post-order recursions that return the best path going down through a node while updating a global best for paths that bend at that node.
+    what: |-
+      Definitions vary, so state yours:
+
+      - **Depth** of a node: its distance from the root. **Height** of a node: the length of the longest downward path from it. Count in **nodes** (empty tree 0, leaf 1) or **edges** (leaf 0); say which.
+      - **Diameter**: the longest path between any two nodes, usually counted in edges. It may not pass through the root.
+      - **Root-to-leaf path sum**: does a path from the root to a leaf add up to a target?
+      - **Downward path sum**: paths that start anywhere and go down.
+      - **Maximum path sum**: any path, any start and end, values may be negative.
+    why: |-
+      These are the standard tests of whether you can separate "what my parent needs from me" from "what the global answer is". The same split appears in tree DP, in computing critical paths in dependency trees and in aggregating metrics up a hierarchy.
+    when: |-
+      - The answer is a length or sum of a path inside a tree.
+      - A node's answer depends on its children's answers (bottom-up), or a path's state must be carried from the root (top-down).
+      - Paths "can start and end anywhere": expect the return-one-record-another pattern.
+    how: |-
+      **Bottom-up (post-order)** returns information to the parent. The diameter through a node is `height(left) + height(right)` edges when heights are counted in nodes, but the parent can only extend one side, so the function returns `1 + max(left, right)` and records the bent path in an outer variable:
+
+      ```python
+      def diameter(root) -> int:
+          best = 0
+          def height(node) -> int:          # nodes on the longest downward path
+              nonlocal best
+              if node is None:
+                  return 0
+              left, right = height(node.left), height(node.right)
+              best = max(best, left + right)   # edges of the path bending here
+              return 1 + max(left, right)
+          height(root)
+          return best
+      ```
+
+      **Balanced check** in O(n): return the height, or `-1` as a sentinel once any subtree is unbalanced, so no height is computed twice.
+
+      **Top-down (pre-order)** carries state from the root: pass `remaining = target - node.val` to the children and check it at a leaf.
+
+      **Downward paths with any start**: keep a hash map of prefix sums along the current root-to-node path. At each node, the number of paths ending here with sum `target` is `count[prefix - target]`. Increment the count before recursing into children and **decrement it when returning**, because the prefix belongs only to the current path.
+
+      **Maximum path sum** (values may be negative): a child's contribution is `max(gain(child), 0)` — a negative branch is better left out.
+    mental_model: |-
+      Each node is a manager who reports one number upward (the best single chain it can offer its boss) but privately checks whether the best overall project is the one bending through its own office (left chain + itself + right chain). The report and the private check are different numbers; mixing them up is the classic bug.
+    tradeoffs: |-
+      Bottom-up recursion visits each node once: O(n) time, O(h) stack. The naive alternative — call height() from every node — is O(n log n) on a balanced tree and O(n²) on a degenerate one. A global (or `nonlocal`) best variable is simplest; returning a tuple `(height, best)` avoids shared state and is easier to test. The prefix-sum approach for downward paths is O(n) time and O(h) map entries, versus O(n · h) for starting a fresh DFS at every node.
+    mistakes:
+      - Returning the bent path (left + right) to the parent, which would let the parent build a path that forks.
+      - Mixing node and edge counts, giving answers off by one.
+      - Calling height() inside an outer recursion over every node, repeating work.
+      - Forgetting to undo the prefix count when backtracking, so sibling subtrees count non-downward paths.
+      - In maximum path sum, initialising the best to 0 when all values may be negative; start from the root's value or minus infinity.
+    interview: |-
+      Before coding say: "the function returns X to the parent; the answer is tracked separately as Y." State the unit (edges or nodes). Follow-ups include longest path with equal values, maximum path sum with negatives, counting paths with a target sum, and doing it iteratively.
+    explain_it:
+      - The definition and unit (nodes or edges).
+      - What the recursive function returns to the parent.
+      - What is recorded globally and why it differs from the return value.
+      - O(n) time, O(h) stack, plus O(h) for any path map.
+    example:
+      language: python
+      code: |-
+        def max_path_sum(root) -> int:
+            """Largest sum of any non-empty path; values may be negative."""
+            best = root.val
+
+            def gain(node) -> int:          # best sum of a chain going down from node
+                nonlocal best
+                if node is None:
+                    return 0
+                left = max(gain(node.left), 0)     # drop a negative branch
+                right = max(gain(node.right), 0)
+                best = max(best, node.val + left + right)   # path bending at node
+                return node.val + max(left, right)          # parent can extend one side only
+            gain(root)
+            return best
+      explanation: "For the tree -3(4, 10(6, 2)) the best path is 6 → 10 → 2 = 18; the path through the root, 4 → -3 → 10 → 6, sums to only 17. O(n) time, O(h) stack."
+    complexity: O(n) time for each of height, diameter, balance, path sum and maximum path sum; O(h) recursion stack; the prefix-sum count map adds O(h) entries.
+    edge_cases:
+      - Empty tree (diameter 0, balanced).
+      - Single node (diameter 0 edges, height 1 node).
+      - All negative values in maximum path sum.
+      - Path sum targets that a single node satisfies, or a target of 0 with zero-valued nodes.
+- key: dsa.tree_paths.visual
+  type: visual_explanation
+  title: "Visual: diameter computed bottom-up"
+  skills: [trees.path_depth]
+  minutes: 6
+  body:
+    summary: Each node returns its height to the parent and records left + right as a candidate diameter.
+    frames:
+      - caption: The tree. Heights are counted in nodes; the diameter in edges.
+        diagram: |-
+          tree:
+                    1
+                   / \
+                  2   3
+                 / \
+                4   5
+               /
+              6
+      - caption: "Post-order: children report first. Each row shows what the node returns and the path that bends at it."
+        diagram: |-
+          node  left h  right h  bends here (edges)  returns h  best so far
+          ----  ------  -------  ------------------  ---------  -----------
+           6      0       0        0                    1          0
+           4      1       0        1                    2          1
+           5      0       0        0                    1          1
+           2      2       1        3  (6-4-2-5)         3          3
+           3      0       0        0                    1          3
+           1      3       1        4  (6-4-2-1-3)       4          4
+      - caption: "The answer is 4 edges. Node 2 returned 3 (its single best chain 2-4-6), not its bent path, so node 1 could extend it."
+        diagram: |-
+          longest path:  6 — 4 — 2 — 1 — 3     (4 edges)
+          returned by 2: chain 2 — 4 — 6       (height 3)
+          recorded at 2: 6 — 4 — 2 — 5         (3 edges, later beaten)
+- key: dsa.tree_paths.check
+  type: concept_check
+  title: "Concept check: heights and paths"
+  skills: [trees.path_depth]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: For every question, decide what the function returns upward and what it records.
+    questions:
+      - id: q1
+        kind: single
+        prompt: Using the diameter code from the lesson, what is the diameter (in edges) of this tree?
+        code:
+          language: text
+          code: |-
+            tree:
+                    1
+                   / \
+                  2   3
+                 / \
+                4   5
+               /
+              6
+        options: ["3", "4", "5", "6"]
+        answer: [1]
+        explanation: "The longest path is 6-4-2-1-3: 4 edges, bending at the root (left height 3 + right height 1). 3 is the best path bending at node 2; 5 counts nodes instead of edges."
+      - id: q2
+        kind: single
+        prompt: "A balance check calls height(node.left) and height(node.right) at every node, recomputing heights each time. Its cost on a perfectly balanced tree of n nodes?"
+        options: ["O(n)", "O(n log n)", "O(n²)", "O(log n)"]
+        answer: [1]
+        explanation: "Each node's height is recomputed once per ancestor, and a balanced tree has about log n ancestors per node: O(n log n). The post-order version with a -1 sentinel computes each height once, O(n)."
+      - id: q3
+        kind: single
+        prompt: "In maximum path sum, why is each child's gain clamped with max(gain, 0)?"
+        options:
+          - "To avoid recursion errors"
+          - "A branch with a negative sum only lowers the path, so the path should stop at the current node instead"
+          - "Because node values are non-negative"
+          - "To convert edges to nodes"
+        answer: [1]
+        explanation: "Paths may end at any node; including a negative branch can never help. The clamp is not about non-negative inputs — it exists precisely because values can be negative."
+      - id: q4
+        kind: single
+        prompt: "Counting downward paths with a target sum using a prefix-sum count map: why decrement the current prefix's count when the recursion returns from a node?"
+        options:
+          - "To save memory"
+          - "The prefix belongs to the current root-to-node path; leaving it would let a node in a sibling subtree pair with it, forming a path that is not downward"
+          - "To avoid counting the empty path"
+          - "Because hash maps cannot hold duplicates"
+        answer: [1]
+        explanation: "The map must describe exactly the ancestors of the current node. This is the backtracking undo step; skipping it inflates counts."
+      - id: q5
+        kind: multi
+        prompt: Which are naturally solved bottom-up (children return values to the parent)?
+        options:
+          - "Height of every node"
+          - "Diameter"
+          - "Whether some root-to-leaf path sums to a target"
+          - "Whether the tree is height-balanced"
+        answer: [0, 1, 3]
+        explanation: "Height, diameter and balance need the children's results. The root-to-leaf sum is naturally top-down: pass the remaining target down and test at leaves (it can be written bottom-up, but the state flows from the root)."
+      - id: q6
+        kind: short
+        prompt: Why does the diameter solution need a separate best variable instead of just returning the diameter?
+        model_answer: "The parent needs the longest single downward chain from the child to extend, while the diameter may bend at the child (left + right) and cannot be extended upward without forking. One return value cannot serve both, so the function returns the height and records the bent path separately (outer variable or a tuple)."
+        explanation: This return-one-record-another split is the core of every any-path tree problem.
+- key: dsa.tree_paths.guided
+  type: guided_problem
+  title: "Guided practice: diameter and balance"
+  skills: [trees.path_depth]
+  minutes: 25
+  difficulty: EASY
+  problems: [22, 85]
+  body:
+    guidance:
+      - Write down the unit (edges or nodes) and what the helper returns before coding.
+      - "Diameter: record left + right at each node, return 1 + max."
+      - "Balance: return -1 as soon as a subtree is unbalanced and propagate it."
+    hints:
+      - The diameter does not have to pass through the root.
+      - Check the sentinel before using a child's height.
+- key: dsa.tree_paths.timed
+  type: timed_problem
+  title: "Timed practice: downward path sums"
+  skills: [trees.path_depth]
+  minutes: 30
+  difficulty: MEDIUM
+  problems: [86]
+  body:
+    guidance:
+      - Start with the O(n · h) idea (a DFS from every node) and its cost, then move to prefix sums.
+      - Seed the map with prefix sum 0 seen once, so paths starting at the root are counted, and undo on return.
+      - State O(n) time and O(h) extra space; mention that node sums can exceed 32 bits in other languages.
+- key: dsa.tree_paths.interview
+  type: interview_question
+  title: "Interview question: longest path of equal values"
+  skills: [trees.path_depth]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    prompt: "Explain how to find the length, in edges, of the longest path in a binary tree where every node on the path has the same value. The path may not pass through the root. State the return value of your helper, what you record, and the complexity."
+    key_points:
+      - "Helper returns the longest single downward chain of equal values starting at the node (in edges)."
+      - "For each child, arm = child_chain + 1 if the child's value equals the node's value, else 0."
+      - "Records left_arm + right_arm as the best path bending at the node; returns max(left_arm, right_arm)."
+      - "O(n) time, O(h) stack."
+    model_answer: "A post-order helper returns the longest equal-value chain going down from a node. At a node, each child's chain extends by one edge only if the child has the same value; otherwise that arm is 0. The best path bending at the node is the sum of the two arms, recorded in an outer variable; the parent receives only the larger arm. Every node is visited once."
+    pitfalls:
+      - Returning left + right, which lets the parent extend a forked path.
+      - Resetting the arm to the child's chain length instead of 0 when values differ.
+    follow_ups:
+      - prompt: How do you avoid a shared outer variable?
+        look_for: Return a tuple (chain, best_in_subtree) and combine children's bests with the bend at the node.
+      - prompt: What changes if the tree is an n-ary tree?
+        look_for: Keep the two largest arms among all children; the bend is their sum.
+- key: dsa.tree_paths.cards
+  type: revision_card
+  title: "Recall: tree paths"
+  skills: [trees.path_depth]
+  minutes: 5
+  body:
+    cards:
+      - front: Diameter at a node (heights in nodes)?
+        back: height(left) + height(right) edges; return 1 + max to the parent.
+      - front: Balanced check in O(n)?
+        back: Return height or a -1 sentinel; never recompute heights.
+      - front: Why clamp gains with max(g, 0) in max path sum?
+        back: A negative branch only lowers the path.
+      - front: Prefix-sum map for downward paths — key step?
+        back: Count prefix 0 once at the start, add before children, remove on return.
+      - front: Return value vs recorded answer?
+        back: Return the extendable chain; record the bent path.
+
+# ---------------------------------------------------------------------------------------------- LCA and construction
+- key: dsa.tree_lca.lesson
+  type: lesson
+  title: "Lowest common ancestor, building trees from traversals, serialisation"
+  skills: [trees.lca_construction, trees.traversal]
+  minutes: 30
+  difficulty: MEDIUM
+  body:
+    summary: LCA is a post-order search that returns what it found; construction uses one traversal to find roots and the in-order to split subtrees; serialisation needs explicit null markers.
+    what: |-
+      - **Lowest common ancestor (LCA)** of nodes p and q: the deepest node that has both as descendants, where a node counts as its own descendant.
+      - **Construction**: rebuild a binary tree from two traversals. Pre-order (or post-order) tells you the root; in-order, with unique values, tells you which values are in the left and right subtrees.
+      - **Serialisation**: write a tree to a string and read it back to the same shape. A traversal with markers for missing children is enough on its own.
+    why: |-
+      LCA appears in version control (merge base of two commits), org charts (nearest shared manager), file systems (common parent directory) and taxonomy queries. Construction and serialisation test whether you really understand what each traversal order encodes, and serialisation is what caches, RPC and persistence do with trees.
+    when: |-
+      - The question asks for the nearest shared ancestor, the distance between two nodes (depth(p) + depth(q) - 2·depth(lca)), or a path between them.
+      - You get traversal arrays and must rebuild or verify a tree.
+      - You must send or store a tree and restore it exactly.
+    how: |-
+      **LCA in a binary tree**, single post-order pass. Contract: `lca(node)` returns p or q if found in this subtree, the LCA if both are found, or None.
+
+      ```python
+      def lca(node, p, q):
+          if node is None or node is p or node is q:
+              return node
+          left = lca(node.left, p, q)
+          right = lca(node.right, p, q)
+          if left and right:
+              return node          # p and q are on different sides: node is the split point
+          return left or right     # pass up whatever was found
+      ```
+
+      This assumes both nodes exist. If either may be missing, count how many were actually found and only trust the answer when the count is 2.
+
+      **With parent pointers**, it becomes "intersection of two linked lists": walk up from p and q, or store p's ancestors in a set and walk up from q until you hit one.
+
+      **Construction** from in-order and post-order (pre-order is analogous): the last post-order value is the root; its position in the in-order splits left and right subtrees. Use a value-to-index dict so each split is O(1), and consume the traversal with a moving pointer instead of slicing.
+
+      **Serialisation**: pre-order with a marker such as `#` for None, joined by commas: `1,2,#,#,3,4,#,#,5,#,#`. Deserialise with an iterator over tokens and the same recursion: read a token; `#` means None; otherwise make a node and build its left then right subtree.
+    mental_model: |-
+      For LCA, imagine p and q each sending a flare up the tree. Each node forwards a flare it receives from below. The first node that receives flares from both sides — or that is itself one of the targets with the other flare arriving from below — is the meeting point. For construction, pre-order or post-order is the list of roots in the order you meet them; in-order is the ruler that measures how big each subtree is.
+    tradeoffs: |-
+      Recursive LCA is O(n) time and O(h) space per query. For many queries on a static tree, preprocess with binary lifting (O(n log n) preprocessing, O(log n) per query). Pre-order serialisation with null markers is compact and simple; level-order with markers matches common textual tree formats but stores many trailing markers on a sparse bottom level. Pre-order plus in-order without markers needs unique values; markers work with duplicates.
+    mistakes:
+      - Returning as soon as p is found without considering that q may be below p; the contract handles it because p is then the LCA.
+      - Assuming both nodes exist when the question says they might not.
+      - Using `list.index` in each construction step, which makes it O(n²).
+      - Slicing the traversal arrays in each call, which also costs O(n²) time and memory on skewed trees.
+      - Building left before right when consuming post-order from the end (it yields root, right, left).
+      - Serialising without null markers, which loses the shape.
+    interview: |-
+      State the return contract for LCA before coding and ask whether both nodes are guaranteed to exist. For construction, explain why the root comes from pre-order or post-order and the split from in-order, and that values must be unique. For serialisation, say the format, how None is encoded and how the decoder consumes tokens.
+    explain_it:
+      - The contract (what the recursive call returns).
+      - Why the first node with hits on both sides is the lowest.
+      - Which traversal gives roots and which gives the split.
+      - O(n) time and O(h) stack for LCA and construction; O(n) for the index map and serialised string.
+    example:
+      language: python
+      code: |-
+        def build(inorder: list[int], postorder: list[int]):
+            index = {v: i for i, v in enumerate(inorder)}     # unique values required
+            post_i = len(postorder) - 1
+
+            def helper(lo: int, hi: int):                    # subtree of inorder[lo..hi]
+                nonlocal post_i
+                if lo > hi:
+                    return None
+                root = TreeNode(postorder[post_i])
+                post_i -= 1
+                mid = index[root.val]
+                root.right = helper(mid + 1, hi)   # post-order read backwards: root, right, left
+                root.left = helper(lo, mid - 1)
+                return root
+
+            return helper(0, len(inorder) - 1)
+      explanation: O(n) time with the dict and the moving pointer; O(n) for the dict and O(h) recursion depth.
+    complexity: "LCA O(n) time, O(h) space; construction O(n) time with an index map, O(n) space; serialisation O(n) time and output size."
+    edge_cases:
+      - p is an ancestor of q (the answer is p).
+      - p equals q.
+      - One of the nodes is absent from the tree.
+      - Empty tree serialises to a single marker.
+- key: dsa.tree_lca.check
+  type: concept_check
+  title: "Concept check: LCA and construction"
+  skills: [trees.lca_construction]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Trace on the small trees given; the code is the lesson's LCA function.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "What does lca return for nodes 6 and 7 in this tree?"
+        code:
+          language: text
+          code: |-
+            tree:
+                    3
+                   / \
+                  5   1
+                 / \
+                6   2
+                   /
+                  7
+        options: ["5", "2", "3", "6"]
+        answer: [0]
+        explanation: "6 is found in 5's left subtree and 7 in 5's right subtree (under 2), so 5 is the first node with hits on both sides. 3 is a common ancestor but not the lowest; 2 only contains 7."
+      - id: q2
+        kind: single
+        prompt: "A tree with unique values has pre-order [5, 2, 1, 8, 7, 9] and in-order [1, 2, 5, 7, 8, 9]. What is its post-order?"
+        options: ["1 2 7 9 8 5", "1 2 5 7 8 9", "2 1 8 7 9 5", "1 7 9 2 8 5"]
+        answer: [0]
+        explanation: "Root 5 splits in-order into [1, 2] and [7, 8, 9]. Left subtree: pre-order [2, 1] → root 2 with left child 1. Right: pre-order [8, 7, 9] → root 8 with children 7 and 9. Post-order: 1 2 7 9 8 5."
+      - id: q3
+        kind: multi
+        prompt: "With unique values, which pairs of traversals always determine a binary tree uniquely?"
+        options: ["Pre-order and in-order", "Post-order and in-order", "Pre-order and post-order", "Level-order and in-order"]
+        answer: [0, 1, 3]
+        explanation: "Each pair with in-order works: the other traversal identifies roots and in-order splits the subtrees. Pre-order and post-order cannot tell a single child on the left from one on the right (1 with left child 2 and 1 with right child 2 give the same pair), unless every node has 0 or 2 children."
+      - id: q4
+        kind: single
+        prompt: When building from in-order and post-order by consuming post-order from the end, why must the right subtree be built before the left?
+        options:
+          - "It is faster"
+          - "Read backwards, post-order lists root, then the right subtree, then the left subtree"
+          - "In-order requires it"
+          - "It does not matter"
+        answer: [1]
+        explanation: "Post-order is left, right, root; reversed it is root, right, left. Building left first would assign right-subtree values to the left side."
+      - id: q5
+        kind: single
+        prompt: Why does pre-order serialisation need explicit null markers?
+        options:
+          - "To make the string shorter"
+          - "Without them, different shapes share the same sequence, such as 1 with left child 2 and 1 with right child 2"
+          - "Because values can be negative"
+          - "Markers are only needed for BSTs"
+        answer: [1]
+        explanation: "A single traversal without markers does not encode where children are missing. With markers, the pre-order alone determines the shape, even with duplicate values."
+      - id: q6
+        kind: short
+        prompt: Explain what the recursive LCA function returns and why the first node that gets non-None results from both children is the answer.
+        model_answer: "lca(node) returns p or q if exactly one of them is in node's subtree (the topmost one found), the LCA if both are, and None if neither is. If both children return non-None, p and q are in different subtrees, so node is the deepest node containing both; any lower node contains only one side. If node itself is p or q, returning it is correct whether or not the other is below."
+        explanation: Stating the three-way contract makes the short code verifiable.
+- key: dsa.tree_lca.guided
+  type: guided_problem
+  title: "Guided practice: lowest common ancestor"
+  skills: [trees.lca_construction]
+  minutes: 20
+  difficulty: MEDIUM
+  problems: [23]
+  body:
+    guidance:
+      - Write the three-case contract as a comment first.
+      - Trace the case where one node is the ancestor of the other.
+      - State O(n) time and O(h) space.
+    hints:
+      - Return the node itself when it is p or q.
+      - If both children return something, the current node is the answer.
+- key: dsa.tree_lca.timed
+  type: timed_problem
+  title: "Timed practice: construct and serialise"
+  skills: [trees.lca_construction]
+  minutes: 45
+  difficulty: HARD
+  problems: [87, 88]
+  body:
+    guidance:
+      - "Construction: value-to-index dict and a moving pre-order pointer; no slicing, no list.index."
+      - "Serialisation: choose pre-order with a null marker, write both directions, then round-trip test an empty tree, a single node and a skewed tree."
+      - State O(n) time and space for both before coding.
+- key: dsa.tree_lca.interview
+  type: interview_question
+  title: "Interview question: LCA when nodes may be missing, and with parent pointers"
+  skills: [trees.lca_construction]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: "Your LCA function assumes both nodes exist. Product now says either node may be missing (return None then), and a second service stores parent pointers but no root reference. Explain both variants."
+    key_points:
+      - "Missing nodes: do a full traversal (do not short-circuit at p or q) and count how many targets were found; return the candidate only if the count is 2."
+      - "Short-circuiting at p fails because q might not be below p at all, yet p would be returned."
+      - "Parent pointers: collect p's ancestors in a set and walk up from q until a node is in the set; O(h) time and space."
+      - "O(1) space alternative: two pointers that switch to the other start when reaching the top, like linked-list intersection."
+    model_answer: "For missing nodes I keep the post-order logic but always recurse into both children, increment a found counter when I visit p or q, and return the LCA only if the counter reaches 2. With parent pointers, the paths from p and q to the root are linked lists that merge at the LCA, so either an ancestor set or the two-pointer switch trick finds the merge point in O(h)."
+    pitfalls:
+      - Returning p when only p exists.
+      - Using value equality instead of node identity when values can repeat.
+    follow_ups:
+      - prompt: How would you answer many LCA queries on a static tree quickly?
+        look_for: Binary lifting (ancestor at 2^k) after O(n log n) preprocessing gives O(log n) per query; or Euler tour plus range-minimum.
+      - prompt: How do you get the distance between p and q?
+        look_for: depth(p) + depth(q) - 2 × depth(lca).
+- key: dsa.tree_lca.cards
+  type: revision_card
+  title: "Recall: LCA and construction"
+  skills: [trees.lca_construction]
+  minutes: 5
+  body:
+    cards:
+      - front: Recursive LCA rule?
+        back: Return node if it is p or q; if both children return non-None, node is the LCA.
+      - front: Which traversal gives the root, which gives the split?
+        back: Pre-order or post-order gives roots; in-order splits left and right.
+      - front: Why a value-to-index map in construction?
+        back: list.index each step makes it O(n²).
+      - front: Do pre-order and post-order determine a tree?
+        back: Not in general — single children are ambiguous.
+      - front: What makes a pre-order string deserialisable?
+        back: A marker for every missing child.
+
+# ---------------------------------------------------------------------------------------------- BST
+- key: dsa.bst.lesson
+  type: lesson
+  title: "Binary search trees: invariant, search, insert, delete, validate"
+  skills: [bst.operations, trees.traversal, binary_search.basic]
+  minutes: 30
+  difficulty: MEDIUM
+  body:
+    summary: Every key in the left subtree is smaller and every key in the right subtree is larger — for the whole subtree, not just the child — so each comparison discards one side, like binary search.
+    what: |-
+      A **binary search tree (BST)** is a binary tree where, for every node, all keys in its left subtree are less than its key and all keys in its right subtree are greater (with a stated rule for duplicates). Consequences:
+
+      - In-order traversal yields the keys in sorted order.
+      - Search, insert, delete, minimum, maximum, floor, ceiling, successor and predecessor all cost O(h), where h is the height.
+      - h is O(log n) only if the tree is balanced. Inserting sorted keys into a plain BST builds a chain with h = n.
+
+      Self-balancing variants (AVL, red-black trees) keep h = O(log n) by rotating on insert and delete; they back ordered maps in many languages. The Python standard library has no balanced BST; `bisect` on a sorted list gives O(log n) search but O(n) insertion.
+    why: |-
+      A BST answers ordered questions that a hash map cannot: "the largest price at or below 100", "the next event after time t", "the k-th smallest". Database indexes generalise the same idea into B-trees. Interviews use BSTs to test whether you exploit the invariant to reach O(h) instead of a full O(n) traversal.
+    when: |-
+      - The data has an order and you need floor, ceiling, range or rank queries.
+      - A problem says "BST" — the invariant is the hint; use it to prune.
+      - You need sorted output from a tree (in-order).
+    how: |-
+      **Search / insert**: compare and go left or right; insert at the None you reach.
+
+      **Validate**: carry an open interval `(low, high)` down the tree. The root's interval is unbounded; the left child inherits `(low, node.val)`, the right `(node.val, high)`. Checking only a node against its children is not enough.
+
+      **Delete** has three cases:
+
+      ```python
+      def delete(root, key):
+          if root is None:
+              return None
+          if key < root.val:
+              root.left = delete(root.left, key)
+          elif key > root.val:
+              root.right = delete(root.right, key)
+          else:
+              if root.left is None:          # zero or one child: splice it out
+                  return root.right
+              if root.right is None:
+                  return root.left
+              succ = root.right              # two children: copy the in-order successor
+              while succ.left:
+                  succ = succ.left
+              root.val = succ.val
+              root.right = delete(root.right, succ.val)
+          return root
+      ```
+
+      **k-th smallest**: iterative in-order, stop after popping k nodes: O(h + k). If k-th queries are frequent and the tree changes, store subtree sizes in each node for O(h) rank queries.
+
+      **LCA in a BST**: walk from the root; if both keys are smaller go left, if both larger go right, otherwise the current node is the split point. O(h), no full traversal.
+    mental_model: |-
+      Each node is a signpost: "smaller this way, larger that way". Every node also owns an interval of keys it is allowed to hold, inherited from its ancestors. Validation checks the interval; search follows the signposts; the in-order walk reads the keys like a sorted list.
+    tradeoffs: |-
+      A plain BST is simple but degrades to O(n) per operation on sorted inserts. Balanced trees guarantee O(log n) but are rarely coded in interviews. A hash map gives O(1) average lookups but no order. A sorted Python list with `bisect` gives O(log n) lookups and order but O(n) inserts — fine for read-heavy data. A heap gives the minimum in O(1) but no search or floor.
+    mistakes:
+      - Validating with only `node.left.val < node.val < node.right.val`, which misses a deep node that violates an ancestor's bound.
+      - Resetting the bounds at each level instead of inheriting them from all ancestors.
+      - Forgetting the duplicate rule (strictly less vs less-or-equal) required by the question.
+      - Doing a full traversal (O(n)) for search or LCA when the invariant allows O(h).
+      - Claiming O(log n) without saying "if balanced".
+    interview: |-
+      State the invariant precisely (whole subtrees, strict or not), give complexities in terms of h, and say what h is for balanced and skewed trees. Expect follow-ups: validate, k-th smallest, successor, LCA, convert a sorted array to a balanced BST (pick the middle as root), and "what if the tree is modified often and k-th is queried often?" (subtree sizes).
+    explain_it:
+      - The invariant over whole subtrees and the duplicate rule.
+      - How each operation uses one comparison to discard a subtree.
+      - O(h) cost, with h = log n balanced and n skewed.
+      - Delete's three cases.
+    example:
+      language: python
+      code: |-
+        def floor(root, x: int):
+            """Largest key <= x, or None. Iterative, O(h)."""
+            best = None
+            node = root
+            while node:
+                if node.val == x:
+                    return x
+                if node.val < x:
+                    best = node.val        # a candidate; a closer one may be on the right
+                    node = node.right
+                else:
+                    node = node.left       # everything here and to the right is too big
+            return best
+      explanation: "Each step discards a subtree that cannot hold a better floor. Ceiling is symmetric. O(h) time, O(1) space."
+    complexity: Search, insert, delete, floor, ceiling, successor and BST LCA are O(h); h = O(log n) balanced, O(n) worst; in-order traversal O(n); k-th smallest O(h + k).
+    edge_cases:
+      - Empty tree.
+      - Deleting the root, or a node whose successor has a right child.
+      - Duplicates, and values at the integer limits (use None or infinities for open bounds).
+      - Keys inserted in sorted order (degenerate tree).
+    misconceptions:
+      - "\"A BST is always O(log n).\" Only when balanced."
+      - "\"Each node greater than its left child and smaller than its right child makes a BST.\" The condition must hold for entire subtrees."
+- key: dsa.bst.check
+  type: concept_check
+  title: "Concept check: BST invariants"
+  skills: [bst.operations]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Remember that the invariant covers whole subtrees.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "is_bst_local checks only each node against its direct children. What do it and a correct validator return for this tree?"
+        code:
+          language: text
+          code: |-
+            tree:
+                  5
+                 / \
+                3   8
+                   /
+                  4
+        options: ["Both True", "Local True, correct False", "Local False, correct True", "Both False"]
+        answer: [1]
+        explanation: "4 < 8 passes the local check, but 4 sits in 5's right subtree, where every key must exceed 5. A bounds-based validator gives node 4 the interval (5, 8) and rejects it."
+      - id: q2
+        kind: single
+        prompt: Keys 1, 2, 3, 4, 5 are inserted in that order into an empty plain BST. Height (in nodes) and search cost?
+        options: ["3 and O(log n)", "5 and O(n)", "4 and O(n)", "5 and O(log n)"]
+        answer: [1]
+        explanation: "Each key goes to the right of the previous one, forming a chain of 5 nodes; search degrades to linear. Balanced trees avoid this by rotating."
+      - id: q3
+        kind: single
+        prompt: Deleting a node with two children — what replaces its key?
+        options:
+          - "Its left child's key"
+          - "The minimum of its right subtree (in-order successor), or the maximum of its left subtree"
+          - "The root's key"
+          - "Any leaf's key"
+        answer: [1]
+        explanation: "The successor (or predecessor) is the only key that keeps every left key smaller and every right key larger after the swap; then delete that key from the subtree, which has at most one child. A child's key can break the order on the other side."
+      - id: q4
+        kind: single
+        prompt: Cost of finding the k-th smallest key with an iterative in-order traversal that stops after k pops?
+        options: ["O(n)", "O(k)", "O(h + k)", "O(k log n)"]
+        answer: [2]
+        explanation: "You first descend h nodes to the minimum, then each of the k pops does amortised O(1) work. O(n) ignores the early stop; O(k) ignores the initial descent."
+      - id: q5
+        kind: multi
+        prompt: Which hold for every valid BST with distinct keys?
+        options:
+          - "The in-order traversal is strictly increasing"
+          - "The minimum key is in the leftmost node"
+          - "The root holds the median key"
+          - "Every node's left child, if any, has a smaller key"
+        answer: [0, 1, 3]
+        explanation: "Sorted in-order, minimum at the leftmost node and smaller left children follow from the invariant. The root is the median only in a perfectly balanced tree built that way."
+      - id: q6
+        kind: short
+        prompt: Explain how to find the LCA of two keys in a BST in O(h) without a full traversal.
+        model_answer: "Start at the root. If both keys are smaller than the node, the LCA is in the left subtree; if both are larger, in the right; otherwise the keys split here (or one equals the node), so the node is the LCA. Each step goes one level down, so O(h) time and O(1) space iteratively."
+        explanation: The invariant tells you which side holds both keys without searching both subtrees.
+- key: dsa.bst.guided
+  type: guided_problem
+  title: "Guided practice: validate a BST"
+  skills: [bst.operations]
+  minutes: 20
+  difficulty: MEDIUM
+  problems: [24]
+  body:
+    guidance:
+      - Write the counterexample tree that defeats the local check before coding.
+      - Pass an open interval (low, high) down; use None for an unbounded side.
+      - "Alternative to mention: in-order traversal must be strictly increasing."
+    hints:
+      - The left child inherits (low, node.val); the right child inherits (node.val, high).
+      - Equal keys are invalid under the strict rule.
+- key: dsa.bst.timed
+  type: timed_problem
+  title: "Timed practice: k-th smallest and BST LCA"
+  skills: [bst.operations]
+  minutes: 30
+  difficulty: MEDIUM
+  problems: [89, 90]
+  body:
+    guidance:
+      - "k-th smallest: iterative in-order with an early stop; state O(h + k)."
+      - "LCA in a BST: iterative walk using the ordering; state O(h) time and O(1) space."
+      - For each, say the follow-up you would expect and how you would answer it.
+- key: dsa.bst.interview
+  type: interview_question
+  title: "Interview question: in-order successor in a BST"
+  skills: [bst.operations]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: "Given the root of a BST and a node in it, explain how to find the node with the next larger key. Cover the case with parent pointers and the case without them, with complexity."
+    key_points:
+      - "If the node has a right child, the successor is the leftmost node of the right subtree."
+      - "Without parent pointers, walk from the root: when the current key is greater than the target, record it as a candidate and go left; otherwise go right."
+      - "With parent pointers and no right child, move up until you arrive from a left child; that parent is the successor."
+      - "O(h) time and O(1) extra space in all variants; None if the node holds the maximum."
+    model_answer: If there is a right subtree, the next key is its minimum. Otherwise, from the root I walk toward the target key, remembering the last node where I turned left, because that is the smallest ancestor larger than the target. With parent pointers I climb until I move up from a left child. Each approach follows one root-to-leaf path, so O(h).
+    pitfalls:
+      - Doing a full in-order traversal into a list (O(n) time and space).
+      - Returning the parent unconditionally when there is no right child.
+    follow_ups:
+      - prompt: How would you implement an iterator that returns keys in order with O(h) memory?
+        look_for: Controlled iterative in-order with a stack; next() pops and pushes the left spine of the right child; amortised O(1) per call.
+      - prompt: What is the predecessor rule?
+        look_for: Mirror image; rightmost node of the left subtree, or the last ancestor where you turned right.
+- key: dsa.bst.cards
+  type: revision_card
+  title: "Recall: binary search trees"
+  skills: [bst.operations]
+  minutes: 5
+  body:
+    cards:
+      - front: BST invariant scope?
+        back: Whole left subtree smaller, whole right subtree larger.
+      - front: Validate a BST?
+        back: Pass an inherited (low, high) interval, or check that in-order is strictly increasing.
+      - front: Delete a node with two children?
+        back: Copy the in-order successor's key, then delete the successor.
+      - front: Cost of BST operations?
+        back: O(h); log n if balanced, n if skewed.
+      - front: Successor when there is a right child?
+        back: Leftmost node of the right subtree.

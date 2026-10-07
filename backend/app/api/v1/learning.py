@@ -78,6 +78,13 @@ def coverage(learning: Learning) -> dict[str, Any]:
     return success(learning.coverage())
 
 
+@router.get("/learning/mock-kits")
+def mock_kits(learning: Learning, session: DbSession, clock: ClockDep) -> dict[str, Any]:
+    meta = _fresh(session, clock)
+    kits = learning.mock_kits()
+    return success([k.model_dump(mode="json") for k in kits], meta.model_copy(update={"count": len(kits)}))
+
+
 @router.get("/learning/sessions")
 def sessions(
     learning: Learning, status: Literal["ACTIVE", "COMPLETED", "ABANDONED"] | None = None

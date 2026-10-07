@@ -1,0 +1,809 @@
+# Learning content, DSA (4/4): heaps (top-K and k-th element), two heaps and K-way merging, and tries.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- heap: top-K
+- key: dsa.heap_topk.lesson
+  type: lesson
+  title: "Heaps with heapq: top-K and the k-th element"
+  skills: [heap.top_k, python.collections, dsa.complexity_analysis]
+  minutes: 30
+  difficulty: MEDIUM
+  body:
+    summary: A heap gives the smallest item in O(1) and removes or adds one in O(log n); keep a heap of size k to track the k best of n items in O(n log k).
+    what: |-
+      A **binary heap** is a complete binary tree stored in an array, where every parent is no larger than its children (a **min-heap**). For index i, the children are at `2i + 1` and `2i + 2` and the parent at `(i - 1) // 2`. Only the root is guaranteed to be the minimum; the rest of the array is **not sorted**.
+
+      Python's `heapq` module works on a plain list as a min-heap:
+
+      - `heapq.heappush(h, x)` and `heapq.heappop(h)`: O(log n).
+      - `h[0]`: peek at the minimum, O(1).
+      - `heapq.heapify(h)`: turn a list into a heap in place, O(n).
+      - `heapq.heapreplace(h, x)`: pop the minimum then push x, one O(log n) sift (heap must be non-empty). `heapq.heappushpop(h, x)`: push then pop, also one sift.
+      - `heapq.nlargest(k, it, key=...)` / `nsmallest`: the k best items, sorted.
+
+      For a max-heap, push negated numbers (`-x`) or tuples with a negated first field.
+    why: |-
+      Many questions only need "the best few" or "the next best": the 10 most frequent errors, the k nearest drivers, the next job to run, the cheapest unexplored path in Dijkstra. Sorting everything costs O(n log n) and needs all data up front; a heap of size k costs O(n log k), uses O(k) memory and works on a stream that never ends.
+    when: |-
+      - Top-K, k-th largest or smallest, k closest, k most frequent.
+      - Repeatedly taking the current minimum or maximum while new items arrive.
+      - Streaming input where you cannot hold or re-sort everything.
+      - If you need the full order, just sort. If you need one k-th value once, on an array you may modify, quickselect is O(n) expected.
+    how: |-
+      **k largest with a size-k min-heap.** The heap holds the best k seen so far; its root is the weakest of them, the one to evict:
+
+      ```python
+      import heapq
+
+      def k_largest(nums, k):
+          heap = []
+          for x in nums:
+              if len(heap) < k:
+                  heapq.heappush(heap, x)
+              elif x > heap[0]:
+                  heapq.heapreplace(heap, x)   # evict the weakest, insert x
+          return heap                          # unordered; heap[0] is the k-th largest
+      ```
+
+      The direction is counter-intuitive: to keep the **largest** k, use a **min**-heap, because you need quick access to the smallest of them to evict it.
+
+      **Keys and ties.** Push tuples `(priority, tie_breaker, item)`. When priorities are equal, Python compares the next field; if that is an object without ordering (a dict, a custom class), `heappush` raises `TypeError`. A unique, increasing counter as the second field avoids it and keeps insertion order among equals.
+
+      **Frequency top-K**: count with `collections.Counter` (O(n)), then a size-k heap over the m distinct values (O(m log k)), or bucket by frequency (O(n), since frequencies are at most n).
+    mental_model: |-
+      A heap is a tournament bracket kept half-sorted: the champion sits on top, and each match result only says the parent beat its two children. That is just enough order to find the champion instantly and to repair the bracket in log n matches after a change — and not enough to read off second, third and fourth place without more matches.
+    tradeoffs: |-
+      Sort: O(n log n), simplest, gives full order. Size-k heap: O(n log k) time, O(k) memory, streaming-friendly. Heapify all then pop k times: O(n + k log n), needs all n in memory. Quickselect: O(n) expected, O(n²) worst, modifies the array, not streaming. Bucket sort for frequencies: O(n), only when the key is a small integer such as a count. `Counter.most_common(k)` uses a heap (`nlargest`) when k is given.
+    mistakes:
+      - Using a max-heap of all n items to get the k largest, which costs O(n) memory and O(n + k log n) when a size-k min-heap is O(n log k) and O(k).
+      - Assuming the heap list is sorted; only `h[0]` is meaningful.
+      - "Pushing `(priority, obj)` where `obj` has no `<`: equal priorities raise TypeError."
+      - Negating for a max-heap on push but forgetting to negate back on pop.
+      - Calling `heappop` on an empty list (IndexError) or `heapreplace` on an empty heap.
+    interview: |-
+      Say which heap direction and size you use and why ("min-heap of size k: the root is the k-th largest and the one to evict"). Give O(n log k) time and O(k) space, and compare with sorting and quickselect without being asked. Typical follow-ups: streaming input, k close to n, ties in the ordering, and returning the result sorted.
+    explain_it:
+      - The heap direction and why it is the opposite of what you keep.
+      - The invariant (the heap holds the best k so far; the root is the weakest of them).
+      - Per-item cost O(log k), total O(n log k), memory O(k).
+      - When you would choose sort, quickselect or buckets instead.
+    example:
+      language: python
+      code: |-
+        import heapq
+
+        class KthLargest:
+            """Report the k-th largest value of a growing stream (at least k values after each add)."""
+
+            def __init__(self, k: int, nums: list[int]) -> None:
+                self.k = k
+                self.heap = list(nums)
+                heapq.heapify(self.heap)               # O(n)
+                while len(self.heap) > k:
+                    heapq.heappop(self.heap)           # keep only the k largest
+
+            def add(self, val: int) -> int:
+                if len(self.heap) < self.k:
+                    heapq.heappush(self.heap, val)
+                elif val > self.heap[0]:
+                    heapq.heapreplace(self.heap, val)  # one sift instead of pop + push
+                return self.heap[0]
+      explanation: O(n + (n - k) log n) to build, O(log k) per add, O(k) memory. The root of the size-k min-heap is the answer.
+    complexity: push/pop O(log n), peek O(1), heapify O(n); top-K with a size-k heap O(n log k) time and O(k) space.
+    internals: |-
+      heapify is O(n), not O(n log n), because it sifts down from the last parent to the root: about half the nodes are leaves and need no work, a quarter move at most one level, an eighth at most two, and the sum n/4 + 2n/8 + 3n/16 + … converges to O(n).
+    edge_cases:
+      - k = 0, k = n, or k larger than the number of items.
+      - Duplicates — does "k-th largest" count duplicates separately (usually yes)?
+      - Ties in the ordering key that must be broken deterministically.
+      - Negative numbers when negating for a max-heap (still correct; double-check the sign on output).
+- key: dsa.heap_topk.worked
+  type: worked_example
+  title: "Worked example: k most frequent words with alphabetical ties"
+  skills: [heap.top_k, hashing.lookup_frequency, python.sorting_keys]
+  minutes: 15
+  difficulty: MEDIUM
+  body:
+    problem: "Return the k most frequent words of a list, most frequent first; words with equal counts are ordered alphabetically. Walk from the brute force to O(m log k), where m is the number of distinct words."
+    steps:
+      - title: Count, then sort everything
+        text: "Counting is O(n). Sorting the m distinct words with the key (-count, word) gives exactly the required order, so taking the first k is correct. Cost O(n + m log m). State this first: it is the baseline and often good enough."
+        code:
+          language: python
+          code: |-
+            from collections import Counter
+
+            def top_k_sorted(words, k):
+                counts = Counter(words)
+                return sorted(counts, key=lambda w: (-counts[w], w))[:k]
+      - title: Why a plain size-k min-heap of (count, word) is wrong
+        text: "To keep the best k we evict the worst: lowest count, and for equal counts the alphabetically **larger** word. A heap of (count, word) evicts the alphabetically **smaller** word first on ties, the opposite. You cannot negate a string, so the tuple trick that works for numbers fails here."
+      - title: "Fix 1: let nsmallest handle the key"
+        text: "`heapq.nsmallest(k, iterable, key=...)` keeps an internal heap of size k and returns the results sorted. With the key (-count, word), the k smallest keys are exactly the answer. Cost O(n + m log k)."
+        code:
+          language: python
+          code: |-
+            import heapq
+            from collections import Counter
+
+            def top_k_words(words, k):
+                counts = Counter(words)
+                return heapq.nsmallest(k, counts, key=lambda w: (-counts[w], w))
+      - title: "Fix 2: define 'worse' explicitly"
+        text: "If you must manage the heap yourself (for example in a stream), wrap entries in a class whose `__lt__` means \"is worse\": lower count, or equal count and larger word. A min-heap then evicts the worst entry first; at the end pop everything and reverse."
+        code:
+          language: python
+          code: |-
+            class Entry:
+                __slots__ = ("count", "word")
+
+                def __init__(self, count: int, word: str) -> None:
+                    self.count, self.word = count, word
+
+                def __lt__(self, other: "Entry") -> bool:      # "self is worse than other"
+                    if self.count != other.count:
+                        return self.count < other.count
+                    return self.word > other.word
+      - title: State the complexity and the trade-off
+        text: "Counting O(n) time and O(m) space; heap selection O(m log k) time and O(k) space. Sorting all m words is simpler and fine when m is small; the heap matters when m is large and k is small, or when words arrive as a stream."
+    takeaways:
+      - Count first, then select; the selection step is where heaps help.
+      - To keep the best k, the heap's top must be the worst of the kept items.
+      - When the tie-break cannot be negated (strings), use a key function or a custom __lt__.
+    complexity: O(n + m log k) time, O(m + k) space.
+- key: dsa.heap_topk.visual
+  type: visual_explanation
+  title: "Visual: a heap as an array, push and pop"
+  skills: [heap.top_k]
+  minutes: 6
+  body:
+    summary: The array and tree views of a min-heap, then one push (sift up) and one pop (sift down).
+    frames:
+      - caption: "The list [1, 3, 8, 5] is a valid min-heap. Children of i are 2i + 1 and 2i + 2."
+        diagram: |-
+          array:  index 0  1  2  3
+                  value 1  3  8  5
+
+          tree:         1
+                       / \
+                      3   8
+                     /
+                    5
+      - caption: "heappush(h, 2): append at index 4, then swap with the parent while smaller."
+        diagram: |-
+          append:   [1, 3, 8, 5, 2]    parent of 4 is 1 (value 3); 2 < 3 → swap
+          swap:     [1, 2, 8, 5, 3]    parent of 1 is 0 (value 1); 2 > 1 → stop
+
+          tree:         1
+                       / \
+                      2   8
+                     / \
+                    5   3          2 swaps at most = height → O(log n)
+      - caption: "heappop(h): return the root, move the last item to the root, then swap down with the smaller child."
+        diagram: |-
+          return 1, move 3 to root:  [3, 2, 8, 5]
+          children of 0 are 2 and 8; smaller is 2 < 3 → swap:  [2, 3, 8, 5]
+          child of 1 is 5; 3 < 5 → stop
+
+          result: [2, 3, 8, 5]   root is the new minimum; the rest is not sorted
+- key: dsa.heap_topk.check
+  type: concept_check
+  title: "Concept check: heaps and top-K"
+  skills: [heap.top_k]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Reason from the heap invariant — only the root is guaranteed.
+    questions:
+      - id: q1
+        kind: single
+        prompt: What are x and h[0] at the end?
+        code:
+          language: python
+          code: |-
+            import heapq
+            h = [7, 2, 9, 4]
+            heapq.heapify(h)
+            heapq.heappush(h, 3)
+            x = heapq.heappop(h)
+        options: ["x = 2, h[0] = 3", "x = 7, h[0] = 2", "x = 3, h[0] = 2", "x = 2, h[0] = 4"]
+        answer: [0]
+        explanation: "heapify makes 2 the root; after pushing 3 the values are {2, 3, 4, 7, 9}; pop returns the minimum 2, and the new minimum is 3. Answering 7 treats the list as a queue in input order."
+      - id: q2
+        kind: single
+        prompt: Time and space to find the k largest of n numbers with a size-k min-heap?
+        options: ["O(n log n) and O(n)", "O(n log k) and O(k)", "O(k log n) and O(1)", "O(n) and O(k)"]
+        answer: [1]
+        explanation: "Each of n items costs at most one O(log k) heap operation, and the heap never exceeds k items. O(n log n) is the cost of sorting everything."
+      - id: q3
+        kind: single
+        prompt: To track the k-th largest value of a stream, which heap do you keep?
+        options:
+          - "A max-heap of all values"
+          - "A min-heap of the k largest values; the root is the answer"
+          - "A max-heap of the k smallest values"
+          - "A min-heap of all values"
+        answer: [1]
+        explanation: "The k-th largest is the smallest of the k largest, so a size-k min-heap puts it at the root and evicts the weakest in O(log k). A max-heap of everything works but needs O(n) memory and k pops per query."
+      - id: q4
+        kind: multi
+        prompt: Which push sequences can raise TypeError on an initially empty heap?
+        options:
+          - "(1, {'id': 7}) then (1, {'id': 9})"
+          - "(1, 0, {'id': 7}) then (1, 1, {'id': 9})"
+          - "(2, 'x') then (2, 'y')"
+          - "(1, Task('a')) then (1, Task('b')), where Task is a plain class without __lt__"
+        answer: [0, 3]
+        explanation: "With equal first fields, Python compares the second fields: two different dicts, or two distinct objects without ordering, cannot be compared with <. A unique counter in the second position decides every tie first; strings compare fine."
+      - id: q5
+        kind: single
+        prompt: "Building a heap from n items: heapify versus n calls to heappush?"
+        options: ["Both O(n log n)", "heapify O(n), repeated push O(n log n)", "heapify O(n log n), repeated push O(n)", "Both O(n)"]
+        answer: [1]
+        explanation: "heapify sifts down from the bottom where most nodes have little height to cover, summing to O(n). Each push may sift up a full log n levels."
+      - id: q6
+        kind: short
+        prompt: When would you choose quickselect, and when bucket sort, instead of a heap for top-K?
+        model_answer: "Quickselect when you have the whole array in memory, may reorder it, need only one selection and want O(n) expected time (accepting an O(n²) worst case unless pivots are randomised). Bucket sort when the ranking key is a small bounded integer, such as frequencies that are at most n, giving O(n). A heap remains best for streams, small k with huge n, or when memory must stay O(k)."
+        explanation: Naming the alternatives and their conditions is the expected comparison.
+- key: dsa.heap_topk.guided
+  type: guided_problem
+  title: "Guided practice: k-th largest element"
+  skills: [heap.top_k]
+  minutes: 20
+  difficulty: MEDIUM
+  problems: [43]
+  body:
+    guidance:
+      - State three approaches with complexity before coding (sort, size-k heap, quickselect).
+      - Code the size-k min-heap first; return heap[0].
+      - If time remains, code quickselect with a random pivot and compare.
+    hints:
+      - The root of a size-k min-heap is the k-th largest.
+      - heapq.heapreplace pops and pushes in one sift.
+- key: dsa.heap_topk.timed
+  type: timed_problem
+  title: "Timed practice: top-K frequent and k closest"
+  skills: [heap.top_k]
+  minutes: 40
+  difficulty: MEDIUM
+  problems: [3, 93]
+  body:
+    guidance:
+      - "Frequent: Counter, then a size-k heap or frequency buckets; state both complexities."
+      - "Closest: compare squared distances (integers, no square roots); size-k max-heap via negated keys."
+      - Say what you would change for a stream of points.
+- key: dsa.heap_topk.interview
+  type: interview_question
+  title: "Interview question: k-th largest — sort, heap or quickselect?"
+  skills: [heap.top_k, sorting.algorithms]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: "You need the 100th largest value among 10⁸ integers. Compare sorting, a heap and quickselect on time, memory and practical constraints. Then say what changes if the values arrive as an unbounded stream and the query is repeated after every value."
+    key_points:
+      - "Sort: O(n log n) time, O(n) memory (or in place), simplest; too slow and heavy at 10⁸."
+      - "Size-100 min-heap: O(n log 100) time, O(100) memory, one pass, works on a stream; root is the answer."
+      - "Quickselect: O(n) expected, O(n²) worst, needs the whole array in memory and reorders it."
+      - "Stream with repeated queries: keep the size-k min-heap; each new value costs O(log k) and the answer is heap[0] in O(1)."
+    model_answer: With n = 10⁸ and k = 100, a size-k min-heap is about n × log₂ 100 ≈ 7 × 10⁸ elementary steps with 100 items of memory and a single sequential pass. Quickselect is about 2n expected comparisons but needs all 10⁸ values in memory (gigabytes as a Python list of int objects; less with an array module or NumPy buffer) and is not streaming. Sorting is the most work. For an unbounded stream the heap is the only one of the three that applies directly; each value is O(log k) and the answer is always the root.
+    pitfalls:
+      - Picking a max-heap of all values.
+      - Forgetting that quickselect needs random access to all data.
+    follow_ups:
+      - prompt: What if k is 9 × 10⁷, close to n?
+        look_for: Find the (n - k + 1)-th smallest instead with a size n - k + 1 max-heap, or use quickselect; the heap size should be min(k, n - k + 1).
+      - prompt: The data is spread over 50 machines. How do you get the global top 100?
+        look_for: Each machine computes its local top 100; merge the 50 × 100 candidates with one heap; the global top 100 must be among the local ones.
+- key: dsa.heap_topk.cards
+  type: revision_card
+  title: "Recall: heaps and top-K"
+  skills: [heap.top_k]
+  minutes: 5
+  body:
+    cards:
+      - front: Keep the k largest with which heap?
+        back: A min-heap of size k; its root is the k-th largest.
+      - front: Child and parent indexes in an array heap?
+        back: "Children 2i + 1 and 2i + 2; parent (i - 1) // 2."
+      - front: heapify vs n pushes?
+        back: O(n) vs O(n log n).
+      - front: Max-heap in Python?
+        back: Push negated keys and negate back on pop.
+      - front: Avoid TypeError on equal priorities?
+        back: Push (priority, counter, item) with a unique counter.
+      - front: Top-K cost with a size-k heap?
+        back: O(n log k) time, O(k) space.
+
+# ---------------------------------------------------------------------------------------------- heap: two heaps, merge K, scheduling
+- key: dsa.heap_patterns.lesson
+  type: lesson
+  title: "Two heaps for medians, K-way merge and scheduling with heaps"
+  skills: [heap.two_heaps_merge_k, heap.top_k]
+  minutes: 30
+  difficulty: HARD
+  body:
+    summary: Split data into two heaps to read a median in O(1), keep one candidate per sorted source to merge K streams in O(N log k), and keep a heap of "next free time" to schedule.
+    what: |-
+      Three heap patterns go beyond plain top-K:
+
+      - **Two heaps**: a max-heap `low` holds the smaller half, a min-heap `high` the larger half. Their tops are the two middle values, so the median is O(1) and each insert O(log n).
+      - **K-way merge**: with k sorted sources, the next output is the smallest of the k current heads. A heap of at most k heads gives each output in O(log k).
+      - **Scheduling**: a min-heap of end times (rooms, servers, workers) tells you which resource frees up first; a max-heap of remaining counts tells you which task to run next.
+    why: |-
+      Running medians (latency percentiles over a stream), merging sorted runs (external sort, log aggregation, merging sorted shards from a database query) and resource assignment (meeting rooms, CPU schedulers, job queues) are real backend tasks. Each needs repeated access to a minimum or maximum while data changes — the one thing heaps are good at.
+    when: |-
+      - "Median of a stream, or any order statistic around the middle: two heaps."
+      - "K sorted lists, files or iterators to combine, or the k-th smallest across sorted rows: K-way merge."
+      - "Assign intervals or tasks to the earliest free resource, or pick the task with the most remaining work: scheduling heap."
+    how: |-
+      **Two heaps.** Invariant: every value in `low` ≤ every value in `high`, and `len(low)` equals `len(high)` or exceeds it by one. Insert by pushing into `low`, moving `low`'s largest to `high`, then moving `high`'s smallest back if `high` became larger:
+
+      ```python
+      import heapq
+
+      class RunningMedian:
+          def __init__(self) -> None:
+              self.low: list[int] = []    # max-heap via negation (smaller half)
+              self.high: list[int] = []   # min-heap (larger half)
+
+          def add(self, x: int) -> None:
+              heapq.heappush(self.low, -x)
+              heapq.heappush(self.high, -heapq.heappop(self.low))   # keeps the order invariant
+              if len(self.high) > len(self.low):
+                  heapq.heappush(self.low, -heapq.heappop(self.high))  # keeps the size invariant
+
+          def median(self):
+              if len(self.low) > len(self.high):
+                  return -self.low[0]
+              return (-self.low[0] + self.high[0]) / 2
+      ```
+
+      **K-way merge.** Push `(value, source_index, position)` for each non-empty source; pop the minimum, emit it, push the next element from the same source. The source index breaks ties so Python never compares the payloads (linked-list nodes have no `<`). The standard library's `heapq.merge(*iterables)` does this lazily.
+
+      **Scheduling.** Sort tasks by start; keep a min-heap of end times of busy resources; before placing a task, pop every resource whose end is at or before the task's start (or just the root, if you only need the count). The heap size at its peak is the number of resources needed.
+    mental_model: |-
+      Two heaps are two piles of cards with the middle cards face up on top of each pile: the left pile shows its largest card, the right pile its smallest. K-way merge is k sorted queues at a supermarket with one manager who only ever looks at the k people at the front. Scheduling is a board showing when each room becomes free, sorted by soonest.
+    tradeoffs: |-
+      Two heaps cost O(log n) per insert and O(n) memory; a sorted list with `bisect.insort` gives any percentile in O(1) but O(n) insertion. Removing arbitrary values (sliding-window median) is not supported by `heapq`; use lazy deletion (a counter of values to discard when they reach the top) or a balanced ordered structure. K-way merge is O(N log k) versus O(N log N) for concatenating and sorting, and needs only O(k) memory, so it streams. Merging lists pairwise in rounds (divide and conquer) is also O(N log k) without a heap.
+    mistakes:
+      - "Pushing into the wrong heap without the rebalance step, which breaks \"every low ≤ every high\"."
+      - Forgetting to negate when reading the max-heap top.
+      - "Heap entries (value, node) for linked lists: equal values make Python compare nodes and raise TypeError; include an index."
+      - Merging k lists one after another into an accumulator, which is O(N · k).
+      - Using a heap simulation for a problem with a simpler counting formula, and missing the formula's edge case when the answer is just the number of tasks.
+    interview: |-
+      Name the invariant out loud ("sizes differ by at most one; low's max ≤ high's min"). Give O(log n) insert, O(1) median, O(N log k) merge. Follow-ups: sliding-window median (deletion), percentile other than 50 (unequal heap sizes), merging sorted files that do not fit in memory, and the scheduling formula versus simulation.
+    explain_it:
+      - The invariant of each heap and why it gives the answer at the top.
+      - The update steps that restore the invariant.
+      - Complexity per operation and total, and memory.
+      - Why a tie-breaking index is needed in heap tuples.
+    example:
+      language: python
+      code: |-
+        import heapq
+
+        def merge_k(lists: list[list[int]]) -> list[int]:
+            heap = [(lst[0], i, 0) for i, lst in enumerate(lists) if lst]
+            heapq.heapify(heap)                         # O(k)
+            out = []
+            while heap:
+                val, i, j = heapq.heappop(heap)
+                out.append(val)
+                if j + 1 < len(lists[i]):
+                    heapq.heappush(heap, (lists[i][j + 1], i, j + 1))
+            return out
+      explanation: N total elements, each pushed and popped once on a heap of at most k entries, so O(N log k) time and O(k) extra space besides the output. Equivalent to list(heapq.merge(*lists)).
+    complexity: "Two heaps: O(log n) insert, O(1) median, O(n) space. K-way merge: O(N log k) time, O(k) heap. Scheduling with a heap of end times: O(n log n) including the sort."
+    edge_cases:
+      - Median with an even count (average of the two tops) and with one element.
+      - Empty source lists in K-way merge.
+      - Equal values across sources (the index tie-breaker).
+      - In scheduling, a task starting exactly when another ends.
+- key: dsa.heap_patterns.check
+  type: concept_check
+  title: "Concept check: two heaps and K-way merge"
+  skills: [heap.two_heaps_merge_k]
+  minutes: 10
+  difficulty: HARD
+  body:
+    intro: Trace RunningMedian from the lesson by hand for the first question.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "After add(5), add(2), add(8), add(1) on RunningMedian, what are the tops of the two halves (max of low, min of high)?"
+        options: ["2 and 5", "5 and 8", "1 and 2", "2 and 8"]
+        answer: [0]
+        explanation: "Sorted values are 1 2 5 8; the invariant puts {1, 2} in low and {5, 8} in high, so the tops are 2 and 5 and the median is their average. Tracing the code gives the same: sizes stay balanced and every low value is at most every high value."
+      - id: q2
+        kind: single
+        prompt: Merging k sorted lists with N elements in total using a heap of heads. Time and extra space?
+        options: ["O(N log N) and O(N)", "O(N log k) and O(k)", "O(N · k) and O(1)", "O(k log N) and O(k)"]
+        answer: [1]
+        explanation: "Every element enters and leaves a heap of at most k entries once. O(N · k) is the cost of scanning all k heads for each output, or of merging the lists one by one."
+      - id: q3
+        kind: single
+        prompt: Why push (value, list_index, node) rather than (value, node) when merging linked lists?
+        options:
+          - "It is faster"
+          - "With equal values Python compares the next field; list nodes define no ordering, so (value, node) raises TypeError"
+          - "To keep the heap smaller"
+          - "heapq requires three-element tuples"
+        answer: [1]
+        explanation: "Tuples are compared field by field. The unique index decides every tie before the node is reached. It also makes the merge order deterministic."
+      - id: q4
+        kind: multi
+        prompt: Which problems are naturally solved with a min-heap keyed on end (or free-at) time?
+        options:
+          - "Minimum number of meeting rooms"
+          - "Assigning each incoming task to the server that becomes free earliest"
+          - "Running median of a stream"
+          - "Merging k sorted arrays"
+        answer: [0, 1]
+        explanation: "Rooms and servers both ask which resource frees up first. The median needs two heaps of values, and K-way merge keys the heap on the current head values, not end times."
+      - id: q5
+        kind: single
+        prompt: For a sliding-window median, values leave the window. heapq has no delete. Which approach keeps O(log n) per step?
+        options:
+          - "Rebuild both heaps for every window"
+          - "Lazy deletion — record values to discard and pop them when they reach a top, keeping a count of valid elements per heap"
+          - "Use list.remove on the heap list"
+          - "Sort the window every step"
+        answer: [1]
+        explanation: "Lazy deletion defers removal until the stale value surfaces, so each value is pushed and popped once (amortised O(log n)). list.remove is O(n) and breaks the heap invariant unless you re-heapify."
+      - id: q6
+        kind: short
+        prompt: "Tasks with labels must be run so identical labels are at least n slots apart (idle slots allowed). Explain the counting formula for the minimum total time."
+        model_answer: "Let f be the highest frequency and c the number of labels with that frequency. The most frequent labels need f - 1 full frames of length n + 1 plus a final frame of c slots: (f - 1) × (n + 1) + c. If there are enough other tasks to fill every gap, no idle time is needed and the answer is the number of tasks. So the answer is max(len(tasks), (f - 1) × (n + 1) + c)."
+        explanation: A max-heap simulation also works in O(T log 26); the formula is O(T) and the max with len(tasks) is the commonly missed case.
+- key: dsa.heap_patterns.guided
+  type: guided_problem
+  title: "Guided practice: task scheduling with a cooldown"
+  skills: [heap.two_heaps_merge_k]
+  minutes: 25
+  difficulty: MEDIUM
+  problems: [95]
+  body:
+    guidance:
+      - Start with the max-heap simulation (remaining counts) plus a cooldown queue, and state its complexity.
+      - Then derive the frame formula from the most frequent task and compare.
+      - Test a case where no idle slots are needed.
+    hints:
+      - Only counts matter, not labels.
+      - The answer is never less than the number of tasks.
+- key: dsa.heap_patterns.timed
+  type: timed_problem
+  title: "Timed practice: running median and merging k lists"
+  skills: [heap.two_heaps_merge_k]
+  minutes: 50
+  difficulty: HARD
+  problems: [26, 94]
+  body:
+    guidance:
+      - "Median: say the two invariants before coding; test odd and even counts."
+      - "Merge k lists: heap of (value, index, node); dummy head for the output list; state O(N log k)."
+      - Mention the divide-and-conquer pairwise merge as an alternative with the same bound.
+- key: dsa.heap_patterns.interview
+  type: interview_question
+  title: "Interview question: merge sorted logs from many servers"
+  skills: [heap.two_heaps_merge_k]
+  minutes: 15
+  difficulty: HARD
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    prompt: "Each of 500 servers produces a log file already sorted by timestamp; together they hold 2 billion lines, far more than memory. Explain how to produce one globally sorted output file, the complexity, and the memory you need."
+    key_points:
+      - "K-way merge with a min-heap of (timestamp, file_index, line) holding one current line per file."
+      - "Each line is pushed and popped once: O(N log k) with N = 2 × 10⁹ and k = 500, so about 9 heap levels per line."
+      - "Memory is O(k) lines plus buffered reads per file; output is written sequentially."
+      - "Tie-break on file index so equal timestamps never compare whole lines, and the merge is deterministic."
+    model_answer: Open all 500 files with buffered readers, push each file's first line into a min-heap keyed by (timestamp, file index), then repeatedly pop the smallest, write it, and push the next line from the same file. Every line goes through a heap of at most 500 entries, so the work is N log k and memory is a few hundred lines plus I/O buffers. If 500 open files are too many, merge in two levels (for example 25 groups of 20), costing one extra pass over the data.
+    pitfalls:
+      - Concatenating and sorting, which needs the data in memory or an external sort with more passes.
+      - Merging files one by one into a growing output, which reads early data k times.
+    follow_ups:
+      - prompt: Timestamps are only sorted within a few seconds of skew per server. What changes?
+        look_for: Buffer a window per source or use a bounded reorder buffer (min-heap keyed by timestamp, emit when older than the max skew).
+      - prompt: Why does the number of open files matter and how do you work around it?
+        look_for: OS file-descriptor limits and memory per buffer; multi-pass merge with a fan-in that fits.
+- key: dsa.heap_patterns.cards
+  type: revision_card
+  title: "Recall: two heaps and K-way merge"
+  skills: [heap.two_heaps_merge_k]
+  minutes: 5
+  body:
+    cards:
+      - front: Two-heap median invariants?
+        back: Every low value ≤ every high value; len(low) equals len(high) or is one more.
+      - front: Median read cost with two heaps?
+        back: O(1) from the tops; O(log n) per insert.
+      - front: K-way merge cost?
+        back: O(N log k) time, O(k) heap.
+      - front: Tie-breaker in heap tuples for nodes?
+        back: Insert a unique index before the node.
+      - front: Deleting from a heap without support?
+        back: Lazy deletion when the stale value reaches the top.
+
+# ---------------------------------------------------------------------------------------------- trie
+- key: dsa.trie.lesson
+  type: lesson
+  title: "Tries: prefix trees for words and prefixes"
+  skills: [trie.core, trees.traversal, hashing.lookup_frequency]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: A trie stores strings character by character on paths from the root, so any prefix query costs O(length of the prefix), independent of how many words are stored.
+    what: |-
+      A **trie** (prefix tree) is a tree where each edge is a character and each node represents the prefix spelled by the path from the root. A flag on a node marks that a complete word ends there. Words sharing a prefix share the nodes of that prefix.
+
+      ```python
+      class TrieNode:
+          __slots__ = ("children", "is_word", "pass_count")
+
+          def __init__(self) -> None:
+              self.children: dict[str, "TrieNode"] = {}
+              self.is_word = False
+              self.pass_count = 0          # how many inserted words pass through this node
+      ```
+    why: |-
+      A hash set answers "is this exact word present?" well, but not "which words start with `pre`?" or "is any stored word a prefix of this string?" without scanning everything. Tries answer prefix questions in time proportional to the prefix, which is why they appear in autocomplete, spell checkers, routing tables (longest-prefix match on bits), and word-search puzzles where a prefix that matches nothing lets you stop early.
+    when: |-
+      - Many prefix queries against a fixed or growing set of words.
+      - "Find the shortest or longest stored prefix of a given string."
+      - Searching a grid or with wildcards, where you want to prune as soon as no word continues the current path.
+      - If you only need exact lookups, a set is simpler and uses less memory.
+    how: |-
+      **Insert**: walk from the root, creating missing children, then set `is_word` on the last node. **Search**: walk; fail on a missing child; succeed only if the last node has `is_word`. **Prefix check**: the same walk without the flag check.
+
+      ```python
+      class Trie:
+          def __init__(self) -> None:
+              self.root = TrieNode()
+
+          def insert(self, word: str) -> None:
+              node = self.root
+              for ch in word:
+                  node = node.children.setdefault(ch, TrieNode())
+                  node.pass_count += 1
+              node.is_word = True
+
+          def _walk(self, s: str):
+              node = self.root
+              for ch in s:
+                  node = node.children.get(ch)
+                  if node is None:
+                      return None
+              return node
+
+          def search(self, word: str) -> bool:
+              node = self._walk(word)
+              return node is not None and node.is_word
+
+          def count_prefix(self, prefix: str) -> int:
+              node = self._walk(prefix)
+              return node.pass_count if node else 0
+      ```
+
+      **Wildcards** (`.` matches any letter): DFS; on `.` try every child. **Grid word search**: put all dictionary words in a trie, start a DFS from each cell, and follow trie children as you move; stop when the current letter has no child. When a word is found, clear its flag (to avoid duplicates) and prune leaf nodes that no longer lead to any word.
+
+      **Children as dict or array**: a 26-slot list per node gives O(1) indexing and lexicographic order for free but wastes memory on sparse nodes; a dict stores only present children.
+    mental_model: |-
+      A trie is a phone keypad menu: each key press narrows the options, and a word is a path through the menu that ends on a "done" light. Two words that start the same way walk the same menu until they diverge, so the shared beginning is stored once.
+    tradeoffs: |-
+      Time per operation is O(L) for a word of length L, independent of the number of words n. Memory is O(total characters) nodes in the worst case, and in Python each node is an object plus a dict, which costs far more than the characters themselves; a set of strings is usually much smaller. A sorted list plus `bisect` also answers prefix queries in O(L log n) and is compact, at the cost of O(n) insertion. Tries shine when there are many queries, many shared prefixes, or when early pruning saves an exponential search.
+    mistakes:
+      - Returning True from search when the path exists but `is_word` is False (a prefix is not a word).
+      - Creating nodes during search (using `setdefault` in the read path), which silently grows the trie.
+      - In grid search, building the trie but still checking each word separately, losing the shared-prefix pruning.
+      - Forgetting to clear a found word's flag in grid search, which reports duplicates.
+      - Assuming a trie always saves memory compared with a set.
+    interview: |-
+      Implement insert, search and starts_with cleanly first (this is often the whole first question), then expect extensions: wildcard search, counting words with a prefix, deleting words, autocomplete suggestions, and grid word search with pruning. State O(L) per operation and memory in terms of total characters, and mention the per-node overhead in Python.
+    explain_it:
+      - What a node represents (a prefix) and what the end flag means.
+      - Insert, search and prefix walks, and how they differ.
+      - O(L) time per operation; O(total characters) nodes.
+      - Where pruning comes from in wildcard and grid searches.
+    example:
+      language: python
+      code: |-
+        def search_with_wildcards(node: "TrieNode", word: str, i: int = 0) -> bool:
+            """'.' matches any single letter."""
+            if i == len(word):
+                return node.is_word
+            ch = word[i]
+            if ch == ".":
+                return any(search_with_wildcards(child, word, i + 1)
+                           for child in node.children.values())
+            child = node.children.get(ch)
+            return child is not None and search_with_wildcards(child, word, i + 1)
+      explanation: "Without wildcards O(L). Each '.' branches into every child, so with many wildcards the search can visit every node down to depth L; the depth of recursion is L."
+    complexity: Insert, search and prefix queries O(L); space O(total characters) nodes; wildcard search worst case visits all nodes up to depth L.
+    edge_cases:
+      - Empty string as a word (the root's flag).
+      - A word that is a prefix of another (car and cart).
+      - Inserting the same word twice (pass counts should reflect your chosen semantics).
+      - Non-lowercase characters when children are a 26-slot array.
+- key: dsa.trie.check
+  type: concept_check
+  title: "Concept check: tries"
+  skills: [trie.core]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Draw the trie for the small examples.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "After inserting car, cart and cat into an empty trie, how many nodes exist, including the root?"
+        options: ["6", "7", "10", "11"]
+        answer: [0]
+        explanation: "root → c → a, then a → r → t (for car and cart) and a → t (for cat): root, c, a, r, t, t = 6. 11 counts one node per character without sharing prefixes (plus the root)."
+      - id: q2
+        kind: single
+        prompt: "With car, cart and cat inserted, what do search('ca') and starts_with('ca') return?"
+        options: ["True and True", "False and True", "True and False", "False and False"]
+        answer: [1]
+        explanation: "The path c-a exists, so starts_with is True, but no word ends at that node (is_word is False), so search is False. Treating a path as a word is the most common trie bug."
+      - id: q3
+        kind: single
+        prompt: Time to search for a word of length L in a trie holding n words?
+        options: ["O(log n)", "O(L)", "O(n · L)", "O(L log n)"]
+        answer: [1]
+        explanation: "The walk visits one node per character with an O(1) child lookup; the number of stored words does not matter. O(L log n) is the cost of binary search on a sorted list of strings."
+      - id: q4
+        kind: multi
+        prompt: Which statements are true?
+        options:
+          - "A trie answers \"does any word start with p?\" in O(len(p))"
+          - "A hash set answers exact lookups in O(L) on average, because hashing reads the string"
+          - "A trie always uses less memory than a set of the same words"
+          - "DFS over a trie with 26-slot child arrays visited in index order yields words in lexicographic order"
+        answer: [0, 1, 3]
+        explanation: "Prefix queries and ordered traversal are the trie's strengths, and hashing a string is linear in its length. Memory depends on sharing; in Python, node objects and dicts usually make a trie larger than a set."
+      - id: q5
+        kind: single
+        prompt: "In grid word search with a trie, why clear a word's end flag (and prune empty leaves) once the word is found?"
+        options:
+          - "It is required for correctness of the trie"
+          - "It prevents reporting the same word twice and stops exploring branches that can no longer produce new words"
+          - "It reduces the grid size"
+          - "Python requires it to free memory"
+        answer: [1]
+        explanation: "The same word may be traceable along several paths; clearing the flag reports it once. Pruning leaves cuts future DFS work, which matters because grid search is exponential in word length."
+      - id: q6
+        kind: short
+        prompt: How would you support "how many stored words start with prefix p" in O(len(p))?
+        model_answer: "Keep a pass count on each node, incremented for every node on the path when a word is inserted (and decremented on delete). Then walk to the node for p and return its pass count, or 0 if the path is missing."
+        explanation: Augmenting nodes with counts is the standard way to answer aggregate prefix queries without a subtree traversal.
+- key: dsa.trie.exercise
+  type: coding_exercise
+  title: "Exercise: replace words with their shortest stored root"
+  skills: [trie.core, strings.manipulation]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 1200}
+  body:
+    prompt: |-
+      You are given a list of roots and a sentence of space-separated lowercase words. Replace every word that starts with some root by the **shortest** such root; leave other words unchanged. Return the new sentence.
+    examples:
+      - "replace(['go', 'gone', 'pre'], 'going prefix gone now') == 'go pre go now'"
+      - "replace(['a'], 'apple banana') == 'a banana'"
+    constraints:
+      - Up to 1000 roots of length ≤ 100; the sentence has up to 10⁶ characters.
+    hints:
+      - Insert all roots into a trie.
+      - For each word, walk the trie and stop at the first node with the end flag.
+      - If the walk falls off the trie first, keep the word.
+    solution:
+      language: python
+      code: |-
+        def replace(roots: list[str], sentence: str) -> str:
+            END = "$"
+            trie: dict = {}
+            for root in roots:
+                node = trie
+                for ch in root:
+                    node = node.setdefault(ch, {})
+                node[END] = root
+
+            def shortest_root(word: str) -> str:
+                node = trie
+                for ch in word:
+                    if END in node:
+                        return node[END]
+                    node = node.get(ch)
+                    if node is None:
+                        return word
+                return node.get(END, word)
+
+            return " ".join(shortest_root(w) for w in sentence.split())
+      explanation: "Building costs O(total root characters); each word stops at its shortest root or when it leaves the trie, so the whole sentence is O(total characters). The checking-every-root alternative is O(words × roots × L)."
+    rubric:
+      - key: correct
+        label: "Correct for words with no root, several roots, and a word equal to a root"
+        points: 4
+      - key: shortest
+        label: "Stops at the first end flag on the walk so the shortest root wins"
+        points: 3
+      - key: complexity
+        label: "States linear time in total characters and compares with the brute force"
+        points: 2
+      - key: no_mutation_on_read
+        label: "Does not create trie nodes while querying"
+        points: 1
+    follow_ups:
+      - prompt: How would you do this without a trie, and when is that good enough?
+        look_for: Put roots in a set and test word prefixes of length 1..min(L, max_root_len); O(L²) per word due to slicing and hashing, fine for short words.
+      - prompt: What if you needed the longest root instead?
+        look_for: Keep walking and remember the last end flag seen; return it when the walk ends.
+- key: dsa.trie.guided
+  type: guided_problem
+  title: "Guided practice: implement a trie"
+  skills: [trie.core]
+  minutes: 20
+  difficulty: MEDIUM
+  problems: [25]
+  body:
+    guidance:
+      - Write the node class first with children and an end flag.
+      - Share one walk helper between search and starts_with; only the final check differs.
+      - Test a word that is a prefix of another and a prefix that is not a word.
+    hints:
+      - dict.setdefault creates a missing child in one line on insert.
+      - Never create nodes in the read path.
+- key: dsa.trie.timed
+  type: timed_problem
+  title: "Timed practice: wildcard dictionary and grid word search"
+  skills: [trie.core]
+  minutes: 50
+  difficulty: HARD
+  problems: [91, 92]
+  body:
+    guidance:
+      - "Wildcards: DFS over the trie; branch only on '.'; state the worst case."
+      - "Grid search: one trie of all words drives a single DFS per cell; mark and restore cells; clear found words."
+      - Explain why checking each word separately against the grid is far slower.
+- key: dsa.trie.interview
+  type: interview_question
+  title: "Interview question: autocomplete suggestions"
+  skills: [trie.core]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    prompt: "As the user types into a search box, return up to three suggestions starting with the typed prefix, ranked by past search count, ties alphabetical. There are 10⁶ distinct past queries. Compare a trie-based design with a sorted-list design and discuss latency and memory."
+    key_points:
+      - "Trie: walk to the prefix node in O(len(prefix)); either DFS the subtree to rank candidates, or store a precomputed top-3 list at every node."
+      - "Precomputed top-3 per node makes each keystroke O(len(prefix)) but costs memory per node and updates along the whole path when counts change."
+      - "Sorted list plus bisect: lexicographic suggestions in O(log n) per keystroke, but ranking by count needs extra work."
+      - "Incremental typing: keep the current node and step one child per keystroke instead of walking from the root."
+      - "Mentions Python per-node overhead and that a production system would shard or use a compact structure."
+    model_answer: A trie maps prefixes to nodes. Ranking by count with a DFS of the subtree is too slow for short prefixes like 'a' that cover most queries, so I would store at each node the top three (count, query) pairs, maintained on insert by updating every node on the path. A keystroke then costs one child step from the previous node. A sorted list with bisect is simpler and compact for alphabetical suggestions, but ranking by count would need a scan of the prefix range. Memory is the main cost of the trie in Python; at 10⁶ queries I would measure it and consider a more compact representation.
+    pitfalls:
+      - DFS over the entire subtree for every keystroke.
+      - Forgetting to update stored top-k lists when counts change.
+    follow_ups:
+      - prompt: How do you handle a count update for a query that is already stored?
+        look_for: Walk its path and update each node's top-k list (remove and reinsert); O(L · k).
+      - prompt: How would you support typos?
+        look_for: Bounded edit-distance search over the trie (DFS carrying a DP row), pruning branches whose minimum distance exceeds the limit.
+- key: dsa.trie.cards
+  type: revision_card
+  title: "Recall: tries"
+  skills: [trie.core]
+  minutes: 5
+  body:
+    cards:
+      - front: What does a trie node represent?
+        back: The prefix spelled by the path from the root.
+      - front: search vs starts_with?
+        back: Same walk; search also requires the end flag.
+      - front: Trie operation cost?
+        back: O(L) for a string of length L, independent of n.
+      - front: Count words with a prefix?
+        back: Store a pass count on each node during insert.
+      - front: Grid word search speed-up?
+        back: One trie of all words prunes paths with no matching prefix.

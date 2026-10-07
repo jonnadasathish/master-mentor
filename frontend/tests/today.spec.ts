@@ -371,3 +371,109 @@ describe('MissionCard', () => {
     expect(missionText(baselineItem({ battery_item_key: 'M0-B04' }), ctx).title).toBe('CS quiz: DBMS')
   })
 })
+
+/** Hybrid day (D-086): enough measured, battery open => the mentor's learning mission first, calibration second. */
+function hybridToday(extra: { learning?: boolean; gap?: Partial<PlanItem> } = {}) {
+  const gap = planItem({ id: 7, explanation: { target: 80, current: 51, evidence: 'LARGE_GAP', priority: 57, effective: 42, expected_outcome: undefined }, ...extra.gap })
+  const base = baselineItem({ id: 10, battery_item_key: 'M0-B03' })
+  const data = calibrationToday(2, [gap, base])
+  data.plan.learning = extra.learning === false ? {} : {
+    '7': { stage: 'PATTERN_DRILL', minutes: 35, session_id: null, steps: [
+      { position: 1, kind: 'CONTENT', title: 'Graph traversal lesson', minutes: 10, content_key: 'g.lesson', content_type: 'lesson', problem_id: null },
+      { position: 2, kind: 'CONTENT', title: 'Concept check', minutes: 5, content_key: 'g.check', content_type: 'concept_check', problem_id: null },
+      { position: 3, kind: 'PROBLEM', title: 'Number of Islands', minutes: 20, content_key: null, content_type: null, problem_id: 17 },
+    ] },
+  }
+  return data
+}
+
+describe('Today: hybrid (enough measured, calibration still open)', () => {
+  it('leads with the learning mission and shows calibration as secondary work', async () => {
+    routes(hybridToday(), { '/baseline': baselineIn('ENOUGH_MEASURED') })
+    const wrapper = await mountToday()
+    const mission = wrapper.find('[data-testid="learning-mission"]')
+    expect(mission.exists()).toBe(true)
+    expect(mission.text()).toContain("Today's focus")
+    expect(mission.find('[data-testid="learning-focus"]').text().length).toBeGreaterThan(0)
+    expect(mission.text()).toContain("Why this is today's focus")
+    expect(mission.find('[data-testid="learning-minutes"]').text()).toContain('35 min')
+    expect(mission.findAll('[data-testid="learning-path"] li')).toHaveLength(3)
+    expect(mission.find('[data-testid="start-learning"]').text()).toContain("Start today's learning")
+    const html = wrapper.html()
+    expect(html.indexOf('data-testid="learning-mission"')).toBeLessThan(html.indexOf('data-testid="calibration-cta"'))
+    expect(wrapper.find('[data-testid="calibration-cta"]').text()).toContain("they don't block today's learning")
+    expect(wrapper.find('[data-testid="calibration-progress"]').text()).toContain('2 / 12')
+    const diagnostics = wrapper.find('[data-testid="diagnostic-list"]')
+    expect(diagnostics.exists()).toBe(true)
+    expect(diagnostics.text()).not.toContain('graph.traversal') // only calibration items live here
+  })
+
+  it('Start today\'s learning opens the existing learning session for that plan item', async () => {
+    routes(hybridToday(), { '/baseline': baselineIn('ENOUGH_MEASURED') })
+    api.post.mockResolvedValue({ data: { id: 41 } })
+    const wrapper = await mountToday()
+    await wrapper.find('[data-testid="start-learning"]').trigger('click')
+    await flushPromises()
+    expect(api.post).toHaveBeenCalledWith('/learning/sessions', { skill: 'graph.traversal', stage: 'PATTERN_DRILL', plan_item_id: 7 })
+  })
+
+  it('remaining calibration can still be opened', async () => {
+    routes(hybridToday(), { '/baseline': baselineIn('ENOUGH_MEASURED') })
+    const wrapper = await mountToday()
+    const links = wrapper.findAllComponents(RouterLinkStub)
+    expect(links.find((c) => c.attributes('data-testid') === 'continue-calibration')?.props('to')).toEqual({ name: 'calibrate', query: { start: '1' } })
+    expect(links.find((c) => c.attributes('data-testid') === 'view-roadmap')?.props('to')).toEqual({ name: 'roadmap' })
+  })
+
+  it('without a learning mission in a plan frozen earlier it offers to add one', async () => {
+    const data = calibrationToday(2, [baselineItem({ id: 10, battery_item_key: 'M0-B03' })])
+    routes(data, { '/baseline': baselineIn('ENOUGH_MEASURED') })
+    const wrapper = await mountToday()
+    expect(wrapper.find('[data-testid="learning-mission"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="learning-pending"]').exists()).toBe(true)
+    api.post.mockResolvedValue({ data })
+    await wrapper.find('[data-testid="replan-learning"]').trigger('click')
+    expect(api.post).toHaveBeenCalledWith('/plan/today/regenerate', {})
+  })
+
+  it('says so honestly when today\'s time is already spent, instead of offering a re-plan that cannot help', async () => {
+    const data = calibrationToday(2, [baselineItem({ id: 10, battery_item_key: 'M0-B03', status: 'DONE' })])
+    data.plan.dropped = [{ key: 'GAP:graph.traversal', reason: 'BUDGET', detail: null }]
+    routes(data, { '/baseline': baselineIn('ENOUGH_MEASURED') })
+    const wrapper = await mountToday()
+    expect(wrapper.find('[data-testid="learning-tomorrow"]').text()).toContain('starts tomorrow')
+    expect(wrapper.find('[data-testid="replan-learning"]').exists()).toBe(false)
+  })
+
+  it('a learning mission without session content falls back to the ordinary mission card', async () => {
+    routes(hybridToday({ learning: false }), { '/baseline': baselineIn('ENOUGH_MEASURED') })
+    const wrapper = await mountToday()
+    expect(wrapper.find('[data-testid="learning-mission"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="plan-item-1"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="learning-pending"]').exists()).toBe(false)
+  })
+
+  it('stays calibration-only below the threshold, even with a learning item in the plan', async () => {
+    routes(hybridToday(), { '/baseline': baselineIn('IN_PROGRESS') })
+    const wrapper = await mountToday()
+    expect(wrapper.find('[data-testid="learning-mission"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="calibration-cta"]').attributes('data-phase')).toBe('IN_PROGRESS')
+  })
+
+  it('shows the normal personalised Today once calibration is complete', async () => {
+    routes(today(), { '/baseline': baselineIn('COMPLETE') })
+    const wrapper = await mountToday()
+    expect(wrapper.find('[data-testid="learning-mission"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="calibration-cta"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="plan-item-1"]').exists()).toBe(true)
+  })
+
+  it('has no horizontal-overflow hooks: long names wrap and the layout is a single column on phones', async () => {
+    routes(hybridToday(), { '/baseline': baselineIn('ENOUGH_MEASURED') })
+    const wrapper = await mountToday()
+    const mission = wrapper.find('[data-testid="learning-mission"]')
+    expect(mission.attributes('aria-labelledby')).toBe('learning-title')
+    expect(wrapper.find('#learning-title').element.tagName).toBe('H2')
+    expect(wrapper.findAll('button').every((b) => (b.attributes('type') ?? 'submit') === 'button')).toBe(true)
+  })
+})

@@ -1,5 +1,5 @@
-"""seed/learning validation (CONTENT_AUTHORING_GUIDE): the real content is valid and every authoring mistake that
-would make an item unshowable or unrecordable is reported before anything is loaded."""
+"""seed/learning validation (CONTENT_AUTHORING_GUIDE): the real content is valid, and every authoring
+mistake that would make an item unshowable or unrecordable is reported before anything is loaded."""
 
 from __future__ import annotations
 
@@ -180,3 +180,35 @@ def test_curriculum_must_place_every_skill() -> None:
         LESSON,
         curriculum=changed(CURRICULUM, lambda c: c["tracks"][0]["topics"][0]["skills"].append("ghost.x")),
     )
+
+
+def test_no_required_skill_is_a_content_gap() -> None:
+    """MASTER_SPEC_V3 §26: a critical skill must not be silently uncovered (dead-end rule, library side)."""
+    from app.domain.learning.coverage import SkillFacts, coverage_report
+
+    raw, lock = real_raw()
+    catalog = validate_seed(raw, lock).catalog
+    assert catalog is not None
+    targets = {t.skill: t for t in catalog.profiles[0].targets}
+    facts = [
+        SkillFacts(
+            s.key,
+            s.name,
+            s.component,
+            targets[s.key].tier,
+            targets[s.key].importance,
+            targets[s.key].required,
+        )
+        for s in catalog.skills
+    ]
+    difficulties: dict[str, list[str]] = {}
+    for p in catalog.problems:
+        for m in p.skills:
+            difficulties.setdefault(m.skill, []).append(p.difficulty)
+    rows = coverage_report(facts, catalog.learning, difficulties, {})
+    gaps = [
+        (r.skill_key, r.coverage_state)
+        for r in rows
+        if r.required and r.coverage_state in ("CONTENT_GAP", "UNMEASURED")
+    ]
+    assert gaps == []

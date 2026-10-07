@@ -508,6 +508,8 @@ def _reject_reason(
         return "NEW_TOPIC_LIMIT"
     if c.type == "GAP" and c.skill not in p.gap_skills and len(p.gap_skills) >= ruleset.FOCUS_LIMIT_SKILLS:
         return "FOCUS_LIMIT"
+    if c.type == "GAP" and inputs.calibration.hybrid and c.skill not in p.gap_skills and p.gap_skills:
+        return "FOCUS_LIMIT"  # hybrid day: one learning mission, so the battery keeps its place
     if c.skill is not None:
         if c.type == "REVISION" and c.skill in p.revision_skills:
             return "PER_SKILL_LIMIT"
@@ -668,10 +670,13 @@ def generate_daily_plan(inputs: PlanInputs, ruleset: ModuleType) -> DailyPlan:
     parked = {g.skill_key for g in inputs.gaps.gaps if g.status == "PARKED"}
     calibrating = inputs.calibration.calibration_mode
     battery_open = not inputs.calibration.battery_complete
+    hybrid = inputs.calibration.hybrid
     budget = max(inputs.budget - inputs.done_minutes, 0)
 
     candidates = _revision_candidates(inputs, parked, ruleset)
     if battery_open:
+        if hybrid:  # enough measured: the gap engine's top gap is today's learning mission (D-086)
+            candidates += _gap_candidates(inputs, ruleset)
         candidates += _baseline_candidates(inputs)
     else:
         candidates += _gap_candidates(inputs, ruleset)
@@ -695,10 +700,11 @@ def generate_daily_plan(inputs: PlanInputs, ruleset: ModuleType) -> DailyPlan:
     if not battery_open:
         _apply_track_floors(candidates, inputs, ruleset)
 
-    if battery_open:  # revisions by score, then battery order (MENTOR_ENGINE §3)
-        ordered = sorted((c for c in candidates if c.type == "REVISION"), key=_sort_key) + sorted(
-            (c for c in candidates if c.type == "BASELINE"), key=lambda c: c.order
-        )
+    if battery_open:  # revisions, battery order; hybrid: gap mission first
+        revisions = sorted((c for c in candidates if c.type == "REVISION"), key=_sort_key)
+        gaps = sorted((c for c in candidates if c.type == "GAP"), key=_sort_key)
+        battery = sorted((c for c in candidates if c.type == "BASELINE"), key=lambda c: c.order)
+        ordered = gaps + revisions + battery if hybrid else revisions + battery  # hybrid: learning first
     else:
         ordered = sorted(candidates, key=_sort_key)
 

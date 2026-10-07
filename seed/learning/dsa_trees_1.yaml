@@ -1,0 +1,1154 @@
+# Learning content, DSA (1/4): binary search beyond the basics (rotated arrays, peaks, search on the answer), sorting algorithms and intervals.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- binary search: boundaries
+- key: dsa.bs_boundaries.lesson
+  type: lesson
+  title: Boundary binary search on rotated arrays, peaks and predicates
+  skills: [binary_search.boundaries, binary_search.basic]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Turn every boundary question into "find the first index where a monotonic predicate becomes true", then prove each update keeps that index in range.
+    what: |-
+      A boundary search does not look for a value; it looks for the **first (or last) index where a yes/no predicate flips**. Lower bound, upper bound, the minimum of a rotated array and a peak element are all the same search with a different predicate.
+
+      - **Lower bound**: first `i` with `a[i] >= x` (Python `bisect.bisect_left`).
+      - **Upper bound**: first `i` with `a[i] > x` (Python `bisect.bisect_right`). The count of `x` is `bisect_right - bisect_left`.
+      - **Rotated sorted array** (distinct values): the predicate `a[i] <= a[-1]` is false on the left (larger) segment and true on the right segment, so its first true index is the minimum.
+      - **Peak element** (neighbours differ, imaginary minus infinity outside the array): the predicate `a[i] > a[i + 1]` is not globally monotonic, but "an uphill step to the right guarantees a peak on the right" is enough to discard half each time.
+    why: |-
+      The basic closed-interval template answers "is x present?". Real questions ask for positions: the first timestamp at or after T, where a sorted log was rotated, the first failing build. Getting these right needs a template that never returns early and an invariant that says exactly which index the range still contains.
+    when: |-
+      - The question says first, last, smallest index, insertion point, or "how many are less than x".
+      - A sorted array has been rotated, or is made of two sorted pieces.
+      - Any local comparison (mid with mid + 1, or mid with the right end) tells you which side still holds an answer, even if the whole array is not sorted.
+    how: |-
+      Write one generic template and only change the predicate:
+
+      ```python
+      def first_true(lo, hi, pred):
+          # invariant: the answer is in [lo, hi]; hi itself means "no index is true"
+          while lo < hi:
+              mid = (lo + hi) // 2
+              if pred(mid):
+                  hi = mid          # mid may be the first true: keep it
+              else:
+                  lo = mid + 1      # mid is false, so is everything left of it
+          return lo
+      ```
+
+      **Minimum of a rotated array.** Compare `a[mid]` with `a[hi]`, the right end of the current range:
+
+      ```python
+      def find_min(a):
+          lo, hi = 0, len(a) - 1
+          while lo < hi:
+              mid = (lo + hi) // 2
+              if a[mid] > a[hi]:
+                  lo = mid + 1      # the drop is strictly right of mid
+              else:
+                  hi = mid          # mid is in the right (smaller) segment; it may be the minimum
+          return a[lo]
+      ```
+
+      **Search in a rotated array.** One half of `[lo, hi]` is always sorted. If `a[lo] <= a[mid]` the left half is sorted: go left only when `a[lo] <= target < a[mid]`. Otherwise the right half is sorted: go right only when `a[mid] < target <= a[hi]`. Each decision is a range check on a sorted half, so it stays O(log n).
+
+      **Peak finding.** If `a[mid] < a[mid + 1]` you are on an uphill step, and walking right must reach a peak (the values cannot rise forever because of the imaginary minus infinity at the end), so `lo = mid + 1`; else `hi = mid`.
+    mental_model: |-
+      Picture a row of lights that are all off and then all on. You are not looking for a specific light; you are looking for the first one that is on. For each problem, ask: "what is my light?" (the predicate) and "why is it off-then-on?" (the monotonicity argument). If you cannot say both sentences, the template will not save you.
+    tradeoffs: |-
+      Using `bisect` is shorter and less error-prone than a hand-written loop, and since Python 3.10 it accepts a `key=` function. Hand-writing is still expected in interviews, and is required when the predicate is not a plain comparison (rotated arrays, peaks). Comparing with the right end (`a[hi]`) works for an unrotated array too; comparing with the left end needs a special case, so prefer the right end.
+    mistakes:
+      - Comparing `a[mid]` with `a[lo]` to find the minimum. On an unrotated array the left half looks "sorted" and the search moves right, away from the minimum at index 0.
+      - "Using `while lo <= hi` with `hi = mid`: when lo == hi and the predicate is true, nothing changes and the loop never ends."
+      - "Using `a[i] == target` as a predicate: it is true on a block in the middle, not false-then-true, so boundary search on it is meaningless."
+      - Forgetting that duplicates break the rotated-array decision. With `a[lo] == a[mid] == a[hi]` you cannot tell which side is sorted; shrink by one (`hi -= 1`) and accept O(n) worst case.
+      - Reading `a[mid + 1]` in peak finding with `while lo <= hi`; with `lo < hi`, `mid < hi` so `mid + 1` is always valid.
+    interview: |-
+      Interviewers listen for the predicate and the invariant: "I search for the first index where a[i] <= a[-1]; everything before the rotation point is larger than the last element." Expect follow-ups: what changes with duplicates, why compare with the right end, how to find the rotation count (it is the index of the minimum), and how median of two sorted arrays becomes a binary search on a partition.
+    explain_it:
+      - Name the predicate and argue why it is false-then-true.
+      - State the interval convention and what lo and hi mean.
+      - Show that each branch keeps the first true index in range and that the range shrinks.
+      - Give O(log n) time and O(1) space, and the O(n) worst case when duplicates are allowed in a rotated array.
+    example:
+      language: python
+      code: |-
+        def find_peak(a: list[int]) -> int:
+            """Any index whose value is larger than its neighbours; a[i] != a[i + 1]."""
+            lo, hi = 0, len(a) - 1
+            while lo < hi:                  # mid < hi, so a[mid + 1] is in range
+                mid = (lo + hi) // 2
+                if a[mid] < a[mid + 1]:
+                    lo = mid + 1            # uphill to the right: a peak exists in (mid, hi]
+                else:
+                    hi = mid                # downhill: a peak exists in [lo, mid]
+            return lo
+      explanation: "The invariant is \"[lo, hi] contains a peak\". It holds initially (the global maximum is a peak) and each branch keeps a half that must contain one."
+    complexity: O(log n) time and O(1) extra space for all four searches; rotated search with duplicates degrades to O(n) in the worst case (for example all equal values except one).
+    edge_cases:
+      - Array of length one (the minimum and the peak are index 0).
+      - A rotation by zero or by n positions, which leaves the array sorted.
+      - Target equal to a[lo] or a[hi] in rotated search; the inclusive comparisons must cover it.
+      - Duplicates in a rotated array.
+    misconceptions:
+      - "\"Binary search needs a sorted array.\" It needs a rule that discards half of the candidates; peak finding works on unsorted data."
+      - "\"bisect_left and bisect_right only differ on missing values.\" They differ exactly when the value is present: left gives its first index, right gives one past its last."
+- key: dsa.bs_boundaries.check
+  type: concept_check
+  title: "Concept check: rotated arrays, peaks and bisect"
+  skills: [binary_search.boundaries]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Trace each snippet on paper. Every question is about which index survives in the range.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "What does `find_min` return for `[4, 5, 6, 7, 0, 1, 2]`, and at which index does the loop stop?"
+        code:
+          language: python
+          code: |-
+            def find_min(a):
+                lo, hi = 0, len(a) - 1
+                while lo < hi:
+                    mid = (lo + hi) // 2
+                    if a[mid] > a[hi]:
+                        lo = mid + 1
+                    else:
+                        hi = mid
+                return a[lo]
+        options: ["0 at index 4", "0 at index 5", "7 at index 3", "1 at index 5"]
+        answer: [0]
+        explanation: "mid=3: 7 > 2 so lo=4. mid=5: 1 > 1 is false so hi=5. mid=4: 0 > 1 is false so hi=4. lo == hi == 4, value 0. Answering index 5 comes from stopping one step early when a[5]=1 is not greater than a[hi]."
+      - id: q2
+        kind: single
+        prompt: "Why does `find_min` compare `a[mid]` with `a[hi]` rather than with `a[lo]`?"
+        options:
+          - "Comparing with a[lo] is slower"
+          - "With a[lo], an unrotated array looks like a sorted left half and the search moves right, away from the minimum at index 0"
+          - "a[lo] may be out of range"
+          - "There is no difference; both work"
+        answer: [1]
+        explanation: "On [1, 2, 3, 4, 5], a[mid] >= a[lo] holds everywhere, so a left-end rule pushes lo to the right and misses index 0. The right end works because the minimum is always at or left of any element that is <= a[hi]."
+      - id: q3
+        kind: single
+        prompt: "For `a = [1, 3, 3, 3, 7]`, what are `bisect.bisect_left(a, 3)` and `bisect.bisect_right(a, 3)`?"
+        options: ["1 and 3", "1 and 4", "0 and 4", "1 and 5"]
+        answer: [1]
+        explanation: "bisect_left is the first index with a[i] >= 3, which is 1. bisect_right is the first index with a[i] > 3, which is 4 (one past the last 3). The count of 3s is 4 - 1 = 3; answering 3 for bisect_right confuses it with the last index."
+      - id: q4
+        kind: multi
+        prompt: Which predicates are false-then-true over the indexes, so a first-true search on them is valid?
+        options:
+          - "a[i] >= x on a sorted array"
+          - "a[i] <= a[-1] on a rotated sorted array of distinct values"
+          - "a[i] == x on a sorted array"
+          - "a[i] is odd, on a sorted array"
+        answer: [0, 1]
+        explanation: "The first two flip exactly once. Equality is true on a block in the middle (false, true, false), and parity has no order at all, so neither has a single boundary."
+      - id: q5
+        kind: single
+        prompt: "Search in a rotated array that may contain duplicates, for example `[2, 2, 2, 0, 2]`. Worst-case time?"
+        options: ["O(log n)", "O(n)", "O(n log n)", "O(1)"]
+        answer: [1]
+        explanation: "When a[lo] == a[mid] == a[hi] you cannot tell which half is sorted, so the safe move is to shrink one end by one. An array of equal values with one different element forces this n times. Claiming O(log n) ignores this case."
+      - id: q6
+        kind: short
+        prompt: In peak finding, why is it safe to discard the left half when a[mid] < a[mid + 1]?
+        model_answer: "From mid + 1 the values either keep rising until the end, where the imaginary minus infinity makes the last element a peak, or they fall at some point, and the element before the first fall is a peak. Either way a peak lies in [mid + 1, hi], so the invariant \"the range contains a peak\" survives."
+        explanation: The proof is about existence, not sortedness, which is why binary search works on an unsorted array here.
+- key: dsa.bs_boundaries.exercise
+  type: coding_exercise
+  title: "Exercise: search a rotated array with duplicates"
+  skills: [binary_search.boundaries]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 1200}
+  body:
+    prompt: |-
+      A sorted array of integers (duplicates allowed) was rotated at an unknown index. Write `contains(a, target)` that returns whether `target` is present. Aim for O(log n) on typical inputs and state the worst case honestly.
+    examples:
+      - "contains([2, 5, 6, 0, 0, 1, 2], 0) == True"
+      - "contains([2, 5, 6, 0, 0, 1, 2], 3) == False"
+      - "contains([1, 0, 1, 1, 1], 0) == True"
+    constraints:
+      - Up to 5000 elements; values fit in 32-bit integers.
+    hints:
+      - Without duplicates, one half of [lo, hi] is always sorted; decide with a[lo] <= a[mid].
+      - "When a[lo] == a[mid] == a[hi] the sorted half is unknown: move lo and hi inwards by one."
+      - Use the closed interval [lo, hi] and return as soon as a[mid] == target; here presence is the question, not a boundary.
+    solution:
+      language: python
+      code: |-
+        def contains(a: list[int], target: int) -> bool:
+            lo, hi = 0, len(a) - 1
+            while lo <= hi:
+                mid = (lo + hi) // 2
+                if a[mid] == target:
+                    return True
+                if a[lo] == a[mid] == a[hi]:
+                    lo += 1                     # cannot tell which half is sorted
+                    hi -= 1
+                elif a[lo] <= a[mid]:           # left half [lo, mid] is sorted
+                    if a[lo] <= target < a[mid]:
+                        hi = mid - 1
+                    else:
+                        lo = mid + 1
+                else:                           # right half [mid, hi] is sorted
+                    if a[mid] < target <= a[hi]:
+                        lo = mid + 1
+                    else:
+                        hi = mid - 1
+            return False
+      explanation: "O(log n) when duplicates do not hide the rotation, O(n) worst case (for example [1, 1, 1, 0, 1, 1]); O(1) extra space."
+    rubric:
+      - key: correct
+        label: "Passes the examples including the all-but-one-equal case"
+        points: 4
+      - key: sorted_half
+        label: "Identifies the sorted half and uses inclusive range checks against it"
+        points: 3
+      - key: duplicates
+        label: "Handles a[lo] == a[mid] == a[hi] by shrinking both ends"
+        points: 2
+      - key: complexity
+        label: "States O(log n) typical and O(n) worst case with a concrete input"
+        points: 1
+    follow_ups:
+      - prompt: How would you return the rotation index instead?
+        look_for: It is the index of the minimum; use the compare-with-a[hi] boundary search, with hi -= 1 when a[mid] == a[hi] if duplicates exist.
+      - prompt: Why can you not shrink only lo when the three values are equal?
+        look_for: Shrinking both is safe because a[lo] and a[hi] are not the target (a[mid] equals them and was just checked); either alone also works but both converge faster.
+- key: dsa.bs_boundaries.guided
+  type: guided_problem
+  title: "Guided practice: minimum of a rotated array"
+  skills: [binary_search.boundaries]
+  minutes: 15
+  difficulty: MEDIUM
+  problems: [76]
+  body:
+    guidance:
+      - Write the predicate in words first ("index i is in the right, smaller segment") and why it is false-then-true.
+      - Use the half-open style `while lo < hi` with `hi = mid` when mid may be the answer.
+      - Trace an unrotated array and a two-element rotated array before submitting.
+    hints:
+      - Compare a[mid] with a[hi], not a[lo].
+      - If a[mid] > a[hi], the minimum is strictly to the right of mid.
+- key: dsa.bs_boundaries.timed
+  type: timed_problem
+  title: "Timed practice: rotated search and median of two sorted arrays"
+  skills: [binary_search.boundaries]
+  minutes: 40
+  difficulty: HARD
+  problems: [16, 77]
+  body:
+    guidance:
+      - "Rotated search: say aloud which half is sorted and the exact inclusive range check before coding."
+      - "Median of two arrays: binary search on how many elements the shorter array puts into the left half; state the partition condition (left maxima <= right minima) before writing indexes."
+      - State time and space for each before the timer runs out; leave two minutes to trace an empty or one-element array.
+- key: dsa.bs_boundaries.interview
+  type: interview_question
+  title: "Interview question: explain rotated-array search and its worst case"
+  skills: [binary_search.boundaries]
+  minutes: 10
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 600}
+  body:
+    prompt: "A sorted list of distinct release numbers was rotated at an unknown point. Explain, without code, how to find a given release in O(log n), how you would find the rotation point, and what breaks if duplicates are allowed."
+    key_points:
+      - "At every step one of the two halves around mid is sorted; a[lo] <= a[mid] identifies the left one."
+      - "Moves into the sorted half only when the target lies inside its value range, otherwise into the other half."
+      - "Rotation point is the minimum: first index where a[i] <= a[-1], found by comparing a[mid] with a[hi]."
+      - "With duplicates, a[lo] == a[mid] == a[hi] hides the sorted half, so worst case becomes O(n)."
+    model_answer: One half of any range of a rotated sorted array is sorted. I compare a[lo] with a[mid] to find it, check whether the target falls inside that half's value range, and discard the other half if it does. The rotation point is the index of the minimum, which is a boundary search on a[i] <= a[-1]. With duplicates, equal ends and middle make the sorted half ambiguous, so I shrink the range by one and the worst case is linear.
+    pitfalls:
+      - Finding the pivot with a linear scan first, which makes the whole search O(n).
+      - Using strict comparisons at the range ends, which misses targets equal to a[lo] or a[hi].
+    follow_ups:
+      - prompt: How many times was the array rotated?
+        look_for: The index of the minimum element equals the rotation count (for right rotation of an ascending array).
+      - prompt: Can you do it with one binary search instead of pivot plus search?
+        look_for: Yes, the sorted-half decision inside a single loop; two searches is also O(log n) and sometimes clearer.
+- key: dsa.bs_boundaries.cards
+  type: revision_card
+  title: "Recall: boundary searches"
+  skills: [binary_search.boundaries]
+  minutes: 5
+  body:
+    cards:
+      - front: bisect_left vs bisect_right?
+        back: "First index with a[i] >= x vs first index with a[i] > x."
+      - front: Minimum of a rotated array — compare mid with what?
+        back: "a[hi]; if a[mid] > a[hi] go right (lo = mid + 1), else hi = mid."
+      - front: Rotated search — how do you pick a side?
+        back: Find the sorted half with a[lo] <= a[mid] and test if the target is inside its range.
+      - front: Rotated search with duplicates — worst case?
+        back: "O(n): equal lo, mid and hi force shrinking by one."
+      - front: Why does peak finding work on unsorted data?
+        back: An uphill step to the right guarantees a peak on that side.
+
+# ---------------------------------------------------------------------------------------------- binary search: answer space
+- key: dsa.bs_answer.lesson
+  type: lesson
+  title: Binary search on the answer with a feasibility function
+  skills: [binary_search.answer_space, binary_search.boundaries]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: When the answer is a number and "can I do it with x?" is monotonic in x, binary search x and spend your effort on a fast, correct check.
+    what: |-
+      Binary search on the answer searches over **candidate answers**, not over array indexes. You need three things:
+
+      - a **range** `[lo, hi]` that certainly contains the answer,
+      - a **feasibility function** `can(x)` that answers yes/no for one candidate, usually with a greedy O(n) pass,
+      - **monotonicity**: once `can(x)` is true it stays true for every larger x (minimisation), or once false it stays false (maximisation).
+
+      Then the answer is the first true (minimise) or last true (maximise) value of `can` over the range.
+    why: |-
+      Directly constructing an optimal answer is often hard, while checking a proposed answer is easy. "What is the minimum time to produce 10⁹ items?" has no obvious formula, but "can we produce them by time T?" is a sum. Binary search turns an easy check into an optimiser at a cost of only about log₂(range) checks — around 60 checks even for a range of 10¹⁸.
+    when: |-
+      - The question asks for a minimum of a maximum, a maximum of a minimum, the smallest speed, capacity, time or size.
+      - The search range is huge (10⁹ or more) so trying every candidate is impossible, but each check is cheap.
+      - You can argue "if x works, x + 1 works" (or the reverse) in one sentence.
+    how: |-
+      **Minimise** (first feasible). Example: machines produce items, machine i takes `times[i]` per item; find the least time to make `target` items.
+
+      ```python
+      def min_time(times: list[int], target: int) -> int:
+          def enough(t: int) -> bool:
+              return sum(t // x for x in times) >= target   # monotonic: more time, more items
+
+          lo, hi = 1, min(times) * target    # the fastest machine alone finishes by hi
+          while lo < hi:
+              mid = (lo + hi) // 2
+              if enough(mid):
+                  hi = mid                   # mid works; maybe something smaller does too
+              else:
+                  lo = mid + 1
+          return lo
+      ```
+
+      **Maximise** (last feasible). Example: place k ≥ 2 markers at given positions so the smallest gap between any two is as large as possible. A larger required gap is harder to satisfy, so `can(gap)` is true-then-false and we want the last true.
+
+      ```python
+      lo, hi = 0, positions[-1] - positions[0]   # gap 0 is always feasible
+      while lo < hi:
+          mid = (lo + hi + 1) // 2               # upper middle, so lo = mid always moves
+          if can(mid):
+              lo = mid
+          else:
+              hi = mid - 1
+      return lo
+      ```
+
+      Steps that always apply: prove monotonicity, pick bounds that are certainly feasible and certainly infeasible (or the edge of feasibility), write `can`, choose the first-true or last-true template, then count the cost: `O(log(hi - lo) × cost(can))`.
+    mental_model: |-
+      Imagine a dial labelled with every possible answer. Turning it up makes the task easier (more time, more capacity) until a light turns on and stays on. You are not computing the answer; you are asking an oracle "is this setting enough?" and using binary search to find where the light first turns on.
+    tradeoffs: |-
+      The check usually costs O(n), so the total is O(n log range). Sometimes a direct greedy or formula is O(n) or O(n log n) and simpler; binary search on the answer is the general tool when no formula is obvious. Tight bounds save only a few iterations (the cost is logarithmic), so correctness of bounds matters more than tightness. For real-valued answers, iterate a fixed number of times or scale to integer units (for example cents or milliseconds) instead of comparing floating-point values for equality.
+    mistakes:
+      - Choosing a lower bound that is infeasible for structural reasons, such as capacity below the heaviest package; the check may wrongly accept it if it does not handle that case.
+      - "Using the lower middle in the maximise template: with lo = 3, hi = 4 and can(3) true, lo stays 3 forever."
+      - Writing a check that is not actually monotonic (for example, with negative values in a split-array problem).
+      - Letting the check do unnecessary work; stop the greedy pass as soon as the answer is known (count exceeds k, items reach target).
+      - Using float division for ceilings; write `(p + s - 1) // s` or `-(-p // s)` to stay in integers.
+    interview: |-
+      Say the three ingredients aloud: range, check, monotonicity, then the complexity. Interviewers often probe the check ("why is greedy packing optimal?") and the bounds ("why max(weights)?"). Recognising the pattern quickly — "minimise the maximum" is a strong signal — is a large part of the evaluation.
+    explain_it:
+      - What the candidate answer x means in words.
+      - The feasibility check and why it is correct for a fixed x.
+      - Why feasibility is monotonic in x.
+      - Bounds, template (first true or last true) and O(n log range) cost.
+    example:
+      language: python
+      code: |-
+        def max_min_gap(positions: list[int], k: int) -> int:
+            positions = sorted(positions)            # k >= 2 and k <= len(positions)
+
+            def can(gap: int) -> bool:               # greedy: place each marker as early as allowed
+                placed, last = 1, positions[0]
+                for p in positions[1:]:
+                    if p - last >= gap:
+                        placed, last = placed + 1, p
+                        if placed == k:
+                            return True
+                return False
+
+            lo, hi = 0, positions[-1] - positions[0]
+            while lo < hi:
+                mid = (lo + hi + 1) // 2
+                if can(mid):
+                    lo = mid
+                else:
+                    hi = mid - 1
+            return lo
+      explanation: "O(n log n) for the sort plus O(n log(range)) for the search; O(n) space for the sorted copy. Greedy is optimal because placing a marker as early as possible never reduces the room left for the remaining markers."
+    complexity: O(cost(check) × log(hi - lo)); typically O(n log M) time where M is the size of the answer range, O(1) extra space beyond the input.
+    edge_cases:
+      - The lower bound itself is the answer (a single item, or k equal to the number of items).
+      - Products such as min(times) × target that would overflow in fixed-width languages; Python integers do not overflow.
+      - The answer does not exist (more groups requested than items); detect before searching.
+    misconceptions:
+      - "\"The array must be sorted.\" The array is irrelevant to the search; the answer range is what is ordered."
+      - "\"Any optimisation problem works.\" Without a monotonic check, binary search can skip the true optimum."
+- key: dsa.bs_answer.check
+  type: concept_check
+  title: "Concept check: search on the answer"
+  skills: [binary_search.answer_space]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Each question tests one of the three ingredients — range, check, monotonicity — or the template.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "Piles of sizes [4, 9, 5] must be eaten within 6 hours; at speed s one pile takes ceil(size / s) hours. What is the smallest feasible speed?"
+        options: ["3", "4", "5", "6"]
+        answer: [1]
+        explanation: "Speed 3 needs 2 + 3 + 2 = 7 hours, too many. Speed 4 needs 1 + 3 + 2 = 6, feasible. Picking 5 or 6 finds a feasible speed but not the smallest one, which is what the search must return."
+      - id: q2
+        kind: single
+        prompt: What happens with this loop when can(mid) is true and lo == hi?
+        code:
+          language: python
+          code: |-
+            lo, hi = max(w), sum(w)
+            while lo <= hi:
+                mid = (lo + hi) // 2
+                if can(mid):
+                    hi = mid
+                else:
+                    lo = mid + 1
+            return lo
+        options:
+          - "It returns lo correctly"
+          - "It loops forever because hi = mid does not shrink the range"
+          - "It returns lo - 1"
+          - "It raises IndexError"
+        answer: [1]
+        explanation: "With lo == hi == mid and can(mid) true, hi = mid leaves the state unchanged. Either use while lo < hi with hi = mid, or while lo <= hi with hi = mid - 1 and track the best answer separately."
+      - id: q3
+        kind: multi
+        prompt: Which feasibility functions are monotonic in their parameter?
+        options:
+          - "Packages can be shipped within D days with capacity c (parameter c)"
+          - "A window of length L with sum at least S exists, all values positive (parameter L)"
+          - "The maximum of some window of length L equals exactly X (parameter L)"
+          - "All jobs finish by time T with k workers (parameter T)"
+        answer: [0, 1, 3]
+        explanation: "More capacity, a longer window of positive values, and more time each keep a feasible answer feasible. An exact-equality condition can switch from true to false and back as L grows, so it has no single boundary."
+      - id: q4
+        kind: single
+        prompt: "n = 10⁵ weights, each up to 10⁹, so the sum is up to 10¹⁴. About how many O(n) checks does the search do?"
+        options: ["About 17", "About 47", "About 10⁵", "About 10⁹"]
+        answer: [1]
+        explanation: "log₂(10¹⁴) is about 46.5, so roughly 47 checks and about 5 × 10⁶ operations in total. 17 is log₂(10⁵), the size of the array, which is not what is being searched."
+      - id: q5
+        kind: single
+        prompt: "In the maximise template (last true), why use mid = (lo + hi + 1) // 2?"
+        options:
+          - "To avoid overflow"
+          - "So that lo = mid always moves lo forward when hi = lo + 1"
+          - "Because the answer is always odd"
+          - "It is only a style preference"
+        answer: [1]
+        explanation: "With lo = 3 and hi = 4 the lower middle is 3; if can(3) is true then lo = 3 again and the loop never ends. The upper middle is 4, so either branch shrinks the range."
+      - id: q6
+        kind: short
+        prompt: How do you recognise a binary-search-on-the-answer problem, and how do you justify monotonicity aloud?
+        model_answer: "Signals: the answer is a number in a large range, the wording is minimise the maximum or maximise the minimum or smallest speed/capacity/time, and checking one candidate is easy. Justify monotonicity with a one-line argument: any plan that works with x also works with x + 1 (more capacity, more time), so feasibility is false-then-true."
+        explanation: Saying the monotonicity argument is what separates a correct pattern match from a lucky guess.
+- key: dsa.bs_answer.exercise
+  type: coding_exercise
+  title: "Exercise: earliest day to make the bouquets"
+  skills: [binary_search.answer_space, greedy.core]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 1200}
+  body:
+    prompt: |-
+      Flowers stand in a row; flower i blooms on day `bloom[i]` and stays bloomed. A bouquet needs `k` **adjacent** bloomed flowers, and each flower can be used once. Return the earliest day on which you can make `m` bouquets, or -1 if it is impossible.
+    examples:
+      - "earliest_day([1, 10, 3, 10, 2], m=3, k=1) == 3"
+      - "earliest_day([1, 10, 3, 10, 2], m=3, k=2) == -1  (needs 6 flowers, only 5 exist)"
+      - "earliest_day([7, 7, 7, 7, 12, 7, 7], m=2, k=3) == 12"
+    constraints:
+      - Up to 10⁵ flowers; bloom days up to 10⁹.
+    hints:
+      - If m × k exceeds the number of flowers, return -1 before searching.
+      - "For a fixed day d, scan left to right counting consecutive bloomed flowers; every k in a row is one bouquet."
+      - More days never un-bloom a flower, so feasibility is monotonic; search between min(bloom) and max(bloom).
+    solution:
+      language: python
+      code: |-
+        def earliest_day(bloom: list[int], m: int, k: int) -> int:
+            if m * k > len(bloom):
+                return -1
+
+            def can(day: int) -> bool:
+                bouquets = run = 0
+                for b in bloom:
+                    if b <= day:
+                        run += 1
+                        if run == k:
+                            bouquets += 1
+                            run = 0
+                    else:
+                        run = 0
+                return bouquets >= m
+
+            lo, hi = min(bloom), max(bloom)
+            while lo < hi:
+                mid = (lo + hi) // 2
+                if can(mid):
+                    hi = mid
+                else:
+                    lo = mid + 1
+            return lo
+      explanation: O(n log(max - min)) time and O(1) extra space. Taking the leftmost k adjacent bloomed flowers greedily never prevents a later bouquet, so the count is the maximum for that day.
+    rubric:
+      - key: correct
+        label: "Returns the right day and -1 when m times k exceeds n"
+        points: 4
+      - key: check
+        label: "Greedy check resets the run on an unbloomed flower and after each bouquet"
+        points: 3
+      - key: monotonic
+        label: "States why feasibility is monotonic in the day"
+        points: 1
+      - key: complexity
+        label: "States O(n log range) time and O(1) space"
+        points: 2
+    follow_ups:
+      - prompt: Could you search over the sorted distinct bloom days instead of the numeric range?
+        look_for: Yes; the answer is always one of the bloom days, so binary search their sorted list (O(n log n) for the sort, same order overall).
+      - prompt: Why is the greedy count optimal for a fixed day?
+        look_for: Exchange argument; using the leftmost available run of k leaves at least as much room to the right as any other choice.
+- key: dsa.bs_answer.guided
+  type: guided_problem
+  title: "Guided practice: slowest eating speed"
+  skills: [binary_search.answer_space]
+  minutes: 20
+  difficulty: MEDIUM
+  problems: [18]
+  body:
+    guidance:
+      - Write the three ingredients as comments first — range, check, monotonicity.
+      - Use integer ceiling division in the check, never float division.
+      - Trace the check on the bounds 1 and max(piles) before running the search.
+    hints:
+      - The speed max(piles) always finishes in len(piles) hours.
+      - First-true template with hi = mid when the speed is fast enough.
+- key: dsa.bs_answer.timed
+  type: timed_problem
+  title: "Timed practice: capacity and largest-sum splits"
+  skills: [binary_search.answer_space]
+  minutes: 45
+  difficulty: HARD
+  problems: [78, 79]
+  body:
+    guidance:
+      - Name the pattern within two minutes and state the bounds (max element, total sum) with a reason.
+      - Write and test the greedy check on its own before wrapping it in the search.
+      - State O(n log(sum)) time and O(1) space; explain why greedy packing gives the fewest groups.
+- key: dsa.bs_answer.interview
+  type: interview_question
+  title: "Interview question: is binary search on the answer valid here?"
+  skills: [binary_search.answer_space]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: |-
+      For each task, say whether binary search on the answer applies, and if so give the range, the check and the complexity:
+
+      - (a) the minimum number of identical workers so that n independent jobs with given durations all finish within T hours, when each job runs on one worker;
+      - (b) the largest integer x such that x² ≤ N, for N up to 10¹⁸;
+      - (c) the length of the longest subarray whose sum equals exactly S, values possibly negative.
+    key_points:
+      - "(a) monotonic (more workers never hurts), range 1..n, but the check is bin packing, which is NP-hard in general; a greedy check is only a heuristic."
+      - "(b) applies; x² <= N is true-then-false, range 0..10⁹ (or N), last-true template, about 30 to 60 iterations of O(1)."
+      - "(c) does not apply: a length L working says nothing about L + 1 or L - 1; use prefix sums with a hash map instead."
+      - Gives the general rule that the check must be both correct and monotonic before the template is useful.
+    model_answer: "(a) Feasibility is monotonic in the number of workers, but checking whether jobs fit into k bins of size T is bin packing, so binary search only helps if the check is solved exactly (backtracking for small n) or approximated knowingly. (b) Classic last-true search for an integer square root with O(1) checks; Python also offers math.isqrt. (c) Not monotonic, so binary search can skip the answer; a prefix-sum hash map gives O(n)."
+    pitfalls:
+      - Applying the template because the answer is numeric, without checking monotonicity.
+      - Missing that a correct check can itself be the hard part of the problem.
+    follow_ups:
+      - prompt: For (b), why is hi = N a poor but still correct bound?
+        look_for: It costs about log₂(10¹⁸) ≈ 60 iterations instead of 30, which is negligible; correctness only needs the answer inside the range.
+      - prompt: If the jobs in (a) had to run in the given order on consecutive workers, what changes?
+        look_for: Then a greedy contiguous packing is an exact check, as in split array largest sum.
+- key: dsa.bs_answer.cards
+  type: revision_card
+  title: "Recall: search on the answer"
+  skills: [binary_search.answer_space]
+  minutes: 5
+  body:
+    cards:
+      - front: Three ingredients of binary search on the answer?
+        back: A range that contains the answer, a feasibility check, and monotonicity.
+      - front: Minimise vs maximise template?
+        back: "Minimise = first true (hi = mid); maximise = last true (lo = mid, upper middle)."
+      - front: Total cost?
+        back: O(log(range) × cost of the check), typically O(n log M).
+      - front: Integer ceiling of p / s without floats?
+        back: "(p + s - 1) // s"
+      - front: Strong wording signal?
+        back: Minimise the maximum or maximise the minimum.
+
+# ---------------------------------------------------------------------------------------------- sorting algorithms
+- key: dsa.sorting.lesson
+  type: lesson
+  title: Merge sort, quicksort, quickselect and counting sort
+  skills: [sorting.algorithms, dsa.complexity_analysis]
+  minutes: 30
+  difficulty: MEDIUM
+  body:
+    summary: Know three sorts well — merge sort (stable, guaranteed n log n), quicksort and its quickselect cousin (in place, expected linear selection), and counting sort (linear for small value ranges).
+    what: |-
+      - **Merge sort** splits the array in half, sorts each half recursively and merges two sorted halves in linear time. Stable, O(n log n) always, O(n) extra memory.
+      - **Quicksort** partitions around a pivot (smaller left, larger right) and recurses on both sides. In place, O(n log n) expected with a random pivot, O(n²) worst case, not stable.
+      - **Quickselect** partitions once and recurses into **one** side only, to find the k-th smallest element in O(n) expected time.
+      - **Counting sort** counts occurrences of each value in a small range `[0, k)` and rebuilds the output in O(n + k). It does not compare elements.
+      - **Heap sort** builds a heap and pops n times: O(n log n) worst case, O(1) extra, not stable.
+
+      CPython's `list.sort` and `sorted` use a stable, adaptive merge-based algorithm (Timsort family): O(n log n) worst case and close to O(n) on input that is already mostly sorted.
+    why: |-
+      You will rarely hand-write a sort in production, but the ideas reappear constantly: merging is how you combine sorted runs, sorted files and K sorted lists; partitioning is how you select the k-th element or split by a condition in place; counting is how you beat n log n when values are small integers. Interviews test these as "sort without the built-in", "k-th largest", "sort three colours in one pass" and "count inversions".
+    when: |-
+      - Need stability, linked lists or external (on-disk) data: merge sort.
+      - Need in-place sorting with low memory: quicksort or heap sort.
+      - Need only the k-th element or the k smallest, unordered: quickselect.
+      - Values are integers in a small range (ages, grades, three colours): counting sort.
+      - Everything else in Python: `sorted(data, key=...)`.
+    how: |-
+      **Merge** two sorted lists by repeatedly taking the smaller head; on ties take from the left list to stay stable:
+
+      ```python
+      def merge_sort(a: list[int]) -> list[int]:
+          if len(a) <= 1:
+              return a
+          mid = len(a) // 2
+          left, right = merge_sort(a[:mid]), merge_sort(a[mid:])
+          out, i, j = [], 0, 0
+          while i < len(left) and j < len(right):
+              if left[i] <= right[j]:        # <= keeps equal elements in original order
+                  out.append(left[i]); i += 1
+              else:
+                  out.append(right[j]); j += 1
+          out.extend(left[i:]); out.extend(right[j:])
+          return out
+      ```
+
+      **Partition** (Lomuto): walk `j` across the range, keeping everything left of `i` smaller than the pivot; finally put the pivot at `i`. Quicksort recurses on `[lo, i - 1]` and `[i + 1, hi]`; quickselect recurses only into the side that contains index k.
+
+      **Counting sort**: `count[v] += 1` for each value, then emit each value `count[v]` times (or, for records, turn counts into prefix-sum positions and place items from the end to keep it stable).
+    mental_model: |-
+      Merge sort does its work on the way **up** (merging), quicksort does it on the way **down** (partitioning). Merge sort's recursion tree is always balanced; quicksort's is balanced only if pivots land near the middle, which a random pivot makes very likely.
+    tradeoffs: |-
+      Merge sort is predictable but allocates O(n). Quicksort is in place and cache-friendly but has an O(n²) worst case on sorted input with a fixed first/last pivot and is not stable. Quickselect is O(n) expected but O(n²) worst; the median-of-medians pivot gives a guaranteed O(n) at a large constant factor. Counting sort is O(n + k), which is only a win when k is not much larger than n. Any comparison sort needs Ω(n log n) comparisons in the worst case.
+    mistakes:
+      - Using `<` instead of `<=` in the merge, which makes merge sort unstable.
+      - Always picking the first or last element as pivot, giving O(n²) and O(n) recursion depth on sorted input.
+      - Slicing inside quicksort recursion (`a[:p]`), which silently costs O(n) memory per level and loses the in-place property.
+      - Recursing into both sides in quickselect, which turns it back into quicksort (O(n log n)).
+      - Using counting sort when values range up to 10⁹; the count array alone is too large.
+    interview: |-
+      Expect "implement merge sort or quicksort", "find the k-th largest without sorting everything", "sort an array of 0s, 1s and 2s in one pass" and "count pairs i < j with a[i] > a[j]" (merge sort counting). Always state stability, extra space and the worst case, including the recursion stack: merge sort O(log n) stack plus O(n) buffers; quicksort O(log n) expected stack, O(n) worst unless you recurse into the smaller side first and loop on the larger.
+    explain_it:
+      - Which sort you chose and the property that decided it (stability, memory, value range).
+      - Best, expected and worst time, and what input triggers the worst case.
+      - Extra space including the recursion stack.
+      - Why comparison sorting cannot beat n log n and how counting sort avoids that bound.
+    example:
+      language: python
+      code: |-
+        import random
+
+        def kth_smallest(a: list[int], k: int) -> int:
+            """k is 0-based. Rearranges a in place. Expected O(n)."""
+            lo, hi = 0, len(a) - 1
+            while True:
+                p = random.randint(lo, hi)            # random pivot defeats sorted inputs
+                a[p], a[hi] = a[hi], a[p]
+                pivot, i = a[hi], lo
+                for j in range(lo, hi):               # Lomuto partition
+                    if a[j] < pivot:
+                        a[i], a[j] = a[j], a[i]
+                        i += 1
+                a[i], a[hi] = a[hi], a[i]             # pivot now at its final index i
+                if i == k:
+                    return a[i]
+                if i < k:
+                    lo = i + 1                        # only one side survives
+                else:
+                    hi = i - 1
+      explanation: "Each round discards one side; expected work is n + n/2 + n/4 + … ≈ 2n, so O(n) expected, O(n²) worst. Iterative, so O(1) extra space. With many equal values, a three-way partition avoids degenerate rounds."
+    complexity: "Merge sort O(n log n) time, O(n) space; quicksort O(n log n) expected, O(n²) worst, O(log n) expected stack; quickselect O(n) expected; counting sort O(n + k) time and space; heap sort O(n log n) time, O(1) space."
+    internals: |-
+      The Ω(n log n) lower bound: a comparison sort is a binary decision tree whose leaves are the n! possible orderings, so its height is at least log₂(n!), which is Θ(n log n). Counting sort and radix sort escape the bound because they inspect values directly instead of comparing pairs.
+    edge_cases:
+      - Empty and one-element arrays.
+      - All elements equal, which makes a two-way Lomuto partition degrade to O(n²); use a three-way partition.
+      - Already sorted or reverse-sorted input with a fixed pivot.
+      - Negative values in counting sort; offset them by the minimum.
+- key: dsa.sorting.check
+  type: concept_check
+  title: "Concept check: sorting algorithms"
+  skills: [sorting.algorithms]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Trace the partition by hand; the other questions are about the properties you must state in an interview.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "After `partition(a, 0, 4)` on `a = [9, 3, 7, 1, 5]`, what are `a` and the returned index?"
+        code:
+          language: python
+          code: |-
+            def partition(a, lo, hi):
+                pivot = a[hi]
+                i = lo
+                for j in range(lo, hi):
+                    if a[j] < pivot:
+                        a[i], a[j] = a[j], a[i]
+                        i += 1
+                a[i], a[hi] = a[hi], a[i]
+                return i
+        options: ["[3, 1, 5, 9, 7] and 2", "[1, 3, 5, 7, 9] and 2", "[3, 1, 5, 7, 9] and 2", "[3, 1, 7, 9, 5] and 1"]
+        answer: [0]
+        explanation: "Pivot 5. j=1 swaps 3 to index 0, j=3 swaps 1 to index 1 (giving [3, 1, 7, 9, 5]), then the pivot swaps with index 2, giving [3, 1, 5, 9, 7]. Partition only guarantees smaller-left and larger-right, not a sorted array, which is why [1, 3, 5, 7, 9] is tempting but wrong."
+      - id: q2
+        kind: multi
+        prompt: Which of these are stable?
+        options:
+          - "Merge sort that takes from the left half on ties"
+          - "Heap sort"
+          - "Python's sorted()"
+          - "In-place quicksort with Lomuto partition"
+        answer: [0, 2]
+        explanation: "Merge sort with <= and CPython's sort keep equal elements in input order. Heap sort and in-place partitioning move equal elements past each other through long-distance swaps."
+      - id: q3
+        kind: single
+        prompt: Quicksort that always picks the last element as pivot runs on an already sorted array of n elements. Time and recursion depth?
+        options: ["O(n log n) time, O(log n) depth", "O(n²) time, O(n) depth", "O(n²) time, O(log n) depth", "O(n) time, O(1) depth"]
+        answer: [1]
+        explanation: "Every partition puts all other elements on one side, so sizes go n, n-1, n-2…: O(n²) comparisons and n nested calls. In CPython that depth also hits the default recursion limit of 1000 quickly."
+      - id: q4
+        kind: single
+        prompt: Expected time of quickselect with a random pivot for the k-th smallest of n elements?
+        options: ["O(log n)", "O(n)", "O(n log n)", "O(k log n)"]
+        answer: [1]
+        explanation: "It recurses into one side only; expected sizes shrink geometrically (n + n/2 + n/4 …), summing to O(n). O(n log n) is quicksort, which recurses into both sides."
+      - id: q5
+        kind: single
+        prompt: 10⁶ exam scores are integers from 0 to 100. Which sort is asymptotically best and what does it cost?
+        options: ["Merge sort, O(n log n)", "Counting sort, O(n + k) with k = 101", "Quicksort, O(n)", "Heap sort, O(n)"]
+        answer: [1]
+        explanation: "With only 101 possible values, counting does about n + 101 steps. A comparison sort cannot beat n log n; quicksort and heap sort are not O(n)."
+      - id: q6
+        kind: short
+        prompt: Why can no comparison-based sort guarantee better than O(n log n), and why does that not apply to counting sort?
+        model_answer: "A comparison sort must distinguish all n! orderings using yes/no comparisons, so its decision tree has at least n! leaves and height at least log₂(n!) = Θ(n log n). Counting sort reads values as array indexes instead of comparing pairs, so the decision-tree argument does not apply; its cost depends on the value range k."
+        explanation: The lower bound is about the comparison model, not about sorting in general.
+- key: dsa.sorting.exercise
+  type: coding_exercise
+  title: "Exercise: count inversions with merge sort"
+  skills: [sorting.algorithms, recursion.fundamentals]
+  minutes: 25
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 1500}
+  body:
+    prompt: |-
+      An inversion is a pair of indexes `i < j` with `a[i] > a[j]`. It measures how far a ranking is from sorted. Write `count_inversions(a)` in O(n log n). The brute force over all pairs is O(n²).
+    examples:
+      - "count_inversions([2, 4, 1, 3, 5]) == 3  (2>1, 4>1, 4>3)"
+      - "count_inversions([1, 2, 3]) == 0"
+      - "count_inversions([3, 2, 1]) == 3"
+    constraints:
+      - Up to 10⁵ integers, duplicates allowed (equal values are not inversions).
+    hints:
+      - Inversions = inversions inside the left half + inside the right half + pairs that cross the middle.
+      - While merging, when you take right[j] before left[i], every remaining element of the left half is greater than right[j].
+      - "Use <= when taking from the left so equal values are not counted."
+    solution:
+      language: python
+      code: |-
+        def count_inversions(a: list[int]) -> int:
+            def sort_count(lo: int, hi: int) -> int:     # sorts a[lo:hi] in place, returns inversions
+                if hi - lo <= 1:
+                    return 0
+                mid = (lo + hi) // 2
+                count = sort_count(lo, mid) + sort_count(mid, hi)
+                merged, i, j = [], lo, mid
+                while i < mid and j < hi:
+                    if a[i] <= a[j]:
+                        merged.append(a[i]); i += 1
+                    else:
+                        merged.append(a[j]); j += 1
+                        count += mid - i                 # a[i..mid-1] are all > a[j]
+                merged.extend(a[i:mid]); merged.extend(a[j:hi])
+                a[lo:hi] = merged
+                return count
+            a = list(a)                                  # do not mutate the caller's list
+            return sort_count(0, len(a))
+      explanation: O(n log n) time, O(n) extra for merge buffers, O(log n) recursion depth.
+    rubric:
+      - key: correct
+        label: "Correct counts including duplicates and empty input"
+        points: 4
+      - key: cross_count
+        label: "Adds mid minus i when taking from the right half"
+        points: 3
+      - key: no_mutation
+        label: "Does not modify the caller's list or says it does"
+        points: 1
+      - key: complexity
+        label: "States O(n log n) time and O(n) space with O(log n) stack"
+        points: 2
+    follow_ups:
+      - prompt: How would you count, for each element, how many smaller elements are to its right?
+        look_for: Merge sort over indexes, adding the number of right-half elements already taken to each left element; or a Fenwick tree over compressed values.
+      - prompt: What is the maximum number of inversions for n elements?
+        look_for: n(n-1)/2, a reverse-sorted array; it does not fit the answer into O(n) output, but the count is a single integer.
+- key: dsa.sorting.guided
+  type: guided_problem
+  title: "Guided practice: three-way partition"
+  skills: [sorting.algorithms]
+  minutes: 15
+  difficulty: MEDIUM
+  problems: [59]
+  body:
+    guidance:
+      - Start with the two-pass counting-sort version and its complexity, then aim for one pass.
+      - "Keep three regions: [0, low) holds 0s, [low, mid) holds 1s, (high, end] holds 2s; mid scans the unknown part."
+      - When you swap a 2 to the end, do not advance mid; the swapped-in value is still unknown.
+    hints:
+      - Loop while mid <= high.
+      - A swap with low brings a known 1 (or 0 when low == mid), so mid may advance.
+- key: dsa.sorting.timed
+  type: timed_problem
+  title: "Timed practice: hand-written sort and smaller-after-self"
+  skills: [sorting.algorithms]
+  minutes: 50
+  difficulty: HARD
+  problems: [60, 61]
+  body:
+    guidance:
+      - "Sort an array: pick merge sort or randomised quicksort, and state stability, stack depth and worst case before coding."
+      - "Smaller-after-self: sort indexes, not values, so counts can be attributed to original positions."
+      - Test with duplicates and a reverse-sorted input before submitting.
+- key: dsa.sorting.interview
+  type: interview_question
+  title: "Interview question: choose the sort"
+  skills: [sorting.algorithms, python.sorting_keys]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: |-
+      Pick an approach for each case and justify it in terms of time, memory and stability:
+
+      - (a) 10 million order records sorted by country, and within a country by created_at;
+      - (b) 50 million ages from 0 to 150;
+      - (c) a 200 GB log file of timestamps on a machine with 16 GB of RAM.
+    key_points:
+      - "(a) one sorted() call with key=lambda r: (r.country, r.created_at), or two stable passes (created_at first, then country)."
+      - "(b) counting sort: O(n + 151) time and a 151-slot count array."
+      - "(c) external merge sort: sort chunks that fit in memory, write sorted runs, then k-way merge them with a heap."
+      - States that stability is what makes the two-pass approach in (a) correct.
+    model_answer: "(a) Python's sort is stable, so a tuple key or two passes (secondary key first) both work in O(n log n). (b) The value range is tiny, so counting sort runs in linear time with constant extra memory. (c) Data does not fit in RAM: split into roughly 10 GB chunks, sort each in memory and write it out, then merge the runs with a min-heap of their current heads, reading sequentially; total O(n log n) work with sequential I/O."
+    pitfalls:
+      - Sorting by the primary key first in the two-pass approach.
+      - Proposing to load 200 GB into memory or to use quicksort on disk with random access.
+    follow_ups:
+      - prompt: In (c), how many runs would you merge at once and why?
+        look_for: All runs in one k-way merge if file handles and buffers fit (here about 20 runs); otherwise multiple passes; heap gives O(log k) per record.
+      - prompt: Why is a stable sort required for multi-pass sorting?
+        look_for: The second pass must keep the order produced by the first pass among equal primary keys.
+- key: dsa.sorting.cards
+  type: revision_card
+  title: "Recall: sorting algorithms"
+  skills: [sorting.algorithms]
+  minutes: 5
+  body:
+    cards:
+      - front: Merge sort time, space, stable?
+        back: O(n log n) always, O(n) extra, stable.
+      - front: Quicksort worst case and its trigger?
+        back: O(n²) when pivots are extreme, e.g. last-element pivot on sorted input.
+      - front: Quickselect expected time?
+        back: O(n) — recurse into one side only.
+      - front: Counting sort cost?
+        back: O(n + k) for values in a range of size k.
+      - front: Comparison sort lower bound?
+        back: Ω(n log n) because log₂(n!) = Θ(n log n).
+
+# ---------------------------------------------------------------------------------------------- intervals
+- key: dsa.intervals.lesson
+  type: lesson
+  title: "Intervals: overlap, merge, insert and the sweep line"
+  skills: [intervals.core, python.sorting_keys]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Fix the endpoint convention, sort by the right key (start to merge, end to schedule), and sweep once.
+    what: |-
+      Interval problems work on pairs `[start, end]`. Four operations cover most of them:
+
+      - **Merge** overlapping intervals into disjoint ones (sort by start).
+      - **Insert** one interval into a sorted, disjoint list (one linear pass).
+      - **Schedule**: keep as many non-overlapping intervals as possible, or remove the fewest (sort by end, greedy).
+      - **Sweep line**: turn intervals into +1/-1 events to find maximum concurrency, such as meeting rooms or peak load.
+    why: |-
+      Calendars, booking systems, IP ranges, rate-limit windows and log time ranges are all intervals. A pairwise overlap check is O(n²); sorting once makes almost every question O(n log n).
+    when: |-
+      - Inputs are ranges, bookings, sessions or segments.
+      - The question asks about overlap, coverage, free time, the number of concurrent items, or the fewest items to remove.
+    how: |-
+      **Overlap test.** Closed intervals `[a, b]` and `[c, d]` overlap when `a <= d and c <= b`. Half-open `[a, b)` and `[c, d)` (meetings ending at 10 do not clash with ones starting at 10) overlap when `a < d and c < b`. Decide the convention first.
+
+      **Merge.** Sort by start; extend the last merged interval while the next one starts before (or at) its end:
+
+      ```python
+      def merge(intervals):
+          out = []
+          for s, e in sorted(intervals):
+              if out and s <= out[-1][1]:
+                  out[-1][1] = max(out[-1][1], e)   # max: the new one may be nested inside
+              else:
+                  out.append([s, e])
+          return out
+      ```
+
+      **Insert.** Three phases in one pass: copy intervals ending before the new one, absorb those that overlap (min of starts, max of ends), copy the rest.
+
+      **Scheduling.** Sort by **end** and keep an interval when it starts at or after the last kept end. Fewest removals = n − kept.
+
+      **Sweep line.** Each interval adds `(start, +1)` and `(end, -1)`. Sorting the tuples places `(t, -1)` before `(t, +1)`, so an end at time t frees its room before a start at t takes one — exactly the half-open convention.
+    mental_model: |-
+      Draw the intervals as bars on a timeline and slide a vertical line from left to right. Merging is "the line is inside some bar"; concurrency is "how many bars does the line cross right now"; scheduling is "finish as early as possible to leave the most room".
+    tradeoffs: |-
+      Sweep events cost O(n) extra memory and an O(n log n) sort; the alternative for meeting rooms — sort by start and keep a min-heap of end times — has the same complexity and also tells you which room is free. If coordinates are small integers, a difference array gives O(n + range) without sorting. For many queries against a changing set of intervals, use a balanced tree or an interval tree, which Python does not provide in the standard library.
+    mistakes:
+      - Using `out[-1][1] = e` instead of `max(...)`, which shrinks the merged interval when a later one is nested.
+      - Sorting by start for the fewest-removals problem; one long early interval then blocks many short ones.
+      - Getting the tie at equal times wrong in the sweep, which over-counts rooms for back-to-back meetings.
+      - Mutating the input lists while merging, which surprises callers.
+      - Re-sorting in insert, which costs O(n log n) when the input is already sorted.
+    interview: |-
+      State the endpoint convention as a clarifying question ("does [1, 2] overlap [2, 3]?"). Then name the sort key and why. Common follow-ups: free time across several people's calendars, intersection of two sorted interval lists (two pointers), and "what if intervals arrive as a stream?" (a sorted structure with neighbour checks).
+    explain_it:
+      - The endpoint convention and the overlap condition.
+      - The sort key and why it is the right one for this question.
+      - The single pass and what state it keeps.
+      - O(n log n) for the sort, O(n) for the pass, and the output or event space.
+    example:
+      language: python
+      code: |-
+        def max_concurrent(intervals: list[tuple[int, int]]) -> int:
+            """Half-open [start, end): peak number of overlapping intervals."""
+            events = []
+            for start, end in intervals:
+                events.append((start, 1))
+                events.append((end, -1))
+            events.sort()          # at equal times (t, -1) comes before (t, 1)
+            current = best = 0
+            for _, delta in events:
+                current += delta
+                best = max(best, current)
+            return best
+      explanation: "For [(0, 30), (5, 10), (10, 20)] the peak is 2: the meeting ending at 10 frees its room before the one starting at 10 takes it. O(n log n) time, O(n) space."
+    complexity: O(n log n) time for sorting plus O(n) for the sweep; O(n) extra space for events or output.
+    edge_cases:
+      - Empty list and a single interval.
+      - Touching intervals such as [1, 2] and [2, 3] under each convention.
+      - An interval nested completely inside another.
+      - Zero-length intervals [5, 5].
+    misconceptions:
+      - "\"Sorting by start is always right.\" Scheduling needs the earliest end."
+      - "\"Merging needs two nested loops.\" After sorting, each interval only needs to be compared with the last merged one."
+- key: dsa.intervals.check
+  type: concept_check
+  title: "Concept check: intervals"
+  skills: [intervals.core]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Draw the intervals on a number line before answering.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "This buggy merge runs on [[1, 4], [2, 3], [6, 8], [8, 9]]. What does it return?"
+        code:
+          language: python
+          code: |-
+            def merge(intervals):
+                out = []
+                for s, e in sorted(intervals):
+                    if out and s <= out[-1][1]:
+                        out[-1][1] = e
+                    else:
+                        out.append([s, e])
+                return out
+        options: ["[[1, 4], [6, 9]]", "[[1, 3], [6, 9]]", "[[1, 3], [6, 8], [8, 9]]", "[[1, 4], [6, 8], [8, 9]]"]
+        answer: [1]
+        explanation: "[2, 3] overlaps [1, 4] and overwrites the end with 3, shrinking the interval; [8, 9] then extends [6, 8] to [6, 9]. The correct output [[1, 4], [6, 9]] needs max(out[-1][1], e)."
+      - id: q2
+        kind: single
+        prompt: "To remove the fewest intervals so the rest do not overlap, sort by…"
+        options: ["start ascending", "end ascending", "length ascending", "start descending"]
+        answer: [1]
+        explanation: "Keeping the interval that ends earliest leaves the most room. Sorting by start fails on [[1, 100], [2, 3], [4, 5]]: the long interval would be kept first. Shortest-first also fails in some cases, for example a short interval that overlaps two long disjoint ones."
+      - id: q3
+        kind: multi
+        prompt: Which statements about the sweep-line solution for meeting rooms are true?
+        options:
+          - "For half-open meetings, ends must be processed before starts at the same time"
+          - "It uses O(n) extra space for the events"
+          - "It requires a heap"
+          - "Its time is dominated by sorting the events, O(n log n)"
+        answer: [0, 1, 3]
+        explanation: "Ends-before-starts makes back-to-back meetings share a room; 2n events take O(n) space and sorting them dominates. A heap is used by the other approach (min-heap of end times), not by the sweep."
+      - id: q4
+        kind: single
+        prompt: Inserting one interval into a sorted list of n disjoint intervals, returning a new list. Best time complexity?
+        options: ["O(log n)", "O(n)", "O(n log n)", "O(1)"]
+        answer: [1]
+        explanation: "Binary search finds the position in O(log n), but building the output list (and possibly merging a run of intervals) is O(n). Re-sorting would be O(n log n) for no benefit."
+      - id: q5
+        kind: single
+        prompt: "With closed intervals, do [1, 3] and [3, 5] overlap? With half-open [1, 3) and [3, 5)?"
+        options: ["Yes and yes", "Yes and no", "No and yes", "No and no"]
+        answer: [1]
+        explanation: "Closed intervals share the point 3; half-open ones do not, because [1, 3) excludes 3. Assuming one convention without asking is a common interview slip."
+      - id: q6
+        kind: short
+        prompt: Why does greedily keeping the interval with the earliest end maximise the number of non-overlapping intervals?
+        model_answer: "Exchange argument: take any optimal solution and replace its first interval with the earliest-ending one. That interval ends no later, so it does not overlap the rest of the optimal solution, and the count is unchanged. Repeat on the remaining intervals that start after it; the greedy result is therefore as large as the optimum."
+        explanation: Being able to state the exchange argument is what makes the greedy choice defensible.
+- key: dsa.intervals.exercise
+  type: coding_exercise
+  title: "Exercise: intersection of two schedules"
+  skills: [intervals.core, two_pointers.core]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 1200}
+  body:
+    prompt: |-
+      Two people each have a list of busy intervals, closed `[start, end]`, sorted and pairwise disjoint within each list. Return the intervals during which **both** are busy.
+    examples:
+      - "intersect([[0, 2], [5, 10]], [[1, 5], [8, 12]]) == [[1, 2], [5, 5], [8, 10]]"
+      - "intersect([[1, 3]], []) == []"
+    constraints:
+      - Up to 10⁵ intervals per list.
+    hints:
+      - Two pointers, one per list.
+      - "The overlap of [a, b] and [c, d] is [max(a, c), min(b, d)] when that is non-empty."
+      - Advance the pointer whose interval ends first; it cannot overlap anything later in the other list.
+    solution:
+      language: python
+      code: |-
+        def intersect(a: list[list[int]], b: list[list[int]]) -> list[list[int]]:
+            i = j = 0
+            out = []
+            while i < len(a) and j < len(b):
+                lo = max(a[i][0], b[j][0])
+                hi = min(a[i][1], b[j][1])
+                if lo <= hi:
+                    out.append([lo, hi])
+                if a[i][1] < b[j][1]:
+                    i += 1
+                else:
+                    j += 1
+            return out
+      explanation: O(m + n) time, O(1) extra space besides the output; no sorting needed because both inputs are already sorted.
+    rubric:
+      - key: correct
+        label: "Correct output including single-point overlaps and empty lists"
+        points: 4
+      - key: advance
+        label: "Advances the pointer with the smaller end and explains why"
+        points: 3
+      - key: complexity
+        label: "States O(m + n) time and output space"
+        points: 2
+      - key: convention
+        label: "Asks or states the closed-interval convention"
+        points: 1
+    follow_ups:
+      - prompt: How would you find time slots when k people are all free?
+        look_for: Merge all busy intervals (sort by start or k-way merge with a heap), then the gaps between merged intervals are common free time; O(N log N) or O(N log k).
+      - prompt: What changes for half-open intervals?
+        look_for: The non-empty condition becomes lo < hi, so touching endpoints are not reported.
+- key: dsa.intervals.guided
+  type: guided_problem
+  title: "Guided practice: merge intervals"
+  skills: [intervals.core]
+  minutes: 15
+  difficulty: MEDIUM
+  problems: [9]
+  body:
+    guidance:
+      - Ask whether touching intervals count as overlapping before you code.
+      - Sort by start and compare each interval only with the last merged one.
+      - Test a nested interval such as [1, 10] followed by [2, 3].
+    hints:
+      - "sorted(intervals) sorts by start, then end."
+      - Extend with max of the two ends, never by assignment.
+- key: dsa.intervals.timed
+  type: timed_problem
+  title: "Timed practice: insert, schedule and count rooms"
+  skills: [intervals.core]
+  minutes: 45
+  difficulty: MEDIUM
+  problems: [62, 63, 64]
+  body:
+    guidance:
+      - "Insert: one pass with three phases, no re-sort; state O(n)."
+      - "Fewest removals: sort by end and count kept intervals; say the exchange argument in one sentence."
+      - "Rooms: sweep with ends before starts at equal times, or a min-heap of end times; compare the two."
+- key: dsa.intervals.interview
+  type: interview_question
+  title: "Interview question: common free time"
+  skills: [intervals.core, heap.two_heaps_merge_k]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    prompt: "Each of k employees has a sorted list of busy intervals. Describe how to return the finite intervals in which every employee is free, the complexity, and how you would test it."
+    key_points:
+      - "Common free time is the gaps in the union of all busy intervals."
+      - "Merge all intervals: flatten and sort in O(N log N), or k-way merge the sorted lists with a heap in O(N log k)."
+      - "Walk the merged list and emit (prev_end, next_start) when next_start > prev_end, depending on the endpoint convention."
+      - "Tests: overlapping employees, touching intervals, one employee, no gaps."
+    model_answer: Free time for everyone is the complement of the union of busy time. I would merge all busy intervals in start order, either by sorting all N intervals or by a k-way heap merge of the already sorted lists, extend a current block while the next start is within it, and record a gap whenever the next start is beyond the current end. Only finite gaps between the earliest and latest busy times are reported.
+    pitfalls:
+      - Intersecting free times pairwise, which is correct but needs complement lists first and is easy to get wrong.
+      - Ignoring nested intervals when extending the current block.
+    follow_ups:
+      - prompt: Why is the heap merge O(N log k)?
+        look_for: Each of the N intervals is pushed and popped once from a heap that holds at most k heads.
+      - prompt: Return only gaps of at least 30 minutes. What changes?
+        look_for: Filter on next_start - prev_end >= 30; complexity unchanged.
+- key: dsa.intervals.cards
+  type: revision_card
+  title: "Recall: intervals"
+  skills: [intervals.core]
+  minutes: 5
+  body:
+    cards:
+      - front: Overlap of closed [a, b] and [c, d]?
+        back: "a <= d and c <= b (half-open: a < d and c < b)."
+      - front: Sort key for merging?
+        back: Start; compare only with the last merged interval.
+      - front: Sort key for fewest removals?
+        back: End; keep the earliest-ending compatible interval.
+      - front: Sweep-line tie rule for meeting rooms?
+        back: Process ends before starts at the same time.
+      - front: Merge bug that shrinks intervals?
+        back: "Assigning the end instead of taking max(old_end, new_end)."

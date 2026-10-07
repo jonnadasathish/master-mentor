@@ -14,6 +14,7 @@ import CalibrationCta from '../components/calibration/CalibrationCta.vue'
 import CalibrationProgress from '../components/calibration/CalibrationProgress.vue'
 import DiagnosticList from '../components/calibration/DiagnosticList.vue'
 import WhatCalibrationMeans from '../components/calibration/WhatCalibrationMeans.vue'
+import LearningMission from '../components/missions/LearningMission.vue'
 import MissionList from '../components/missions/MissionList.vue'
 import TodaySkeleton from '../components/missions/TodaySkeleton.vue'
 import WeekProgress from '../components/missions/WeekProgress.vue'
@@ -23,6 +24,7 @@ import StrengthsList from '../components/mentor/StrengthsList.vue'
 import Icon from '../components/common/Icon.vue'
 import { PHASE_LABEL } from '../presentation/language'
 import { formatMinutes } from '../presentation/format'
+import { missionText } from '../presentation/mission'
 import { humaniseKeys } from '../presentation/text'
 import {
   refreshDerivedData, useProfileStore, useReadinessStore, useSkillsStore, useStartingProfileStore, useTodayStore,
@@ -45,6 +47,11 @@ const data = computed(() => today.data)
 const calibrating = computed(
   () => (data.value?.calibration.active ?? false) && today.baseline.data?.phase !== 'COMPLETE',
 )
+/**
+ * Hybrid day: enough is measured to learn from the engines (phase ENOUGH_MEASURED) while the battery is still open.
+ * The mentor then plans one learning mission (a GAP item) first; the rest of the battery is secondary work.
+ */
+const hybrid = computed(() => calibrating.value && today.baseline.data?.phase === 'ENOUGH_MEASURED')
 const targetDate = computed(() => starting.data?.target?.target_date ?? null)
 const diagnostics = computed(() => (data.value?.plan.items ?? []).filter((i) => i.candidate_type === 'BASELINE'))
 const name = computed(() => {
@@ -59,6 +66,24 @@ const finishedText = computed(() => {
     ? `That's today's plan. ${formatMinutes(spare)} of your time is unplanned: the mentor doesn't invent work.`
     : "That's today's plan."
 })
+const learningItems = computed(() => items.value.filter((i) => i.candidate_type === 'GAP'))
+const supportingItems = computed(() => items.value.filter((i) => i.candidate_type !== 'GAP' && i.candidate_type !== 'BASELINE'))
+/** The pending learning mission that has a session behind it; every other state uses the ordinary mission card. */
+const heroItem = computed(() => {
+  const found = learningItems.value.find((i) => i.status === 'PENDING' && !i.started_at)
+    ?? learningItems.value.find((i) => i.status === 'PENDING')
+  return found && data.value?.plan.learning?.[String(found.id)] ? found : null
+})
+const heroText = computed(() =>
+  heroItem.value
+    ? missionText(heroItem.value, { nameOf: skills.nameOf, componentOf: skills.componentOf, battery: today.baseline.data?.items ?? [] })
+    : null,
+)
+/** The planner dropped a learning mission only because today's time is already spent (the server's reason). */
+const learningWaitsForTomorrow = computed(() =>
+  (data.value?.plan.dropped ?? []).some((d) => d.key.startsWith('GAP:') && d.reason === 'BUDGET'),
+)
+const otherLearning = computed(() => learningItems.value.filter((i) => i !== heroItem.value))
 const allDone = computed(() => items.value.length > 0 && items.value.every((i) => i.status !== 'PENDING'))
 const showSkillMap = computed(() => !!data.value && !calibrating.value && !mapSeen.value)
 const hasStrengths = computed(() => !calibrating.value && skills.list.some((s) => s.state.assessed && s.gap?.status === 'NONE'))
@@ -147,7 +172,121 @@ onMounted(async () => {
 
       <div class="cols">
         <div class="main">
-          <template v-if="calibrating">
+          <template v-if="hybrid">
+            <template v-if="heroItem && heroText">
+              <LearningMission
+                class="o-learn"
+                :item="heroItem"
+                :learning="data.plan.learning![String(heroItem.id)]!"
+                :text="heroText"
+                :why="heroText.why.map(humanise)"
+              />
+            </template>
+            <section
+              v-if="!heroItem && !learningItems.length"
+              class="card pending-learning o-learn"
+              aria-labelledby="learn-pending-title"
+              data-testid="learning-pending"
+            >
+              <h2 id="learn-pending-title">
+                Today's learning
+              </h2>
+              <p
+                v-if="learningWaitsForTomorrow"
+                class="muted"
+                data-testid="learning-tomorrow"
+              >
+                Your time today is already used by the work you've finished, so your first learning mission starts
+                tomorrow. Calibration doesn't block it.
+              </p>
+              <p
+                v-else
+                class="muted"
+              >
+                Today's plan was made before enough was measured, so it has no learning mission yet. Re-plan to add one.
+              </p>
+              <button
+                v-if="!learningWaitsForTomorrow"
+                type="button"
+                class="btn btn-primary"
+                data-testid="replan-learning"
+                @click="regenerate"
+              >
+                Add today's learning
+              </button>
+              <ErrorState
+                v-if="actionError"
+                :error="actionError"
+                @retry="regenerate"
+              />
+            </section>
+            <section
+              v-if="otherLearning.length"
+              class="o-learn"
+              aria-labelledby="learn-cards-title"
+            >
+              <SectionHeading
+                id="learn-cards-title"
+                title="Today's learning"
+              />
+              <MissionList
+                :items="otherLearning"
+                :client="api"
+                :battery="today.baseline.data?.items ?? []"
+                :results="results"
+                :learning="today.data?.plan?.learning"
+                @changed="load"
+                @completed="completed"
+              />
+            </section>
+            <CalibrationCta
+              v-if="today.baseline.data"
+              class="o-calib"
+              :baseline="today.baseline.data"
+            />
+            <CalibrationProgress
+              v-if="today.baseline.data"
+              class="o-calib"
+              :baseline="today.baseline.data"
+              :target-date="targetDate"
+              :weeks-left="data.weeks_left"
+              :phase="phaseLabel"
+            />
+            <section
+              v-if="diagnostics.length"
+              class="o-calib"
+              aria-labelledby="diag-title"
+            >
+              <SectionHeading
+                id="diag-title"
+                title="Remaining calibration today"
+              />
+              <DiagnosticList
+                :items="diagnostics"
+                :battery="today.baseline.data?.items ?? []"
+              />
+            </section>
+            <section
+              v-if="supportingItems.length"
+              class="o-also"
+              aria-labelledby="also-title"
+            >
+              <SectionHeading
+                id="also-title"
+                title="Also today"
+              />
+              <MissionList
+                :items="supportingItems"
+                :client="api"
+                :battery="today.baseline.data?.items ?? []"
+                :results="results"
+                :learning="today.data?.plan?.learning"
+                @changed="load"
+                @completed="completed"
+              />
+            </section>
+          </template>
+          <template v-else-if="calibrating">
             <CalibrationCta
               v-if="today.baseline.data"
               class="o-hero"
@@ -394,6 +533,7 @@ onMounted(async () => {
 .skill-map { display: flex; align-items: center; justify-content: space-between; gap: var(--s-4); padding: var(--s-4) var(--s-5); background: var(--healthy-bg); border: 1px solid var(--healthy-bd); border-radius: var(--r-lg); }
 .skill-map h2 { color: var(--healthy-fg); }
 .skill-map-links { display: flex; gap: var(--s-2); flex-wrap: wrap; margin-top: var(--s-3); }
+.pending-learning { display: grid; gap: var(--s-3); padding: var(--s-5); justify-items: start; }
 .finished { display: flex; gap: var(--s-2); align-items: flex-start; margin-top: var(--s-4); padding: var(--s-4); background: var(--healthy-bg); color: var(--healthy-fg); border-radius: var(--r-md); font-weight: 560; }
 .plan-actions { margin-top: var(--s-3); display: grid; gap: var(--s-3); font-size: var(--fs-sm); }
 .quiet-empty { display: flex; align-items: center; gap: var(--s-2); padding: var(--s-4); background: var(--surface); border: 1px dashed var(--border-strong); border-radius: var(--r-md); color: var(--text-2); }
@@ -413,6 +553,9 @@ onMounted(async () => {
   .o-hero { order: 1; }
   .o-mentor { order: 2; }
   .o-missions { order: 3; }
+  .o-learn { order: 1; }
+  .o-calib { order: 2; }
+  .o-also { order: 3; }
   .o-readiness { order: 4; }
   .o-gaps { order: 5; }
   .o-strengths { order: 6; }

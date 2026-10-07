@@ -1,5 +1,5 @@
-"""LEARNING_ENGINE rules: grading, completion -> observation, session composition, practice resolution, progress,
-coverage and problem practice state. Pure domain, no database."""
+"""LEARNING_ENGINE rules: grading, completion -> observation, session composition, practice resolution,
+progress, coverage and problem practice state. Pure domain, no database."""
 
 from __future__ import annotations
 
@@ -435,3 +435,12 @@ def test_coverage_report_counts_content_and_problems_per_skill() -> None:
     ) == (1, 1, 3, 2, 1)
     assert a.coverage_state == "FULL" and a.tracks == ("dsa",) and a.mock_coverage == ("DSA",)
     assert b.coverage_state == "PARTIAL" and b.timed_practice == 0
+
+
+def test_a_skills_own_lesson_beats_a_lesson_that_only_supports_it() -> None:
+    own = item("own.lesson", "lesson", skills=("a.skill",), position=9)
+    other = item("other.lesson", "lesson", skills=("b.skill", "a.skill"), position=1)  # earlier in the seed
+    steps = compose_session(
+        stage="LEARN", content=[own, other], problems=[], done=(), attempted=(), budget_minutes=None
+    )
+    assert steps[0].content_key == "own.lesson"  # for_skill order (primary first) breaks the tie

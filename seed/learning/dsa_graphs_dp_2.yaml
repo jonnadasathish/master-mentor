@@ -1,0 +1,1006 @@
+# Learning content: topological sort, union-find, Dijkstra and weighted shortest paths, minimum spanning trees.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- topological sort
+- key: dsa.topo_sort.lesson
+  type: lesson
+  title: Topological sort with Kahn's algorithm and DFS finishing order
+  skills: [graph.topological_sort, graph.traversal]
+  minutes: 22
+  difficulty: MEDIUM
+  body:
+    summary: Order the nodes of a directed acyclic graph so every edge points forward, by repeatedly removing nodes with no remaining prerequisites or by reversing DFS finishing order.
+    what: |-
+      A **topological order** of a directed graph lists its vertices so that for every edge `u → v`, `u` comes before `v`. It exists exactly when the graph is a **DAG** (directed acyclic graph). It is usually not unique: in a graph with edges `0 → 1`, `0 → 2`, `1 → 3`, `2 → 3`, both `0 1 2 3` and `0 2 1 3` are valid.
+
+      Two standard algorithms:
+
+      - **Kahn's algorithm** (BFS-like): compute every node's **in-degree** (number of incoming edges). Put every in-degree-0 node in a queue. Repeatedly pop a node, append it to the order, and decrement the in-degree of each of its successors; any successor that reaches 0 joins the queue. If the order ends up shorter than V, the leftover nodes are on or behind a cycle.
+      - **DFS finishing order**: run a three-colour DFS; append each node to a list when it **finishes** (all its descendants are done). Reversing that list gives a topological order, because a node finishes only after everything it points to has finished. An edge to a grey node means a cycle.
+    why: |-
+      Anything with dependencies needs it: build systems compile a module after the modules it imports, package managers install dependencies first, course plans put prerequisites first, spreadsheet engines recompute a cell after the cells it reads, and data pipelines run a job after its inputs. It also turns some hard problems on general graphs into easy DP on DAGs: longest path, shortest path with negative weights, and counting paths are all O(V + E) once you have a topological order.
+    when: |-
+      - The problem mentions prerequisites, dependencies, "must happen before", or an ordering inferred from comparisons (sorted alien words).
+      - You must decide whether a set of constraints is satisfiable (it is exactly when there is no cycle).
+      - You need DP over a DAG: process nodes in topological order so every predecessor is final before you use it.
+      - You need "parallel rounds": Kahn's algorithm processed one queue level at a time gives the minimum number of rounds when independent tasks can run together.
+    how: |-
+      ```python
+      from collections import deque
+
+      def topo_order(n: int, edges: list[tuple[int, int]]) -> list[int]:
+          """edges (u, v) mean u must come before v. Returns [] if there is a cycle."""
+          adj = [[] for _ in range(n)]
+          indegree = [0] * n
+          for u, v in edges:
+              adj[u].append(v)
+              indegree[v] += 1
+          queue = deque(u for u in range(n) if indegree[u] == 0)
+          order = []
+          while queue:
+              u = queue.popleft()
+              order.append(u)
+              for v in adj[u]:
+                  indegree[v] -= 1
+                  if indegree[v] == 0:          # last prerequisite of v just finished
+                      queue.append(v)
+          return order if len(order) == n else []
+      ```
+
+      Get the **edge direction** right before anything else. If the input says "`[a, b]` means you must take b before a", the edge is `b → a`. Write that down as a comment.
+
+      DFS version: colour nodes white/grey/black; on finishing a node append it to `post`; the answer is `post[::-1]`. It is natural when you already run DFS, but recursion depth is a risk on long chains in CPython (default limit 1000), which Kahn's algorithm does not have.
+    mental_model: |-
+      Kahn's algorithm is a to-do list where a task becomes "ready" when its last blocker is done. You keep working on ready tasks; if you run out of ready tasks while some remain blocked, those tasks are blocking each other in a circle. The DFS version is the opposite view: a node is "finished" only after everything it points to has finished, so listing finish times backwards puts each node before all of its successors.
+    tradeoffs: |-
+      Kahn's is iterative (no recursion limit), detects cycles by counting, and naturally yields levels for parallel scheduling; swapping its queue for a min-heap gives the lexicographically smallest order at O(V log V + E). DFS ordering needs no in-degree array and integrates with other DFS work (cycle path reporting, strongly connected components), but in Python it needs an explicit stack for deep graphs. Both are O(V + E).
+    mistakes:
+      - Reversing the edge direction, which produces an order with every prerequisite after its dependant.
+      - Using post-order without reversing it in the DFS version.
+      - Forgetting nodes that appear in no edge; they have in-degree 0 and must be in the order.
+      - Counting duplicate edges once in the in-degree but twice in the adjacency list (or the reverse), so some node never reaches 0.
+      - Not checking `len(order) == n`, and returning a partial order for a cyclic input.
+      - Using a single visited set in the DFS version, which cannot detect cycles.
+    interview: |-
+      State the graph ("courses are nodes, each prerequisite pair is an edge from prerequisite to course"), name Kahn's algorithm, and say how a cycle shows up (fewer than V nodes output). Follow-ups you should be ready for: return any valid order, the lexicographically smallest order (heap), the number of parallel rounds (level-by-level Kahn's), and inferring edges from a sorted list of words (compare adjacent words at their first differing character, and reject a word that comes before its own prefix).
+    explain_it:
+      - Define the edge direction explicitly.
+      - Explain in-degree and why a DAG always has at least one in-degree-0 node.
+      - Explain why the leftover nodes after Kahn's prove a cycle.
+      - Give O(V + E) time and O(V + E) space.
+    example:
+      language: python
+      code: |-
+        def longest_path_in_dag(n, edges):
+            """Longest path (in edges) in a DAG: DP over a topological order."""
+            order = topo_order(n, edges)
+            adj = [[] for _ in range(n)]
+            for u, v in edges:
+                adj[u].append(v)
+            best = [0] * n                      # best[v] = longest path ending at v
+            for u in order:                     # every predecessor of u is already final
+                for v in adj[u]:
+                    best[v] = max(best[v], best[u] + 1)
+            return max(best, default=0)
+      explanation: "Longest path is NP-hard on general graphs but O(V + E) on a DAG, because the topological order guarantees each node's value is final before it is propagated."
+    complexity: O(V + E) time and O(V + E) space for both Kahn's algorithm and DFS ordering; O(V log V + E) for the lexicographically smallest order with a heap.
+    internals: |-
+      Why a DAG always has an in-degree-0 node: if every node had an incoming edge, you could walk backwards forever, and with finitely many nodes you would revisit one, which is a cycle. Removing such a node keeps the rest a DAG, so Kahn's can always continue until the graph is empty. Conversely, the nodes on a cycle each keep at least one unremoved predecessor (the previous node on the cycle), so none of them ever reaches in-degree 0.
+    edge_cases:
+      - Nodes with no edges.
+      - Self-loop (a one-node cycle).
+      - Duplicate dependency pairs.
+      - Several independent chains (many valid orders).
+- key: dsa.topo_sort.check
+  type: concept_check
+  title: "Concept check: topological sort"
+  skills: [graph.topological_sort]
+  minutes: 9
+  difficulty: MEDIUM
+  body:
+    intro: "Graph for tracing: edges 0 → 1, 0 → 2, 1 → 3, 2 → 3, with adjacency lists in that order."
+    questions:
+      - id: q1
+        kind: single
+        prompt: What does the Kahn's algorithm in the lesson return for this graph?
+        options: ["[0, 1, 2, 3]", "[0, 2, 1, 3]", "[3, 1, 2, 0]", "[0, 1, 3, 2]"]
+        answer: [0]
+        explanation: "Only 0 starts at in-degree 0. Popping 0 drops 1 and 2 to zero, queued in adjacency order. Popping 1 leaves 3 at in-degree 1; popping 2 drops it to 0. `[0, 2, 1, 3]` is also a valid topological order, just not the one this code produces. `[0, 1, 3, 2]` is invalid because 3 comes before its predecessor 2."
+      - id: q2
+        kind: single
+        prompt: "A DFS appends each node when it finishes, starting from 0 and following adjacency order. What is the post-order list, and what is the topological order?"
+        options:
+          - "post [3, 1, 2, 0]; order [0, 2, 1, 3]"
+          - "post [0, 1, 3, 2]; order [0, 1, 3, 2]"
+          - "post [3, 1, 2, 0]; order [3, 1, 2, 0]"
+          - "post [3, 2, 1, 0]; order [0, 1, 2, 3]"
+        answer: [0]
+        explanation: "DFS goes 0 → 1 → 3; 3 finishes first, then 1. From 0 it goes to 2, whose successor 3 is already black, so 2 finishes, then 0. Reversing post-order gives [0, 2, 1, 3]. Using post-order unreversed puts 3 first, which violates every edge."
+      - id: q3
+        kind: single
+        prompt: "Input pairs are `[course, prerequisite]`: `[1, 0]` means 0 must be taken before 1. Which edge do you add?"
+        options: ["1 → 0", "0 → 1", "Both directions", "Either; the order is just reversed"]
+        answer: [1]
+        explanation: "Edges point from what must come first to what comes after, so prerequisite → course: 0 → 1. Building 1 → 0 makes Kahn's output the courses in reverse; \"either\" is tempting because the cycle verdict is the same, but the returned order would be wrong."
+      - id: q4
+        kind: multi
+        prompt: Which problems become O(V + E) once you have a topological order?
+        options:
+          - Longest path in a DAG
+          - Shortest path in a DAG with some negative edge weights
+          - Number of distinct paths from s to t in a DAG
+          - Shortest path in an undirected graph with cycles and positive weights
+        answer: [0, 1, 2]
+        explanation: "Relaxing edges in topological order makes each node final before it is used, so longest path, shortest path (even with negative weights) and path counting are linear DP on a DAG. An undirected graph with cycles has no topological order; that needs Dijkstra."
+      - id: q5
+        kind: single
+        prompt: Kahn's algorithm on a 6-node graph stops with only 4 nodes in the order. What can you conclude?
+        options:
+          - The graph is disconnected
+          - The 2 remaining nodes are on a cycle or reachable only through one
+          - The algorithm has a bug; Kahn's always outputs every node
+          - The graph has two valid orders
+        answer: [1]
+        explanation: "A remaining node never reached in-degree 0, so some predecessor was never removed; following predecessors back among the leftovers must eventually repeat a node, which is a cycle. Disconnection is harmless: each component contributes its own in-degree-0 starts."
+      - id: q6
+        kind: short
+        prompt: How would you return the lexicographically smallest topological order, and what does it cost?
+        model_answer: "Run Kahn's algorithm with a min-heap instead of a FIFO queue: always remove the smallest ready node. Each node is pushed and popped once, so O(V log V + E) time and O(V + E) space. Greedily picking the smallest ready node is safe because picking it never blocks anything else."
+        explanation: A common follow-up; the change is one data structure, and the cost is the heap's log factor on V, not on E.
+- key: dsa.topo_sort.exercise
+  type: coding_exercise
+  title: "Exercise: install packages in parallel rounds"
+  skills: [graph.topological_sort, queue.deque]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 1200}
+  body:
+    prompt: |-
+      A package manager knows a list of package names and a list of `(package, dependency)` pairs: the dependency must be installed before the package. Packages whose dependencies are all installed can be installed together in one round. Write `install_rounds(packages, deps)` returning the list of rounds (each round sorted alphabetically for determinism), or `None` if the dependencies contain a cycle. The number of rounds must be the minimum possible.
+    examples:
+      - "install_rounds(['app', 'db', 'log', 'web'], [('app', 'db'), ('app', 'log'), ('web', 'app')]) == [['db', 'log'], ['app'], ['web']]"
+      - "install_rounds(['a', 'b'], [('a', 'b'), ('b', 'a')]) is None"
+      - "install_rounds(['x'], []) == [['x']]"
+    constraints:
+      - Up to 10⁴ packages and 10⁵ pairs; every name in a pair is in the package list.
+    hints:
+      - Direction first. Which way does the edge point for `(package, dependency)`?
+      - Every package with no uninstalled dependency can go in the current round.
+      - Process Kahn's queue one whole level at a time; each level is one round.
+    solution:
+      language: python
+      code: |-
+        def install_rounds(packages, deps):
+            users = {p: [] for p in packages}         # dependency -> packages that need it
+            waiting = {p: 0 for p in packages}        # number of uninstalled dependencies
+            for pkg, dep in deps:
+                users[dep].append(pkg)
+                waiting[pkg] += 1
+            current = sorted(p for p in packages if waiting[p] == 0)
+            rounds, installed = [], 0
+            while current:
+                rounds.append(current)
+                installed += len(current)
+                nxt = []
+                for dep in current:
+                    for pkg in users[dep]:
+                        waiting[pkg] -= 1
+                        if waiting[pkg] == 0:
+                            nxt.append(pkg)
+                current = sorted(nxt)
+            return rounds if installed == len(packages) else None
+      explanation: "Each round installs everything that is ready, so a package lands in round k exactly when its longest dependency chain has k - 1 links; no schedule can do better. O(V + E) plus sorting each round, O(V log V) in total."
+    rubric:
+      - {key: direction, label: "Builds edges dependency → package and counts waiting dependencies per package", points: 2}
+      - {key: levels, label: Processes ready packages level by level so the round count is minimal, points: 3}
+      - {key: cycle, label: Returns None when not every package was installed, points: 2}
+      - {key: isolated, label: Includes packages with no dependencies in the first round, points: 1}
+      - {key: complexity, label: "States O(V + E) plus the sorting cost", points: 2}
+    follow_ups:
+      - prompt: Why is the number of rounds minimal?
+        look_for: "A package cannot be installed before its longest dependency chain is done; level-by-level Kahn's puts each package in exactly the round equal to that chain length plus one."
+      - prompt: At most k installs can run per round. Does level-by-level still give the minimum?
+        look_for: "No; with a capacity limit, filling rounds arbitrarily can waste slots, and precedence-constrained scheduling with an arbitrary slot count is NP-hard in general; a practical heuristic is to prioritise ready packages on the longest remaining dependant chain."
+- key: dsa.topo_sort.interview
+  type: interview_question
+  title: "Interview question: Kahn's algorithm or DFS?"
+  skills: [graph.topological_sort, graph.cycles_bipartite]
+  minutes: 10
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 600}
+  body:
+    prompt: "You need to order build targets so each one is built after the targets it depends on, and report an error when the dependencies are cyclic. Compare Kahn's algorithm with DFS-based topological sort for this job, and say which you would use in Python and why."
+    key_points:
+      - "Kahn's: in-degrees, a queue of in-degree-0 nodes, decrement successors; a cycle exists when fewer than V nodes are output."
+      - "DFS: three colours, append on finish, reverse; a cycle is an edge to a grey node."
+      - "Both O(V + E) time and O(V + E) space."
+      - Prefers Kahn's in Python for deep dependency chains because it is iterative (recursive DFS hits the default limit of 1000 frames), or writes DFS with an explicit stack.
+      - Mentions that DFS makes it easy to report the cycle's members, while Kahn's tells you which targets are stuck.
+    model_answer: |-
+      Both produce a valid order in O(V + E). Kahn's counts in-degrees, repeatedly removes ready targets, and detects a cycle when some targets never become ready. DFS colours nodes, appends each target when its dependencies are finished, and detects a cycle when it meets a grey node. In Python I would use Kahn's for a build tool: it has no recursion-depth risk on long chains, it naturally gives build levels that can run in parallel, and with a heap it can give a deterministic order. If the error message must name the cycle, I would run a colour DFS on the leftover nodes, or keep parent pointers, to print the loop.
+    pitfalls:
+      - Claiming DFS is faster or uses less memory; both are linear.
+      - Forgetting to reverse the DFS finishing order.
+    follow_ups:
+      - prompt: How do you print the actual cycle with Kahn's algorithm?
+        look_for: "All leftover nodes have a leftover predecessor; start from any leftover node and walk predecessors (or run colour DFS restricted to leftovers) until a node repeats; the repeated segment is the cycle."
+      - prompt: Only one target changed. How do you rebuild the minimum set?
+        look_for: "Find everything reachable from the changed target along dependant edges (BFS on the reversed graph), then topologically order that subset."
+- key: dsa.topo_sort.guided
+  type: guided_problem
+  title: "Guided practice: can every course be finished?"
+  skills: [graph.topological_sort]
+  minutes: 25
+  difficulty: MEDIUM
+  problems: [32]
+  body:
+    guidance:
+      - Write the edge direction as a comment before building anything.
+      - Build the adjacency list and the in-degree array in the same loop.
+      - Run Kahn's algorithm and compare the number of removed courses with the total.
+      - Test a two-course cycle and a course with no prerequisites.
+    hints:
+      - Courses that appear in no pair start with in-degree 0.
+      - You do not need the order itself, only how many courses were removed.
+- key: dsa.topo_sort.timed
+  type: timed_problem
+  title: "Timed practice: course order and an inferred alphabet"
+  skills: [graph.topological_sort]
+  minutes: 60
+  difficulty: HARD
+  problems: [98, 99]
+  body:
+    guidance:
+      - For the course order, reuse Kahn's and return an empty result on a cycle; finish this one quickly.
+      - For the alphabet, say how edges come from the first differing letter of each adjacent pair of words, and name the invalid case where a longer word precedes its own prefix.
+      - Include letters that appear in no edge, then run Kahn's; give O(total characters + alphabet) time before coding.
+- key: dsa.topo_sort.cards
+  type: revision_card
+  title: "Recall: topological sort"
+  skills: [graph.topological_sort]
+  minutes: 4
+  body:
+    cards:
+      - front: When does a topological order exist?
+        back: Exactly when the directed graph has no cycle (it is a DAG).
+      - front: "Kahn's algorithm in one line?"
+        back: Repeatedly remove an in-degree-0 node and decrement its successors.
+      - front: "How does Kahn's detect a cycle?"
+        back: Fewer than V nodes are output.
+      - front: DFS-based topological order?
+        back: Reverse of the order in which nodes finish.
+      - front: Lexicographically smallest topological order?
+        back: "Kahn's with a min-heap instead of a queue, O(V log V + E)."
+      - front: Minimum number of parallel rounds?
+        back: "Kahn's processed one whole level at a time; one level is one round."
+
+# ---------------------------------------------------------------------------------------------- union-find
+- key: dsa.union_find.lesson
+  type: lesson
+  title: Union-find with path compression and union by rank
+  skills: [graph.union_find]
+  minutes: 20
+  difficulty: MEDIUM
+  body:
+    summary: A forest of parent pointers that answers "are these two in the same group?" and merges groups in near-constant amortised time.
+    what: |-
+      **Union-find** (disjoint set union, DSU) maintains a partition of elements into disjoint sets with two operations:
+
+      - `find(x)`: return the **representative** (root) of x's set.
+      - `union(a, b)`: merge the sets containing a and b.
+
+      Each set is a tree stored as a `parent` array; a root is its own parent. Two elements are connected exactly when `find` returns the same root. Two optimisations make it fast:
+
+      - **Path compression**: during `find`, point every visited node directly at the root, so the next lookup is one step.
+      - **Union by rank** (or by size): attach the shorter (or smaller) tree under the taller (larger) one, so trees stay shallow.
+    why: |-
+      Many problems add connections over time and ask about connectivity: merging accounts that share an email, counting provinces, detecting the edge that creates a cycle, and Kruskal's MST, which asks "would this edge join two different trees?" for every edge. Re-running BFS after each new edge costs O(V + E) per query; union-find answers each query in effectively constant time.
+    when: |-
+      - Edges or "same group" facts arrive one at a time and you query connectivity in between (online connectivity).
+      - You need the number of components while edges are being added.
+      - Undirected cycle detection while reading an edge list.
+      - Kruskal's MST, or grouping items by an equivalence relation (same email, same root word).
+
+      It does **not** support splitting a set or deleting an edge, and it does not give you a path between two nodes; use BFS/DFS for paths.
+    how: |-
+      ```python
+      class DSU:
+          def __init__(self, n: int) -> None:
+              self.parent = list(range(n))
+              self.rank = [0] * n                 # upper bound on tree height
+              self.components = n
+
+          def find(self, x: int) -> int:
+              root = x
+              while self.parent[root] != root:
+                  root = self.parent[root]
+              while self.parent[x] != root:       # path compression, iterative (no recursion limit)
+                  nxt = self.parent[x]
+                  self.parent[x] = root
+                  x = nxt
+              return root
+
+          def union(self, a: int, b: int) -> bool:
+              ra, rb = self.find(a), self.find(b)
+              if ra == rb:
+                  return False                    # already connected: this edge would close a cycle
+              if self.rank[ra] < self.rank[rb]:
+                  ra, rb = rb, ra
+              self.parent[rb] = ra                # shorter tree goes under the taller one
+              if self.rank[ra] == self.rank[rb]:
+                  self.rank[ra] += 1
+              self.components -= 1
+              return True
+      ```
+
+      For elements that are not 0..n-1 (emails, strings), either map them to integers first or use dicts for `parent` and `rank`, adding an element the first time it is seen.
+    mental_model: |-
+      Every group has a leader, and every member knows someone who knows the leader. `find` follows the chain to the leader, and path compression makes everyone on the chain remember the leader directly. `union` makes one leader report to the other, always making the smaller team's leader report to the bigger team's leader so chains stay short.
+    tradeoffs: |-
+      With both optimisations a sequence of m operations on n elements costs O(m · α(n)), where α is the inverse Ackermann function, at most 4 for any input that fits in memory. With only union by rank, each operation is O(log n) worst case; with only path compression, amortised O(log n). Against BFS/DFS: union-find is better for incremental edges and repeated queries; BFS/DFS is simpler for a one-off component count on a fixed graph and can return paths. Union-find cannot undo a union (rollback variants exist but drop path compression).
+    mistakes:
+      - "Linking non-roots: `parent[a] = b` moves a away from its old set instead of merging the two sets. Always link `find(a)` and `find(b)`."
+      - "Comparing `parent[a] == parent[b]` instead of `find(a) == find(b)`; parents are not necessarily roots."
+      - Decrementing the component count even when the union found the same root.
+      - Recursive `find` without union by rank, which can recurse O(n) deep on adversarial input in CPython.
+      - Forgetting to initialise elements that are only discovered while reading the input.
+    interview: |-
+      Write the DSU class from memory in about three minutes, then use it. Say "path compression plus union by rank gives near-constant amortised time, inverse Ackermann" and be ready to say what each optimisation does alone. Typical follow-ups: count components as edges arrive, return the first redundant edge, merge records that share any key (map each key to the first record that had it), and why deletions are hard.
+    explain_it:
+      - What find and union do and what a root represents.
+      - What path compression does and what union by rank does.
+      - "Complexity: amortised O(α(n)) per operation with both, O(n) space."
+      - What it cannot do (split, delete edges, report paths).
+    example:
+      language: python
+      code: |-
+        def first_redundant_edge(n, edges):
+            dsu = DSU(n + 1)                       # nodes labelled 1..n
+            for u, v in edges:
+                if not dsu.union(u, v):
+                    return [u, v]                  # u and v were already connected
+            return []
+      explanation: "The first edge whose endpoints already share a root closes a cycle. O(E · α(V)) time, O(V) space."
+    complexity: Amortised O(α(n)) per find or union with both optimisations (α(n) ≤ 4 in practice); O(n) space.
+    internals: |-
+      Why union by rank bounds height: a root's rank increases only when two trees of equal rank merge, so a tree whose root has rank r contains at least 2^r nodes. With n nodes, rank and therefore height is at most log₂ n. Path compression then flattens the paths that are actually used; the combined analysis (Tarjan) gives the inverse Ackermann bound.
+    edge_cases:
+      - union(x, x) should return False and change nothing.
+      - Elements that never appear in any union are their own singleton set.
+      - Labels starting at 1 instead of 0 (allocate n + 1 slots).
+    misconceptions:
+      - "Union-find is not O(1) per operation in the strict worst case; individual finds can be slow, but the amortised cost is effectively constant."
+- key: dsa.union_find.check
+  type: concept_check
+  title: "Concept check: union-find"
+  skills: [graph.union_find]
+  minutes: 9
+  difficulty: MEDIUM
+  body:
+    intro: Assume the DSU class from the lesson unless the question shows other code.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "This union is used instead of the lesson's. Starting from five singletons, it runs union(0, 1), union(2, 1), then union(0, 3). Which statement is true afterwards?"
+        code:
+          language: python
+          code: |-
+            def bad_union(a, b):
+                parent[a] = b
+        options:
+          - 0, 1, 2 and 3 are all in one set
+          - 0 is linked to 3, but 1 and 2 are no longer connected to 0
+          - It is correct but slower
+          - It raises an error because 0 is not a root
+        answer: [1]
+        explanation: "After the first two calls, parent[0] = 1 and parent[2] = 1. union(0, 3) overwrites parent[0] = 3, detaching 0 from 1's tree instead of merging the two sets. The fix is parent[find(a)] = find(b). No error is raised, which is why this bug is easy to miss."
+      - id: q2
+        kind: single
+        prompt: With both path compression and union by rank, what is the amortised cost per operation?
+        options: ["O(1) worst case", "O(log n)", "O(α(n)), effectively constant", "O(n)"]
+        answer: [2]
+        explanation: "The bound is the inverse Ackermann function, at most 4 for any realistic n. It is not a strict O(1) worst case: a single find can be longer, but it pays for later finds by flattening the path. O(log n) is the bound with only one of the two optimisations."
+      - id: q3
+        kind: multi
+        prompt: Which tasks does a plain union-find support efficiently?
+        options:
+          - Count components while edges are added one by one
+          - Detect the first edge that closes a cycle in an undirected graph
+          - Remove an edge and report whether the graph splits
+          - Return the shortest path between two connected nodes
+        answer: [0, 1]
+        explanation: "Union-find only merges. Removing an edge would require splitting a set, which the structure cannot do, and it stores no edges, so it cannot produce a path; use BFS for that."
+      - id: q4
+        kind: single
+        prompt: "A solution checks connectivity with `parent[a] == parent[b]`. When does it give a wrong answer?"
+        options:
+          - Never, after path compression
+          - When a and b are in the same set but at different depths, so their parents differ
+          - Only when a == b
+          - Only for disconnected nodes
+        answer: [1]
+        explanation: "Parents are roots only for nodes directly under the root. Path compression flattens only paths that find has walked, so deeper nodes can still have a non-root parent. Always compare find(a) and find(b)."
+      - id: q5
+        kind: single
+        prompt: "n = 5. Calls: union(0, 1), union(1, 2), union(0, 2), union(3, 4). What is `components`?"
+        options: ["1", "2", "3", "4"]
+        answer: [1]
+        explanation: "Three successful unions reduce 5 to 2; union(0, 2) finds the same root and returns False without decrementing. Decrementing unconditionally would give 1."
+      - id: q6
+        kind: short
+        prompt: Why does union by rank keep every tree's height at most log₂ n?
+        model_answer: "A root's rank grows only when two trees of equal rank are merged. By induction, a tree whose root has rank r has at least 2^r nodes: merging two trees of rank r - 1, each with at least 2^(r-1) nodes, gives at least 2^r. So with n nodes the rank, which bounds the height, is at most log₂ n."
+        explanation: This is the classic doubling argument; union by size gives the same bound with the same reasoning.
+- key: dsa.union_find.exercise
+  type: coding_exercise
+  title: "Exercise: answer connectivity queries as cables are added"
+  skills: [graph.union_find]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 900}
+  body:
+    prompt: |-
+      A data centre has `n` servers (0..n-1) and receives a stream of operations: `("link", a, b)` adds a cable between two servers, and `("ask", a, b)` asks whether they can currently reach each other. Write `process(n, ops)` returning a list with one entry per operation: for `ask`, a bool; for `link`, the number of separate networks after the link. Implement union-find yourself with path compression and union by rank.
+    examples:
+      - "process(4, [('ask', 0, 1), ('link', 0, 1), ('ask', 0, 1), ('link', 1, 0), ('link', 2, 3)]) == [False, 3, True, 3, 2]"
+    constraints:
+      - Up to 10⁵ servers and 2 × 10⁵ operations.
+    hints:
+      - Re-running BFS for each ask would be O(ops × (V + E)).
+      - Keep a component counter in the DSU and decrement it only on a successful union.
+      - Write find iteratively so deep trees cannot hit the recursion limit.
+    solution:
+      language: python
+      code: |-
+        def process(n, ops):
+            parent = list(range(n))
+            rank = [0] * n
+            components = n
+
+            def find(x):
+                root = x
+                while parent[root] != root:
+                    root = parent[root]
+                while parent[x] != root:
+                    parent[x], x = root, parent[x]
+                return root
+
+            out = []
+            for op, a, b in ops:
+                ra, rb = find(a), find(b)
+                if op == "ask":
+                    out.append(ra == rb)
+                    continue
+                if ra != rb:
+                    if rank[ra] < rank[rb]:
+                        ra, rb = rb, ra
+                    parent[rb] = ra
+                    if rank[ra] == rank[rb]:
+                        rank[ra] += 1
+                    components -= 1
+                out.append(components)
+            return out
+      explanation: "`parent[x], x = root, parent[x]` evaluates the right side first, then assigns parent[x] (with the old x) and moves x up. O((n + ops) · α(n)) time, O(n) space."
+    rubric:
+      - {key: dsu_correct, label: find returns the root and union links roots (not raw elements), points: 3}
+      - {key: optimisations, label: Implements both path compression and union by rank or size, points: 2}
+      - {key: counter, label: "Component count changes only on a successful union; repeated links leave it unchanged", points: 2}
+      - {key: iterative, label: find is iterative or depth is otherwise bounded, points: 1}
+      - {key: complexity, label: "States amortised O(α(n)) per operation", points: 2}
+    follow_ups:
+      - prompt: Cables can also be removed. What changes?
+        look_for: "Plain union-find cannot split sets. Options: process offline in reverse (removals become additions), a rollback DSU without path compression for undo in stack order, or a dynamic connectivity structure; mention the cost."
+      - prompt: Also report the size of the largest network after each link.
+        look_for: Union by size with a size array, and track a running maximum updated on each successful union.
+- key: dsa.union_find.guided
+  type: guided_problem
+  title: "Guided practice: redundant edges and provinces"
+  skills: [graph.union_find]
+  minutes: 30
+  difficulty: MEDIUM
+  problems: [33, 100]
+  body:
+    guidance:
+      - Write the DSU class first, from memory, with an iterative find.
+      - For the redundant edge, make union return False when the roots are equal; that edge is the answer.
+      - For provinces, iterate over the upper triangle of the matrix only, and count successful unions.
+      - Say the complexity of each, including the O(n²) cost of reading the matrix.
+    hints:
+      - Node labels may start at 1; allocate n + 1 slots.
+      - Provinces = n minus the number of successful unions.
+- key: dsa.union_find.timed
+  type: timed_problem
+  title: "Timed practice: merging records that share a key"
+  skills: [graph.union_find]
+  minutes: 30
+  difficulty: MEDIUM
+  problems: [101]
+  body:
+    guidance:
+      - Decide what the elements are (accounts or emails) and how you map each email to the first account that owned it.
+      - Union accounts that share an email, then group emails by root and sort each group.
+      - State the complexity including the sorting of each group, then code under the timer.
+- key: dsa.union_find.cards
+  type: revision_card
+  title: "Recall: union-find"
+  skills: [graph.union_find]
+  minutes: 4
+  body:
+    cards:
+      - front: What does path compression do?
+        back: During find, points every node on the path directly at the root.
+      - front: What does union by rank do?
+        back: Attaches the shorter tree under the taller one so height stays O(log n).
+      - front: Cost per operation with both optimisations?
+        back: Amortised O(α(n)), at most about 4 in practice.
+      - front: How does union-find detect an undirected cycle?
+        back: An edge whose endpoints already have the same root.
+      - front: What can union-find not do?
+        back: Split sets, delete edges or return a path.
+
+# ---------------------------------------------------------------------------------------------- weighted shortest path
+- key: dsa.dijkstra.lesson
+  type: lesson
+  title: Dijkstra's algorithm with a heap, and when it breaks
+  skills: [graph.shortest_path, heap.top_k]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Repeatedly finalise the closest unfinalised node using a min-heap; correct for non-negative weights in O((V + E) log V), wrong once a negative edge exists.
+    what: |-
+      **Dijkstra's algorithm** computes the cheapest distance from one source to every node in a graph with **non-negative** edge weights. It keeps a tentative distance for every node, starts with 0 at the source, and repeatedly takes the unfinished node with the smallest tentative distance, declares that distance final, and **relaxes** its outgoing edges: if `dist[u] + w < dist[v]`, update `dist[v]`.
+
+      Related algorithms you should be able to name and place:
+
+      - **BFS**: all weights equal; O(V + E).
+      - **0-1 BFS**: weights only 0 or 1; a deque where 0-edges go to the front; O(V + E).
+      - **Bellman-Ford**: any weights, detects negative cycles; relax every edge V - 1 times, O(V · E).
+      - **DAG relaxation**: any weights on a DAG; relax in topological order, O(V + E).
+    why: |-
+      Routing (latency, cost, distance), "minimum time for a signal to reach every node", "cheapest path where the cost is the maximum edge on the path", and many grid problems with varying costs are weighted shortest-path problems. BFS is wrong as soon as weights differ, because a path with more edges can be cheaper.
+    when: |-
+      - Weighted graph, non-negative weights, single source: Dijkstra.
+      - Path cost defined by a monotone combination such as "the maximum edge along the path" (swim-in-water style): Dijkstra still works, with `max(d, w)` instead of `d + w`.
+      - A limit on the number of edges (at most k stops): Bellman-Ford limited to k + 1 rounds, or BFS over (node, stops) states, because plain Dijkstra may discard a costlier path that uses fewer stops.
+      - Negative edges: Bellman-Ford (or DAG relaxation if acyclic).
+    how: |-
+      Python's `heapq` has no decrease-key, so push a new entry on every improvement and skip **stale** entries when popped (lazy deletion):
+
+      ```python
+      import heapq
+
+      def dijkstra(n, adj, src):
+          """adj[u] = list of (v, w) with w >= 0. Returns the distance list; unreachable = None."""
+          dist = [None] * n
+          dist[src] = 0
+          heap = [(0, src)]
+          while heap:
+              d, u = heapq.heappop(heap)
+              if d > dist[u]:
+                  continue                      # stale entry: u was already finalised cheaper
+              for v, w in adj[u]:
+                  nd = d + w
+                  if dist[v] is None or nd < dist[v]:
+                      dist[v] = nd
+                      heapq.heappush(heap, (nd, v))
+          return dist
+      ```
+
+      To return the path, store `parent[v] = u` whenever `dist[v]` improves, then walk back from the target. To stop early for a single target, return when the target is popped (not when it is first pushed).
+    mental_model: |-
+      Water spreading through pipes at constant speed from the source, where an edge's weight is the pipe length. The node the water reaches next is always the closest unreached one, and nothing can reach it sooner later, because every other route has to go through a node that is already at least as far away and pipes have non-negative length. A negative-length pipe breaks that promise: a far node could later "shortcut back" to a node you already declared done.
+    tradeoffs: |-
+      Binary-heap Dijkstra is O((V + E) log V); with lazy deletion the heap can hold up to E entries, which is still O(E log V) because log E ≤ 2 log V. On dense graphs (E close to V²) a simple O(V²) array version without a heap is faster. Bellman-Ford is far slower, O(V · E), but handles negative weights and reports negative cycles. A* adds a heuristic to Dijkstra for single-target search on maps; it is optimal only with an admissible heuristic.
+    mistakes:
+      - Using BFS on a weighted graph.
+      - Forgetting the stale-entry check, which keeps the answer correct but re-scans adjacency lists and slows the algorithm down.
+      - Marking a node visited when it is pushed instead of when it is popped, which can finalise a non-optimal distance.
+      - Returning as soon as the target is pushed rather than popped.
+      - "Running Dijkstra with negative edges. In the version that finalises nodes on pop, with edges A → B (2), A → C (5), C → B (-4), B is finalised at 2 although A → C → B costs 1."
+      - "Pushing `(node, dist)` instead of `(dist, node)`, so the heap orders by node id."
+    interview: |-
+      State the precondition ("all weights are non-negative") before you write anything; interviewers often ask what happens with a negative edge. Give O((V + E) log V) and explain stale entries. Common follow-ups: path reconstruction, at most k stops (Bellman-Ford rounds or state expansion), minimising the maximum edge (bottleneck path), and why A* can be faster.
+    explain_it:
+      - Precondition (non-negative weights) and why it matters.
+      - The invariant (a popped node's distance is final).
+      - Lazy deletion and the stale-entry check.
+      - "Complexity O((V + E) log V) time, O(V + E) space."
+    complexity: O((V + E) log V) with a binary heap; O(V²) with an array (better for dense graphs); Bellman-Ford O(V · E); BFS and 0-1 BFS O(V + E).
+    internals: |-
+      Proof sketch: suppose u is popped with distance d but a cheaper path P exists. P leaves the set of finalised nodes at some edge x → y with y not finalised; y's tentative distance is at most cost(P up to y) ≤ cost(P) < d because the remaining edges of P are non-negative. Then y would have been popped before u, a contradiction. The step "remaining edges are non-negative" is exactly what a negative edge breaks.
+    edge_cases:
+      - Unreachable nodes (keep None or infinity, and report -1 if asked).
+      - Zero-weight edges (fine for Dijkstra).
+      - Parallel edges with different weights (keep all; relaxation picks the best).
+      - Source equals target.
+    misconceptions:
+      - Adding a constant to every edge to remove negatives does not work; it penalises paths with more edges.
+      - Dijkstra does not need a visited set if you use the stale-entry check; the check plays the same role.
+- key: dsa.dijkstra.worked
+  type: worked_example
+  title: "Worked example: tracing Dijkstra with stale heap entries"
+  skills: [graph.shortest_path]
+  minutes: 12
+  difficulty: MEDIUM
+  body:
+    problem: "Directed edges with weights: A → B 4, A → C 1, C → B 2, B → D 1, C → D 5, D → E 3. Find the cheapest distance from A to every node, tracking the heap."
+    steps:
+      - title: Start at the source
+        text: "dist = {A: 0}, heap = [(0, A)]. Pop (0, A) and relax: B becomes 4, C becomes 1. heap = [(1, C), (4, B)]."
+      - title: Pop the closest node, C
+        text: "Pop (1, C). Relax C → B: 1 + 2 = 3 < 4, so B improves to 3 and (3, B) is pushed. Relax C → D: 1 + 5 = 6, D becomes 6. The old (4, B) entry stays in the heap: heap = [(3, B), (4, B), (6, D)]."
+      - title: Pop B at its improved distance
+        text: "Pop (3, B); B is final at 3. Relax B → D: 3 + 1 = 4 < 6, D improves to 4. heap = [(4, B), (4, D), (6, D)]."
+      - title: Skip a stale entry
+        text: "Pop (4, B). dist[B] is 3 and 4 > 3, so this entry is stale: skip it without scanning B's edges again. This is lazy deletion."
+      - title: Finish
+        text: "Pop (4, D); relax D → E: E = 7. Pop (6, D): stale, skip. Pop (7, E). Heap empty. Final: A 0, B 3, C 1, D 4, E 7."
+        code:
+          language: python
+          code: |-
+            adj = {"A": [("B", 4), ("C", 1)], "B": [("D", 1)], "C": [("B", 2), ("D", 5)],
+                   "D": [("E", 3)], "E": []}
+            # dijkstra over dict labels returns {'A': 0, 'C': 1, 'B': 3, 'D': 4, 'E': 7}
+    takeaways:
+      - The heap can hold several entries for one node; only the smallest is used.
+      - A node's distance is final when it is popped, not when it is pushed.
+      - The direct edge A → B (4) lost to the two-edge path A → C → B (3); BFS would have picked the direct edge.
+    complexity: 5 nodes, 6 edges, 7 pushes and 7 pops; in general O((V + E) log V).
+- key: dsa.dijkstra.check
+  type: concept_check
+  title: "Concept check: weighted shortest paths"
+  skills: [graph.shortest_path]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Assume the lesson's heap-based Dijkstra with the stale-entry check unless told otherwise.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "Edges A → B (2), A → C (5), C → B (-4). A Dijkstra variant marks a node done when popped and never updates done nodes. What does it report for B?"
+        options: ["1", "2", "-4", "It loops forever"]
+        answer: [1]
+        explanation: "B is popped at distance 2 before C (5) and is declared done. When C is processed, 5 + (-4) = 1 would be better, but B is already finalised, so 2 is reported. The correct answer is 1; with negative edges use Bellman-Ford."
+      - id: q2
+        kind: single
+        prompt: "What happens if you delete the line `if d > dist[u]: continue`?"
+        options:
+          - Distances become wrong
+          - Distances stay correct, but stale entries re-scan their adjacency lists, adding wasted work
+          - The heap stops working
+          - It becomes Bellman-Ford
+        answer: [1]
+        explanation: "A stale entry has d larger than the final dist[u], so every relaxation it tries is no better than one already made, and nothing changes. The answer is still correct, but each stale pop costs a full adjacency scan, which can push the running time well above O((V + E) log V) on dense graphs."
+      - id: q3
+        kind: multi
+        prompt: Which statements are true?
+        options:
+          - "Bellman-Ford handles negative edges and detects negative cycles in O(V · E)"
+          - Dijkstra is correct with negative edges as long as there is no negative cycle
+          - "In a DAG, relaxing edges in topological order gives shortest paths even with negative weights, in O(V + E)"
+          - "With weights of only 0 and 1, a deque-based BFS gives shortest paths in O(V + E)"
+        answer: [0, 2, 3]
+        explanation: "Dijkstra's proof needs every remaining edge to be non-negative; a single negative edge can break it even without a negative cycle (see q1). The other three are the standard alternatives."
+      - id: q4
+        kind: single
+        prompt: "For \"cheapest flight with at most k stops\", Bellman-Ford runs k + 1 rounds. Why must each round relax edges from a copy of the previous round's distances?"
+        options:
+          - To save memory
+          - Without the copy, one round can chain several edges, so a path with more than k stops can be counted
+          - The copy makes it O(V + E)
+          - Python lists cannot be updated while iterating
+        answer: [1]
+        explanation: "If round i reads values updated earlier in the same round, a path can extend by several edges in one round, breaking the \"round i = at most i edges\" invariant. Reading from the previous round's copy keeps exactly one extra edge per round."
+      - id: q5
+        kind: single
+        prompt: Time complexity of the lesson's Dijkstra with lazy deletion on a graph with V nodes and E edges?
+        options: ["O(V + E)", "O((V + E) log V)", "O(V · E)", "O(V² log V)"]
+        answer: [1]
+        explanation: "Each successful relaxation pushes once (at most E pushes) and each push is popped once, each costing O(log E) = O(log V). O(V + E) is BFS; O(V · E) is Bellman-Ford."
+      - id: q6
+        kind: short
+        prompt: In your own words, why is a node's distance final at the moment it is popped from the heap?
+        model_answer: "It has the smallest tentative distance among unfinished nodes. Any other route to it must leave the finished set through some unfinished node, which already costs at least as much, and the rest of that route adds non-negative weights, so it cannot be cheaper. Hence the popped distance is optimal; this is exactly the step that negative edges break."
+        explanation: Being able to say this argument is what separates knowing Dijkstra from reciting it.
+- key: dsa.dijkstra.interview
+  type: interview_question
+  title: "Interview question: why do negative edges break Dijkstra?"
+  skills: [graph.shortest_path]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: "A teammate wants to model refunds as negative edge weights in a route-cost graph and keep using Dijkstra. Explain whether that works, show a small counter-example, and recommend what to use instead, with complexities."
+    key_points:
+      - Explains that Dijkstra finalises the closest node on the assumption that later edges cannot reduce its distance, which requires non-negative weights.
+      - "Gives a concrete counter-example (for example A → B 2, A → C 5, C → B -4: B is finalised at 2 but the true distance is 1)."
+      - "Recommends Bellman-Ford, O(V · E), which also detects negative cycles (a further improvement after V - 1 rounds)."
+      - "Mentions DAG relaxation in O(V + E) if the graph is acyclic, and that adding a constant to all edges does not fix it."
+      - Asks whether a negative cycle is possible and what the business meaning would be (unbounded profit).
+    model_answer: |-
+      It does not work in general. Dijkstra pops the closest unfinished node and declares it final, which is valid only because any other route must continue along non-negative edges and cannot become cheaper. With A → B (2), A → C (5), C → B (-4), B is finalised at 2 while A → C → B costs 1. Lazy-deletion implementations sometimes recover by reprocessing nodes, but then the running-time guarantee is lost.
+
+      I would use Bellman-Ford: relax every edge V - 1 times, O(V · E), and run one more round; if anything still improves there is a negative cycle, which here would mean a route that earns unlimited refunds, a modelling bug worth surfacing. If routes form a DAG, relaxing in topological order is O(V + E). Shifting all weights by a constant is not a fix, because it penalises paths with more edges. For many queries on the same graph, Johnson's algorithm reweights edges with Bellman-Ford potentials so Dijkstra can run afterwards.
+    pitfalls:
+      - "\"It works if there is no negative cycle\" — false for standard Dijkstra."
+      - Proposing to add a constant to every weight.
+    follow_ups:
+      - prompt: How does Bellman-Ford detect a negative cycle, and how would you find one of its nodes?
+        look_for: "After V - 1 rounds, any edge that still relaxes lies on or leads from a negative cycle; record the relaxed node, follow parent pointers V times to land inside the cycle, then walk until it repeats."
+      - prompt: The graph has a million nodes and only a few negative edges. Anything better than plain Bellman-Ford?
+        look_for: "SPFA (queue-based Bellman-Ford) is often fast in practice but has the same worst case; Johnson's reweighting then Dijkstra for many sources; or restructure the model so costs are non-negative."
+- key: dsa.dijkstra.guided
+  type: guided_problem
+  title: "Guided practice: time for a signal to reach every node"
+  skills: [graph.shortest_path]
+  minutes: 25
+  difficulty: MEDIUM
+  problems: [34]
+  body:
+    guidance:
+      - State the precondition (non-negative times) and the algorithm before coding.
+      - Build adjacency lists of (neighbour, weight) and push (distance, node) tuples.
+      - Skip stale entries with the `d > dist[u]` check.
+      - The answer is the largest finite distance, or -1 if any node is unreachable.
+    hints:
+      - Node labels start at 1; size your arrays n + 1.
+      - Count finalised nodes to detect unreachable ones.
+- key: dsa.dijkstra.timed
+  type: timed_problem
+  title: "Timed practice: limited stops and bottleneck paths"
+  skills: [graph.shortest_path]
+  minutes: 60
+  difficulty: HARD
+  problems: [102, 103]
+  body:
+    guidance:
+      - For the stop-limited flights, explain in one minute why plain Dijkstra can discard a path that uses fewer stops, then use k + 1 rounds of Bellman-Ford with a copied distance array.
+      - For the rising-water grid, define the path cost as the maximum height on the path and run Dijkstra with `max(d, height)` instead of `d + w`.
+      - Give both complexities before coding.
+- key: dsa.dijkstra.cards
+  type: revision_card
+  title: "Recall: shortest-path algorithms"
+  skills: [graph.shortest_path]
+  minutes: 5
+  body:
+    cards:
+      - front: Dijkstra's precondition?
+        back: All edge weights non-negative.
+      - front: Dijkstra complexity with a binary heap?
+        back: O((V + E) log V).
+      - front: What is a stale heap entry?
+        back: An entry whose distance is larger than the node's current best; skip it on pop.
+      - front: Shortest paths with negative edges?
+        back: "Bellman-Ford, O(V · E), which also detects negative cycles."
+      - front: Shortest paths when weights are only 0 or 1?
+        back: 0-1 BFS with a deque, O(V + E).
+      - front: Shortest paths in a DAG with any weights?
+        back: Relax edges in topological order, O(V + E).
+
+# ---------------------------------------------------------------------------------------------- minimum spanning tree
+- key: dsa.mst.lesson
+  type: lesson
+  title: Minimum spanning trees with Kruskal and Prim
+  skills: [graph.mst, graph.union_find]
+  minutes: 20
+  difficulty: MEDIUM
+  body:
+    summary: Connect every node of a weighted undirected graph with the cheapest possible set of edges, by adding cheapest safe edges (Kruskal) or growing one tree (Prim).
+    what: |-
+      A **spanning tree** of a connected undirected graph is a subset of V - 1 edges that connects all V vertices with no cycle. A **minimum spanning tree** (MST) has the smallest total weight. If the graph is disconnected, the best you can get is a minimum spanning **forest**.
+
+      - **Kruskal**: sort all edges by weight; walk through them and add an edge whenever it joins two different components (checked with union-find). Stop after V - 1 edges.
+      - **Prim**: start from any vertex; repeatedly add the cheapest edge that connects the tree to a vertex not yet in it (a min-heap of candidate edges).
+
+      Both rely on the **cut property**: for any split of the vertices into two sides, the cheapest edge crossing the split belongs to some MST.
+    why: |-
+      Laying cable, pipes or roads to connect every site at minimum total cost is the textbook use. In interviews it shows up as "minimum cost to connect all points", "connect villages with wells or pipes", and as a component of clustering (removing the k - 1 heaviest MST edges gives k clusters). It is also the clearest example of a greedy algorithm with a rigorous proof.
+    when: |-
+      - Undirected, weighted, "connect everything at minimum total cost": MST.
+      - Edge list given, sparse graph: Kruskal with union-find.
+      - Complete or dense graph (all pairs of points): Prim, ideally the O(V²) array version.
+      - "Build a well at a node for a price, or pipe from a neighbour": add a virtual node connected to every node with the well price as weight, then run MST.
+
+      Not for: shortest paths between two nodes (the MST path between two nodes can be much longer than the shortest path), or directed graphs (the directed version, minimum arborescence, needs a different algorithm).
+    how: |-
+      ```python
+      def kruskal(n: int, edges: list[tuple[int, int, int]]) -> int | None:
+          """edges are (weight, u, v). Returns the MST weight, or None if the graph is disconnected."""
+          parent = list(range(n))
+
+          def find(x):
+              while parent[x] != x:
+                  parent[x] = parent[parent[x]]       # path halving
+                  x = parent[x]
+              return x
+
+          total = used = 0
+          for w, u, v in sorted(edges):
+              ru, rv = find(u), find(v)
+              if ru != rv:                           # safe edge: joins two components
+                  parent[ru] = rv
+                  total += w
+                  used += 1
+                  if used == n - 1:
+                      break
+          return total if used == n - 1 else None
+      ```
+
+      Prim with a heap (lazy version):
+
+      ```python
+      import heapq
+
+      def prim(n, adj):                              # adj[u] = list of (w, v), undirected
+          in_tree = [False] * n
+          heap = [(0, 0)]                            # (edge weight into the tree, vertex)
+          total = count = 0
+          while heap and count < n:
+              w, u = heapq.heappop(heap)
+              if in_tree[u]:
+                  continue                           # stale: u was already added more cheaply
+              in_tree[u] = True
+              total += w
+              count += 1
+              for wv, v in adj[u]:
+                  if not in_tree[v]:
+                      heapq.heappush(heap, (wv, v))  # key is the edge weight, not a path length
+          return total if count == n else None
+      ```
+    mental_model: |-
+      Kruskal: buy the cheapest cable in the catalogue that connects two currently separate islands, and repeat; never buy a cable whose ends are already connected. Prim: grow one city outward, always paving the cheapest road from the city to a new town. Both are safe because of the cut property: the cheapest bridge across any divide is never a mistake.
+    tradeoffs: |-
+      Kruskal costs O(E log E) for the sort plus near-linear union-find work; it is simple and great for sparse edge lists. Prim with a binary heap is O(E log V). On a complete graph of n points, E is about n²/2, so both heap-based versions are O(n² log n), while array-based Prim (scan all vertices for the cheapest key each step) is O(n²) with O(n) extra memory and no edge list at all, which is the best choice for "connect all points". MSTs are unique when all weights are distinct; with ties several MSTs can exist, all with the same total.
+    mistakes:
+      - "Using Dijkstra's key `dist[u] + w` in Prim; that builds a shortest-path tree, not an MST."
+      - Not checking that V - 1 edges were used, so a disconnected graph returns a wrong total.
+      - Materialising all n² edges for a points problem and running out of memory or time; use array Prim.
+      - Treating a directed graph as undirected.
+      - Assuming the MST contains the shortest path between two given nodes.
+    interview: |-
+      Name the algorithm and justify it with the cut property in one sentence. Expect "Prim or Kruskal, and why?" (density), "what if the graph is disconnected?" (forest; return None or -1), the virtual-node trick for wells or for per-node costs, and the critical-edge follow-up: an edge is critical if removing it increases the MST weight, which you can test by re-running Kruskal without it.
+    explain_it:
+      - Define spanning tree and MST, and state that it has V - 1 edges.
+      - State the cut property.
+      - Describe Kruskal or Prim and why each chosen edge is safe.
+      - "Complexity: Kruskal O(E log E), heap Prim O(E log V), array Prim O(V²)."
+    complexity: Kruskal O(E log E) time and O(V) extra space for union-find (plus the edge list); Prim O(E log V) with a heap or O(V²) with an array.
+    internals: |-
+      Cut property proof sketch: let e be the cheapest edge crossing some cut, and T an MST that does not contain e. Adding e to T creates a cycle that must cross the cut a second time through some edge f with weight at least w(e). Removing f gives a spanning tree no heavier than T, so a minimum spanning tree containing e exists. Kruskal's chosen edge is the cheapest crossing the cut around one of its endpoint's components; Prim's is the cheapest crossing the cut around the current tree. This is an exchange argument, the standard proof style for greedy algorithms.
+    edge_cases:
+      - Single vertex (MST weight 0, no edges).
+      - Disconnected graph.
+      - Equal weights (several valid MSTs).
+      - Self-loops (never part of an MST) and parallel edges (keep only the cheapest).
+- key: dsa.mst.check
+  type: concept_check
+  title: "Concept check: minimum spanning trees"
+  skills: [graph.mst]
+  minutes: 9
+  difficulty: MEDIUM
+  body:
+    intro: "Graph for q1: undirected edges A–B 1, B–C 2, A–C 3, C–D 4, B–D 5."
+    questions:
+      - id: q1
+        kind: single
+        prompt: What total weight does Kruskal's algorithm return for the graph above?
+        options: ["6", "7", "8", "10"]
+        answer: [1]
+        explanation: "Sorted: A–B 1 (take), B–C 2 (take), A–C 3 (A and C already connected, skip), C–D 4 (take). Three edges for four vertices: 1 + 2 + 4 = 7. Taking A–C instead of skipping it would create a cycle."
+      - id: q2
+        kind: single
+        prompt: For 2000 points where every pair can be connected (cost = Manhattan distance), which approach is the most efficient?
+        options:
+          - Kruskal on all pairs, O(n² log n)
+          - Array-based Prim, O(n²) time and O(n) extra memory
+          - Dijkstra from point 0
+          - BFS from point 0
+        answer: [1]
+        explanation: "With about 2 × 10⁶ implicit edges, sorting them all costs O(n² log n) time and O(n²) memory. Array Prim scans the n current keys per step, O(n²) total, and computes edge costs on the fly. Dijkstra and BFS compute shortest paths, a different problem."
+      - id: q3
+        kind: multi
+        prompt: Which statements are true for a connected undirected weighted graph?
+        options:
+          - If all weights are distinct, the MST is unique
+          - The MST contains the shortest path between any two vertices
+          - Every MST has exactly V - 1 edges
+          - Some MST contains a minimum-weight edge of the graph
+        answer: [0, 2, 3]
+        explanation: "Distinct weights make every cut's cheapest edge unique, so the MST is unique. A minimum edge is the cheapest across the cut around either endpoint, so some MST contains it. MSTs minimise total weight, not pairwise distance: in a triangle with weights 2, 2 and 3, the MST uses both 2-edges and its path between the 3-edge's ends costs 4."
+      - id: q4
+        kind: single
+        prompt: "A Prim implementation pushes `(dist[u] + w, v)` instead of `(w, v)`. What does it compute?"
+        options:
+          - The same MST, just slower
+          - A shortest-path tree from the start vertex, which is generally not an MST
+          - A maximum spanning tree
+          - Nothing; it raises an error
+        answer: [1]
+        explanation: "That key is Dijkstra's: total path length from the start. It yields the tree of shortest paths, which can be heavier than the MST. Prim's key is the weight of the single edge into the tree."
+      - id: q5
+        kind: single
+        prompt: Kruskal finishes the edge list having added only V - 3 edges. What does that mean?
+        options:
+          - The graph has 3 components, and no spanning tree exists
+          - Three edges were skipped by mistake
+          - The MST is not unique
+          - The graph has a cycle
+        answer: [0]
+        explanation: "A forest with V vertices and V - k edges has k components. Kruskal adds every edge that joins components, so ending with V - 3 edges means 3 components remain; report that no spanning tree exists (or return the forest)."
+      - id: q6
+        kind: short
+        prompt: State the cut property and explain how it justifies Kruskal's choice of edge.
+        model_answer: "For any partition of the vertices into two sets, a minimum-weight edge crossing the partition belongs to some MST (exchange argument: swap it in for the heavier crossing edge on the cycle it creates). When Kruskal takes edge (u, v), u and v are in different components; consider the cut between u's component and everything else. Every lighter edge was already processed and either used or found inside a component, so (u, v) is the cheapest edge crossing that cut, hence safe."
+        explanation: The cut property is the single fact both Prim and Kruskal rely on; naming it is the expected proof.
+- key: dsa.mst.interview
+  type: interview_question
+  title: "Interview question: choosing between Prim and Kruskal"
+  skills: [graph.mst, graph.union_find]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: "You must connect a set of sites with fibre at minimum total cost. Sometimes you get a sparse list of feasible links with costs; sometimes every pair of sites can be linked and the cost is their distance. Explain which MST algorithm you would use in each case, why it is correct, and the complexity. Also say how you would handle sites that can instead get a standalone satellite link for a fixed price."
+    key_points:
+      - Sparse edge list → Kruskal with union-find, O(E log E).
+      - "All pairs (complete graph) → array-based Prim, O(V²) time, O(V) memory, no edge materialisation."
+      - Justifies correctness with the cut property (cheapest crossing edge is safe).
+      - "Satellite option → a virtual node joined to each site with weight equal to the satellite price, then a normal MST on V + 1 nodes."
+      - Checks connectivity (V - 1 edges used) and explains the forest case.
+    model_answer: |-
+      For a sparse list of links I would use Kruskal: sort by cost, add each link that joins two different components using union-find, stop at V - 1 links. O(E log E). For the all-pairs case the graph is complete with about V²/2 edges, so I would not build them; array-based Prim keeps, for every site outside the tree, the cheapest known link into the tree, picks the minimum in O(V), and updates the others in O(V): O(V²) overall and O(V) memory. Both are correct by the cut property: the cheapest link across any division of the sites is part of some optimal network.
+
+      For satellite links I add a virtual node "satellite" connected to every site with cost equal to that site's satellite price. Any spanning tree of the extended graph is a valid plan (sites linked to the virtual node use satellite), so the MST of the extended graph is the cheapest plan. If Kruskal ends with fewer than V - 1 links in the original case, the sites cannot all be connected and I report that.
+    pitfalls:
+      - Building all V² edges and sorting them for large V.
+      - Forgetting the connectivity check.
+    follow_ups:
+      - prompt: How would you find links that appear in every minimum-cost network?
+        look_for: "Critical edges: an edge is critical if removing it increases the MST weight (or disconnects); test by re-running Kruskal without it, O(E · E log E) naive, or use cycle-property reasoning on equal-weight groups."
+      - prompt: How do you get two clusters of sites from the MST?
+        look_for: Remove the single heaviest MST edge (k - 1 heaviest for k clusters); this maximises the minimum distance between clusters (single-linkage clustering).
+- key: dsa.mst.guided
+  type: guided_problem
+  title: "Guided practice: connecting all points cheaply"
+  skills: [graph.mst]
+  minutes: 30
+  difficulty: MEDIUM
+  problems: [107]
+  body:
+    guidance:
+      - Notice the graph is complete and say why that favours array-based Prim.
+      - Keep `best[i]` = cheapest edge from the tree to point i, and `in_tree[i]`.
+      - Each step, pick the cheapest point not in the tree, add its cost, and update best for the rest.
+      - State O(n²) time and O(n) space, and compare with Kruskal on all pairs.
+    hints:
+      - Start with best[0] = 0 and everything else infinite.
+      - The edge cost is computed on the fly; never store all pairs.
+- key: dsa.mst.timed
+  type: timed_problem
+  title: "Timed practice: virtual nodes and critical edges"
+  skills: [graph.mst]
+  minutes: 70
+  difficulty: HARD
+  problems: [108, 109]
+  body:
+    guidance:
+      - For the village water problem, introduce a virtual node whose edges cost the well prices, then run Kruskal; explain why this models the choice exactly.
+      - For critical and pseudo-critical edges, compute the base MST weight, then for each edge rerun Kruskal once excluding it (critical if the weight rises or the graph disconnects) and once forcing it in (pseudo-critical if the weight stays the same).
+      - Give the complexity of the per-edge reruns before coding.
+- key: dsa.mst.cards
+  type: revision_card
+  title: "Recall: minimum spanning trees"
+  skills: [graph.mst]
+  minutes: 4
+  body:
+    cards:
+      - front: Number of edges in a spanning tree of V vertices?
+        back: V - 1.
+      - front: The cut property?
+        back: The cheapest edge crossing any cut belongs to some MST.
+      - front: Kruskal in one line?
+        back: Sort edges; add each that joins two different union-find components.
+      - front: Best MST algorithm for all pairs of n points?
+        back: "Array-based Prim, O(n²) time and O(n) memory."
+      - front: Prim's heap key?
+        back: The weight of the single edge into the tree, not a path length.

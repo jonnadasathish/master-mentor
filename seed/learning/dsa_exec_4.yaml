@@ -1,0 +1,697 @@
+# Learning content: coding-round execution, part 2 (time management, debugging under pressure, follow-up handling).
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- time management
+- key: dsa.time_management.lesson
+  type: lesson
+  title: Managing the clock in a coding round
+  skills: [execution.time_management]
+  minutes: 20
+  difficulty: EASY
+  body:
+    summary: Budget the round by phase, check the clock at fixed points, and switch to a working fallback before time decides for you.
+    what: |-
+      Time management is planning how the minutes of a coding round are spent and reacting when a phase overruns. A typical slot is around 45 minutes, of which a few go to introductions and questions at the end, leaving roughly 35 for the problem. A working budget for one medium problem:
+
+      - Clarify and examples: 3–5 minutes.
+      - Approach, complexity and plan: 5–8 minutes.
+      - Code: 15–20 minutes.
+      - Test and fix: 5 minutes.
+      - Follow-up: whatever remains, often 5–10 minutes.
+
+      These are rules of thumb for practice, not a fixed format; formats vary, so ask the interviewer how the time will be used if it is not obvious.
+    why: |-
+      A correct, optimal idea that is not coded by the end usually scores lower than a working simpler solution that was tested. Running out of time also removes the follow-up, which is often where the strongest evidence comes from. Most time is lost in two places: a long silent search for the optimal idea, and debugging that starts without a plan.
+    when: |-
+      - At the start: estimate the budget from the problem size and say it to yourself.
+      - At fixed checkpoints (for example minute 10, 20 and 30 of the problem): compare where you are with the budget.
+      - Whenever you have been stuck on one thing for more than a few minutes.
+    how: |-
+      1. **Keep a clock visible** and note the start time.
+      2. **Clarify quickly but fully**: the minutes spent here save more later. Do not skip examples.
+      3. **Time-box the search for the optimal idea.** If you have no better idea after about 8–10 minutes of approach discussion, say so, state the brute force with its complexity, and ask whether to code it or keep looking. A working brute force is a floor, not a failure.
+      4. **Code the main path first**, leaving clearly-marked stubs for helpers (`# TODO: parse input`) if the interviewer agrees; fill them if time allows.
+      5. **Leave time to test.** Starting the test phase with five minutes left is better than finishing code with zero.
+      6. **When time is nearly up**, stop typing and explain: what remains, how you would finish it, and the complexity. A clear verbal finish earns more than a half-typed line.
+    mental_model: |-
+      A cooking timer per course. When the timer for one course rings, you serve what you have and move on, rather than letting dessert never arrive. The checkpoints are the timers; the fallback solution is the dish you can always serve.
+    tradeoffs: |-
+      Spending longer on the approach reduces coding risk but can leave too little time to code; jumping into code early saves time only if the approach is right. Brute force first guarantees a working answer but costs minutes if you then rewrite it; when the optimal idea is clear, code it directly. Asking the interviewer to skip boilerplate (input parsing, class scaffolding) saves time but should be asked, not assumed.
+    mistakes:
+      - Searching silently for the optimal solution for fifteen minutes with nothing written.
+      - Polishing names and structure before the core logic works.
+      - Starting to code before agreeing on the approach, then rewriting halfway.
+      - Debugging by random edits when time is short instead of a quick trace.
+      - Not leaving any time to test, then declaring done with a known-untested edge case.
+    interview: |-
+      Interviewers notice whether you converge. Saying "I have about twenty minutes left; I will code the O(n log n) version now and mention the O(n) idea at the end" shows you are managing the round. Some will tell you the time; if not, it is fine to ask. When two problems are planned, finishing the first in roughly half the time matters.
+    explain_it:
+      - The phase budget you plan for this round.
+      - The checkpoint where you switch to a fallback.
+      - What you will skip or stub if time is short, and that you will ask first.
+      - How you will finish verbally if you run out.
+    complexity: "Phase budget for a roughly 35-minute problem window: clarify 3–5, approach 5–8, code 15–20, test 5, follow-up the rest."
+    edge_cases:
+      - Two problems in one round; budget about half the time each and ask before starting the second.
+      - An interviewer who keeps adding requirements; agree the core first, then extend.
+      - You finish early; offer edge-case hardening, complexity improvements or a follow-up yourself.
+    misconceptions:
+      - "Coding a brute force means giving up on the optimal. It secures a working answer and often makes the bottleneck obvious."
+      - "Time spent clarifying is wasted. It is the cheapest phase in which to find a misunderstanding."
+- key: dsa.time_management.check
+  type: concept_check
+  title: "Concept check: decisions against the clock"
+  skills: [execution.time_management]
+  minutes: 8
+  difficulty: EASY
+  body:
+    intro: Each question is a moment in a round with roughly 35 minutes for the problem.
+    questions:
+      - id: q1
+        kind: single
+        prompt: It is minute 12 of the problem. You have a clear O(n²) idea and only a vague sense that O(n) might exist. What do you do?
+        options:
+          - Keep searching silently for the O(n) idea
+          - State the O(n²) solution and its cost, mention the vague O(n) direction, and ask whether to code the O(n²) now
+          - Start coding the O(n) idea and hope it works out
+          - Ask the interviewer for the answer
+        answer: [1]
+        explanation: "A working solution is the floor, and the interviewer may steer you (\"go ahead\" or \"think a bit more about the repeated work\"). Coding a half-formed idea risks ending with nothing that works."
+      - id: q2
+        kind: multi
+        prompt: With eight minutes left and the core logic written but untested, which activities are worth the time?
+        options:
+          - Tracing the smallest non-trivial example
+          - Checking the empty and single-element cases against the code
+          - Renaming variables for style
+          - Rewriting the solution with a more elegant approach
+        answer: [0, 1]
+        explanation: "Testing converts written code into working code. Renaming and rewrites can wait; a rewrite with eight minutes left is the riskiest choice."
+      - id: q3
+        kind: single
+        prompt: Two problems are planned in a 45-minute round. You are at minute 28 on the first and still debugging. What is the best move?
+        options:
+          - Keep debugging until it works, however long it takes
+          - Tell the interviewer where you are, propose a short time box for the fix, and ask whether to move on
+          - Silently skip to the second problem
+          - Delete the code and restart the first problem
+        answer: [1]
+        explanation: "The interviewer controls the plan for the round; making the trade-off explicit lets them choose. Silently moving on or overrunning both remove their input."
+      - id: q4
+        kind: single
+        prompt: Three minutes remain and your code is two-thirds written. What earns the most credit?
+        options:
+          - Typing as fast as possible without speaking
+          - Stopping to explain the remaining steps, the edge cases and the complexity clearly
+          - Apologising and saying you ran out of time
+          - Starting to test the incomplete code
+        answer: [1]
+        explanation: "A clear verbal finish shows the interviewer you know how the solution ends. Rushed, silent typing in the last minutes often adds bugs and no evidence."
+      - id: q5
+        kind: single
+        prompt: Which phase most often silently eats the time budget?
+        options:
+          - Clarifying the problem
+          - An unbounded search for the optimal approach, or unstructured debugging
+          - Writing the function signature
+          - Stating complexity
+        answer: [1]
+        explanation: "Both have no natural end point unless you time-box them. Clarification is short and usually saves time later."
+      - id: q6
+        kind: short
+        prompt: Write your personal phase budget and the checkpoint rule for a single medium problem with about 35 minutes.
+        model_answer: "Clarify and examples by minute 5; approach and complexity agreed by minute 12 (if no better idea by then, propose the brute force); core code done by minute 28; test and fix until minute 33; remaining time for the follow-up. At each checkpoint, if behind, say so and pick the fallback."
+        explanation: Exact numbers matter less than having checkpoints and a fallback decided in advance.
+- key: dsa.time_management.timed
+  type: timed_problem
+  title: "Timed practice: hit the phase checkpoints"
+  skills: [execution.time_management]
+  minutes: 35
+  difficulty: MEDIUM
+  problems: [64, 39, 101]
+  body:
+    guidance:
+      - Pick one problem per session and set a 35-minute timer.
+      - "Write the checkpoints at the top of your file: clarify by 5, plan by 12, code by 28, tested by 33."
+      - "At each checkpoint, write one line: on time or behind, and the action you take if behind."
+      - If you have no optimal idea by minute 12, code the brute force and note the bottleneck for later.
+      - "Afterwards, record which phase overran and why."
+- key: dsa.time_management.interview
+  type: interview_question
+  title: "Interview question: what do you do at minute 25?"
+  skills: [execution.time_management, execution.think_aloud]
+  minutes: 8
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 480}
+  body:
+    prompt: "Scenario: about 20 minutes remain. You have a working, tested O(n log n) solution. You have an idea for O(n) that you think works but have not checked on edge cases, and the interviewer has not asked for it yet. Explain what you do next and why, as you would say it to the interviewer."
+    key_points:
+      - Keeps the working solution intact rather than overwriting it.
+      - Explains the O(n) idea verbally first, including what bottleneck it removes, and asks whether the interviewer wants it coded.
+      - "Checks the O(n) idea against at least one edge case before committing to code it."
+      - Leaves time to test any new code, or chooses to discuss instead of coding if time is short.
+      - Mentions that the interviewer may prefer to use the remaining time for a different follow-up.
+    model_answer: "I would say: I have a tested O(n log n) solution. I think O(n) is possible by replacing the sort with a hash map of counts, because the sort only exists to group equal keys. Before coding it, let me check it on duplicates and an empty input... that works. Would you like me to code it, or is there another direction you want to explore? If coding, I keep the current function as a fallback and write the new one beside it, leaving five minutes to test."
+    pitfalls:
+      - Overwriting working code with an untested idea.
+      - Starting a long silent attempt at the O(n) version with no fallback.
+    follow_ups:
+      - prompt: The interviewer says "just tell me how it would work". What do you cover?
+        look_for: The key change, why it is correct, the new time and space, and the edge cases it must handle; no code.
+      - prompt: Halfway through coding the O(n) version you find a flaw with 6 minutes left. What now?
+        look_for: Stops, explains the flaw and why the O(n log n) version stands, possibly sketches a fix verbally; does not leave broken code as the final answer.
+- key: dsa.time_management.cards
+  type: revision_card
+  title: "Recall: time management"
+  skills: [execution.time_management]
+  minutes: 5
+  body:
+    cards:
+      - front: Rough phase budget for a 35-minute problem window?
+        back: Clarify 3–5, approach 5–8, code 15–20, test 5, follow-up the rest.
+      - front: No better idea after the approach time box?
+        back: State the brute force with its cost and ask whether to code it.
+      - front: Three minutes left, code unfinished?
+        back: Stop typing and explain the remaining steps and complexity.
+      - front: Two biggest time sinks?
+        back: Unbounded search for the optimum and unstructured debugging.
+      - front: Have a working solution and a new idea?
+        back: Keep the working one; explain the idea first and ask.
+
+# ---------------------------------------------------------------------------------------------- debugging under pressure
+- key: dsa.debug_pressure.lesson
+  type: lesson
+  title: Triage by symptom when your code fails mid-round
+  skills: [execution.debugging_under_pressure, python.core_syntax]
+  minutes: 20
+  difficulty: MEDIUM
+  body:
+    summary: The kind of failure — wrong answer, exception, timeout, hang or deep recursion — tells you where to look first; read it before you touch the code.
+    what: |-
+      When code fails in a timed round, the fastest route to the bug starts with classifying the symptom. Each symptom points to a short list of causes, so you check two or three lines instead of rereading everything. This complements the general trace-the-invariant method: triage tells you **where** to trace.
+    why: |-
+      Under time pressure, people start editing before they have read the error. Classifying first takes thirty seconds and usually halves the search. It also gives you something precise to say aloud ("this is a RecursionError, so recursion depth, not logic"), which is exactly what the interviewer wants to hear.
+    when: |-
+      - A run or a provided test fails.
+      - The platform reports a timeout or a memory limit.
+      - The interviewer says "this fails on a hidden case" without the input.
+    how: |-
+      **Symptom → first suspects (CPython 3)**
+
+      - **IndexError**: a loop bound (`range(n + 1)`), a neighbour check missing `0 <=`, reading `a[i + 1]` on the last element, popping from an empty stack.
+      - **KeyError**: reading a dict before inserting; use `get`, `defaultdict` or `Counter`.
+      - **TypeError with NoneType**: a function path that falls off the end without `return`, or assigning the result of an in-place method (`x = x.sort()`).
+      - **UnboundLocalError**: assigning to an outer variable inside a nested function; declare `nonlocal` (or use a mutable container).
+      - **RecursionError**: depth beyond the default limit (1000 frames in CPython) on a long chain or a degenerate tree; convert to an iterative stack, or as a quick workaround raise the limit with `sys.setrecursionlimit` (which can still crash the process on very deep stacks).
+      - **Wrong answer**: initial values, `<` vs `<=`, a missing final flush, a negative index wrapping silently (`grid[-1]` is the last row), mutation of shared state across recursive branches.
+      - **Timeout**: an O(n) operation inside a loop (`list.pop(0)`, `x in list`, slicing, string `+=`), BFS marking visited on pop instead of push, missing memoisation.
+      - **Hang**: a loop variable that is not updated on some path, or a binary search update that does not shrink the range.
+      - **Fails only on a hidden test**: list the edge cases you did not test — empty, one element, duplicates, negatives, maximum size, answer at either end — and check each against the code.
+
+      **Time-box it.** Give a bug about five minutes of structured search. If it is still not found, say what you have ruled out and ask whether the interviewer wants you to continue or move on; often they will give a hint.
+    mental_model: |-
+      A doctor's triage: fever, a broken arm and chest pain go to different rooms. The symptom does not tell you the diagnosis, but it tells you which three tests to run first.
+    tradeoffs: |-
+      Triage is fast but can mislead when two bugs combine (a wrong answer caused by a silent negative index that would otherwise be an IndexError). If the first suspects are clean, fall back to a full trace of the smallest failing input. Raising the recursion limit is quick but fragile; an iterative rewrite costs more minutes but removes the risk.
+    mistakes:
+      - Editing code before reading the full error message and line number.
+      - Treating a timeout as a logic bug and tracing values instead of looking for a hidden O(n) inside a loop.
+      - Assuming a grid neighbour check is fine because no IndexError appeared; Python's negative indexes hide the bug as a wrong answer.
+      - Spending fifteen minutes on one bug without telling the interviewer.
+      - Fixing the symptom (wrapping in try/except, adding `if n == 3`) instead of the cause.
+    interview: |-
+      Say the classification aloud: "IndexError on line 9, which reads `grid[nr][nc]`, so the bounds check is the suspect." Then fix one thing and re-run. If the failure is a timeout, say the complexity you expected and look for the line that breaks it. Interviewers value a calm, explained diagnosis more than a fast silent one.
+    explain_it:
+      - Read and state the symptom, the error type and the line.
+      - Name the first suspects for that symptom.
+      - Check them in order, then fall back to a trace if all are clean.
+      - Time-box and communicate if it takes longer than about five minutes.
+    example:
+      language: python
+      code: |-
+        def count_paths(n: int) -> int:
+            calls = 0
+            def walk(i: int) -> int:
+                calls += 1             # UnboundLocalError: assignment makes 'calls' local to walk
+                if i >= n:
+                    return 1 if i == n else 0
+                return walk(i + 1) + walk(i + 2)
+            return walk(0)
+
+        # Fix: declare 'nonlocal calls' inside walk.
+        # Second symptom for n = 5000: RecursionError (depth about 5000 > default limit 1000),
+        # and exponential time even below that depth. Fix both with bottom-up DP:
+        # ways[i] = ways[i + 1] + ways[i + 2], computed from n downwards in O(n).
+      explanation: "One snippet, three symptoms: the exception names the scope rule, the RecursionError names the depth, and the expected O(n) versus the observed blow-up names missing memoisation."
+    complexity: Triage is a constant-time habit; it pays most on long inputs where a full trace is impossible.
+    edge_cases:
+      - Errors raised inside a library call (heapq, bisect); the cause is usually the arguments you passed, such as comparing tuples whose second element is not comparable.
+      - Differences between your local Python version and the platform's; mention the version if a feature is new (for example `math.lcm` needs 3.9+).
+    misconceptions:
+      - "No exception means the indexes are right. Negative indexes are valid in Python and fail silently."
+      - "A timeout means the algorithm is wrong. Often the algorithm is right and one hidden O(n) operation makes it quadratic."
+- key: dsa.debug_pressure.check
+  type: concept_check
+  title: "Concept check: read the symptom first"
+  skills: [execution.debugging_under_pressure]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: For each failure, name the most likely cause before reading the options.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "A recursive DFS on a tree passes small tests but fails on a hidden test with RecursionError: maximum recursion depth exceeded. The tree has up to 10⁵ nodes. Most likely cause?"
+        options:
+          - A cycle in the tree
+          - A degenerate (path-shaped) tree whose depth exceeds the default limit of about 1000 frames
+          - A wrong base case
+          - The tree is too wide
+        answer: [1]
+        explanation: "A tree has no cycles, and a wrong base case would usually fail small tests too. A chain of 10⁵ nodes needs 10⁵ frames. Convert to an iterative stack; raising the limit is a fragile workaround."
+      - id: q2
+        kind: single
+        prompt: "A grid BFS is correct on small grids but times out on a 1000 × 1000 open grid. The code marks a cell visited when it is popped, not when it is pushed. Why does that matter?"
+        options:
+          - It gives wrong distances
+          - The same cell can be enqueued many times by different neighbours before it is popped, multiplying the work
+          - It makes the queue a stack
+          - It does not matter
+        answer: [1]
+        explanation: "Distances stay correct because the first pop of a cell is still the shortest, which is why small tests pass. But each cell can be pushed up to four times, and duplicates enqueue more duplicates. Mark visited when pushing."
+      - id: q3
+        kind: single
+        prompt: "The error is `TypeError: 'NoneType' object is not subscriptable` on `result[0]`, where `result = helper(x)`. First suspect?"
+        options:
+          - helper has a path that ends without a return statement
+          - x is None
+          - result is a tuple
+          - The list is empty
+        answer: [0]
+        explanation: "A Python function that falls off the end returns None. An empty list would raise IndexError instead, and a tuple is subscriptable. Check each branch of helper for a return."
+      - id: q4
+        kind: single
+        prompt: A flood fill that sinks visited land in place (sets it to 0) uses the neighbour check `if nr < rows and nc < cols and grid[nr][nc] == 1`. Small tests pass, but a hidden test gives a wrong count of islands. Why?
+        options:
+          - nr can be -1, which silently reads the last row instead of raising
+          - The comparison should use <=
+          - grid[nr][nc] should be grid[nc][nr]
+          - Islands should be counted with union-find
+        answer: [0]
+        explanation: "Python accepts negative indexes, so from row 0 the fill reads and sinks cells of the last row as if they were neighbours; an island in the bottom row can be swallowed by one in the top row and the count drops. The check needs 0 <= nr < rows and 0 <= nc < cols. Using <= would add an IndexError on the bottom edge."
+      - id: q5
+        kind: multi
+        prompt: Your solution times out. Which lines are worth checking first?
+        options:
+          - "queue.pop(0) on a list inside a loop"
+          - "if x in seen_list inside a loop"
+          - A recursive function without memoisation that recomputes the same states
+          - "A comment line"
+        answer: [0, 1, 2]
+        explanation: "Each hides extra work inside a loop: pop(0) shifts the list, list membership scans it, and unmemoised recursion repeats subproblems exponentially. Use deque.popleft, a set, and a cache."
+      - id: q6
+        kind: short
+        prompt: The interviewer says your code fails a hidden test but cannot show the input. What do you do in the first two minutes?
+        model_answer: "Say that I will check the edge cases I did not test, then go through them against the code: empty input, one element, duplicates, negatives, all equal, maximum size (complexity), and the answer at either end. For each, point to the line that handles it. If one is unhandled, fix it and re-run the earlier tests."
+        explanation: Without the input, a structured edge-case sweep replaces the trace; it also shows the interviewer a method rather than guessing.
+- key: dsa.debug_pressure.bfs_exercise
+  type: debugging_exercise
+  title: "Debugging drill: a grid shortest path that is slow and sometimes wrong"
+  skills: [execution.debugging_under_pressure, graph.traversal, execution.testing_dry_run]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 900}
+  body:
+    scenario: |-
+      You wrote a BFS that returns the fewest steps from the top-left to the bottom-right cell of a grid of 0 (open) and 1 (wall), moving up, down, left or right, or -1 if unreachable. The interviewer runs it on larger tests. You have fifteen minutes.
+    artifacts:
+      language: python
+      code: |-
+        def shortest_path(grid):
+            rows, cols = len(grid), len(grid[0])
+            queue = [(0, 0, 0)]                    # (row, col, distance)
+            seen = set()
+            while queue:
+                r, c, d = queue.pop(0)
+                if (r, c) in seen:
+                    continue
+                seen.add((r, c))
+                if (r, c) == (rows - 1, cols - 1):
+                    return d
+                for dr, dc in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    nr, nc = r + dr, c + dc
+                    if nr < rows and nc < cols and grid[nr][nc] == 0:
+                        queue.append((nr, nc, d + 1))
+            return -1
+    symptoms:
+      - Correct on the 3 × 3 examples that have an open path.
+      - Times out on a 1000 × 1000 grid with no walls.
+      - "Raises IndexError (list index out of range) on [[0, 1, 0], [1, 1, 0], [0, 0, 0]], where the start is boxed in and the expected answer is -1, even though the code checks nr < rows."
+      - "Returns 2 for [[1, 0], [0, 0]], where the start cell itself is a wall and the expected answer is -1."
+    tasks:
+      - Classify each symptom (timeout vs wrong answer) and name the line responsible.
+      - Fix every bug with the smallest change and say why each fix is correct.
+      - Name two tests you would add.
+    hints:
+      - What does grid[-1][0] read in Python?
+      - What does list.pop(0) cost, and how many times can one cell be appended?
+      - Is the start cell ever checked?
+    reference: |-
+      Four defects. **Timeout**: `queue.pop(0)` is O(n) per pop (use `collections.deque` and `popleft`), and marking visited on pop lets each cell be enqueued up to four times (mark when pushing). **IndexError despite a bounds check**: the check misses `0 <=`. Python accepts indexes from -1 down to -rows, so the search steps to phantom coordinates such as (-1, 0), which read real cells of the last row; from there it keeps walking to -2, -3 and so on until an index below -rows finally raises. The boxed-in start is exactly the case that makes the search leave the grid. **Wrong answer**: a blocked start (or blocked target) must return -1 before searching.
+    solution:
+      language: python
+      code: |-
+        from collections import deque
+
+        def shortest_path(grid):
+            rows, cols = len(grid), len(grid[0])
+            if grid[0][0] == 1 or grid[rows - 1][cols - 1] == 1:
+                return -1
+            queue = deque([(0, 0, 0)])
+            seen = {(0, 0)}                          # mark on push
+            while queue:
+                r, c, d = queue.popleft()            # O(1)
+                if (r, c) == (rows - 1, cols - 1):
+                    return d
+                for dr, dc in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    nr, nc = r + dr, c + dc
+                    if 0 <= nr < rows and 0 <= nc < cols and grid[nr][nc] == 0 and (nr, nc) not in seen:
+                        seen.add((nr, nc))
+                        queue.append((nr, nc, d + 1))
+            return -1
+    rubric:
+      - {key: wraparound, label: "Identifies the missing 0 <= checks and explains negative-index wraparound as the wrong-answer cause", points: 3}
+      - {key: performance, label: Identifies both pop(0) and visited-on-pop as timeout causes and fixes both, points: 3}
+      - {key: blocked_start, label: Handles a blocked start or target, points: 2}
+      - {key: tests_named, label: "Names tests that would have caught the bugs (boxed-in start, large open grid)", points: 2}
+    follow_ups:
+      - prompt: After the fixes, what are the time and space complexity?
+        look_for: "O(rows × cols) time and space; each cell is enqueued at most once."
+      - prompt: Moving into some cells now costs 1 and others 5. What changes?
+        look_for: "Plain BFS is wrong for unequal weights; use Dijkstra with a heap (or 0-1 BFS only if weights are 0 and 1)."
+- key: dsa.debug_pressure.cards
+  type: revision_card
+  title: "Recall: symptom to suspect"
+  skills: [execution.debugging_under_pressure]
+  minutes: 5
+  body:
+    cards:
+      - front: RecursionError on a large tree?
+        back: Depth over the default limit (about 1000); go iterative.
+      - front: Timeout with a correct algorithm?
+        back: A hidden O(n) inside a loop — pop(0), list membership, slicing.
+      - front: Wrong answer near grid edges, no IndexError?
+        back: Missing 0 <= check; negative indexes wrap silently.
+      - front: "'NoneType' object is not subscriptable?"
+        back: A function path without return, or x = x.sort().
+      - front: UnboundLocalError in a nested function?
+        back: Assignment makes it local; declare nonlocal.
+      - front: Bug not found after about five minutes?
+        back: Say what you ruled out and ask how to proceed.
+
+# ---------------------------------------------------------------------------------------------- follow-up handling
+- key: dsa.followup.lesson
+  type: lesson
+  title: Handling follow-ups and changed constraints
+  skills: [execution.followup_handling, execution.brute_force_to_optimal]
+  minutes: 20
+  difficulty: MEDIUM
+  body:
+    summary: Restate the change, find the assumption of your solution it breaks, then decide whether to adapt the current pattern or switch to another.
+    what: |-
+      A follow-up modifies the problem after you solve it: a bigger scale, a changed constraint, a different output, a memory limit, updates between queries, or a stream instead of an array. Handling it means re-deriving the solution from what changed rather than starting over or patching blindly.
+    why: |-
+      Follow-ups separate memorised solutions from understood ones. A candidate who knows why the solution works can say immediately which part survives the change. Follow-ups are also where the remaining minutes go, and often where the strongest evidence of seniority comes from.
+    when: |-
+      After you finish the main problem, or when the interviewer interrupts with "what if...". Common families:
+
+      - **Scale**: n becomes 10⁹, data does not fit in memory, many machines.
+      - **Constraint**: negatives allowed, duplicates allowed, input no longer sorted, k instead of 2.
+      - **Output**: return all answers instead of one, return indices, return a count.
+      - **Resources**: O(1) extra space, read-only input.
+      - **Online**: values arrive as a stream, or updates interleave with queries.
+    how: |-
+      1. **Restate the change** in one sentence and confirm it.
+      2. **List the assumptions your solution relies on** ("the window can shrink because values are positive", "the dict fits in memory", "the array is static").
+      3. **Find the broken one.** If none is broken, say so and explain why the solution still holds.
+      4. **Choose**: adapt (change a data structure, add a field) or switch pattern (window → prefix sums, array → heap over a stream, recomputation → incremental structure).
+      5. **State the new complexity** and what you gave up.
+      6. **Code only the delta**, if asked to code at all; often a clear explanation is what is wanted.
+
+      Typical moves:
+
+      - Sorted input appears → two pointers, O(1) space instead of a hash map.
+      - Stream → keep only a bounded summary (running counts, a size-k heap, a window deque).
+      - Does not fit in memory → external sort, partition by hash across files or machines, then combine.
+      - Updates between range queries → Fenwick tree or segment tree instead of a static prefix array.
+      - Return all solutions → output size may dominate; say O(n + output).
+    mental_model: |-
+      Your solution is a building resting on a few load-bearing walls (its assumptions). A follow-up removes or adds weight somewhere. Find which wall is affected before you start renovating; often only one room changes.
+    tradeoffs: |-
+      Adapting keeps most of your code but can leave a worse complexity; switching pattern costs time but may be the only correct answer. In the last minutes, a precise verbal adaptation beats half-written code. For scale follow-ups, an exact answer may cost far more than an approximate one; say when approximate (sampling, count-min sketch) would be acceptable and ask.
+    mistakes:
+      - Starting to code before restating the change and saying what breaks.
+      - Claiming the old solution still works without checking the assumption that changed (negatives in a sliding window).
+      - Rewriting everything when a small change suffices (sorted input needs only a different lookup).
+      - Ignoring output size when asked to return all results.
+      - Answering a scale question with only a faster algorithm when the real issue is memory or distribution.
+    interview: |-
+      Say: "My solution relies on X. This change breaks X (or not). So I would change Y, which makes it O(...)." Interviewers often chain two or three follow-ups; each answer in that shape keeps the conversation moving. If you do not know the ideal structure (a segment tree, a sketch), describe what it must support and its target cost; that is still strong evidence.
+    explain_it:
+      - Restate the change.
+      - Name the assumption your solution relied on.
+      - Say whether it breaks, and what replaces it.
+      - Give the new complexity and the trade-off.
+    example:
+      language: python
+      code: |-
+        # Base: does any pair sum to target?  dict of seen values, O(n) time, O(n) space.
+        # Follow-up 1: input is sorted and memory is tight -> the dict is no longer needed.
+        def has_pair_sorted(nums: list[int], target: int) -> bool:
+            lo, hi = 0, len(nums) - 1
+            while lo < hi:
+                s = nums[lo] + nums[hi]
+                if s == target:
+                    return True
+                if s < target:
+                    lo += 1       # need a bigger sum
+                else:
+                    hi -= 1       # need a smaller sum
+            return False          # O(n) time, O(1) space
+        # Follow-up 2: numbers arrive one by one and queries interleave -> keep a Counter;
+        # add is O(1), find(target) scans distinct values in O(distinct).
+      explanation: "The assumption that changed in follow-up 1 is memory, and sortedness gives a property (moving a pointer changes the sum monotonically) that replaces the hash map."
+    complexity: Depends on the follow-up; always state the new time and space and what was traded.
+    edge_cases:
+      - A follow-up that does not change anything; saying so with the reason is the right answer.
+      - Two follow-ups that pull in opposite directions (less memory, faster queries); ask which matters more.
+    misconceptions:
+      - "A follow-up means my first solution was wrong. It usually means it was right and the interviewer wants to see how far your understanding goes."
+      - "Every follow-up needs code. Many are answered best with a precise explanation."
+- key: dsa.followup.check
+  type: concept_check
+  title: "Concept check: what breaks when the constraint changes"
+  skills: [execution.followup_handling]
+  minutes: 8
+  difficulty: MEDIUM
+  body:
+    intro: For each change, identify which assumption breaks and the smallest correct adaptation.
+    questions:
+      - id: q1
+        kind: single
+        prompt: Your sliding window finds the shortest subarray with sum at least s for positive values. The interviewer allows negative values. What breaks?
+        options:
+          - Nothing; the window still works
+          - Shrinking from the left no longer always lowers the sum, so the window can skip answers
+          - Only the complexity changes
+          - The output type changes
+        answer: [1]
+        explanation: "The window relies on monotonic sums. With negatives, removing an element can raise the sum. Switch to prefix sums with a monotonic deque (or sorted search) of prefix indices."
+      - id: q2
+        kind: single
+        prompt: "You returned the top k frequent words using a Counter and a heap. Follow-up: the words arrive as an endless stream and the top k is queried occasionally. What is the first concern?"
+        options:
+          - The heap size
+          - The Counter grows without bound as new distinct words keep arriving
+          - Sorting stability
+          - Word length
+        answer: [1]
+        explanation: "Exact counts for every distinct word need memory proportional to the vocabulary. Options: a time window that evicts old counts, or an approximate structure such as a count-min sketch plus a heap of candidates, if approximate answers are acceptable."
+      - id: q3
+        kind: multi
+        prompt: "Your static prefix-sum array answers range-sum queries in O(1). Follow-up: values are updated between queries. Which options are correct?"
+        options:
+          - Rebuild the prefix array after every update, O(n) per update
+          - A Fenwick (binary indexed) tree, O(log n) per update and query
+          - A segment tree, O(log n) per update and query
+          - Keep the prefix array unchanged; queries remain correct
+        answer: [0, 1, 2]
+        explanation: "Rebuilding is correct but O(n) per update, fine only if updates are rare. Fenwick and segment trees balance both at O(log n). Leaving the array unchanged returns stale sums."
+      - id: q4
+        kind: single
+        prompt: "You solved 'does any pair sum to target' with a set. Follow-up: return all pairs of indices. What do you say about complexity?"
+        options:
+          - Still O(n)
+          - O(n + output), and the output can be O(n²) when many values are equal
+          - O(n log n)
+          - O(1) extra
+        answer: [1]
+        explanation: "When the answer itself can have n² entries (all values equal and target twice that value), no algorithm can be faster than writing it out. Stating output-sensitive complexity is the expected answer."
+      - id: q5
+        kind: single
+        prompt: "The interviewer asks: what if the input array is already sorted? Your current solution sorts and then uses two pointers."
+        options:
+          - Nothing changes in the algorithm; the sort becomes unnecessary and time drops from O(n log n) to O(n)
+          - The algorithm must be replaced with binary search
+          - It becomes O(log n)
+          - Sorted input breaks two pointers
+        answer: [0]
+        explanation: "Recognising that a follow-up removes a step, rather than requiring a new design, is part of the skill. The pointer pass alone is O(n)."
+      - id: q6
+        kind: short
+        prompt: Describe the four-sentence shape you use to answer any follow-up.
+        model_answer: "Restate the change. Name the assumption my solution relied on. Say whether the change breaks it and what replaces it. State the new time and space complexity and what I traded."
+        explanation: A fixed shape keeps answers short and complete even when follow-ups arrive back to back.
+- key: dsa.followup.two_sum_variants
+  type: coding_exercise
+  title: "Exercise: one problem, three follow-ups"
+  skills: [execution.followup_handling, hashing.lookup_frequency, two_pointers.core]
+  minutes: 25
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 1500}
+  body:
+    prompt: |-
+      Base problem: given a list of integers and a target, return the indices of two different positions whose values sum to the target (assume exactly one answer).
+
+      Solve the base problem, then handle each follow-up as if the interviewer added it, stating first what assumption changed:
+
+      1. The list is sorted and you may use only O(1) extra space. Return the indices.
+      2. Return every distinct pair of values (not indices) that sums to the target, without duplicates, for an unsorted list with repeated values.
+      3. Design a class with `add(number)` and `find(target)`, where `find` says whether any two added numbers (two different additions) sum to the target. Calls interleave; there are many more adds than finds.
+    examples:
+      - "base([3, 2, 4], 6) == (1, 2)"
+      - "sorted_pair([1, 3, 4, 6], 7) == (1, 2)"
+      - "distinct_pairs([1, 1, 2, 2, 3, 0], 3) == {(1, 2), (0, 3)}"
+      - "add(3); add(3); find(6) is True; add(1); find(2) is False"
+    hints:
+      - The base needs a dict from value to index, checking before inserting.
+      - With sorted input, the sum moves predictably when you move either end.
+      - For distinct pairs, store each pair as (smaller, larger) in a set.
+      - In the class, a value can pair with itself only if it was added at least twice.
+    solution:
+      language: python
+      code: |-
+        from collections import Counter
+
+        def base(nums, target):
+            index_of = {}
+            for i, x in enumerate(nums):
+                if target - x in index_of:
+                    return index_of[target - x], i
+                index_of[x] = i
+
+        def sorted_pair(nums, target):
+            lo, hi = 0, len(nums) - 1
+            while lo < hi:
+                s = nums[lo] + nums[hi]
+                if s == target:
+                    return lo, hi
+                if s < target:
+                    lo += 1
+                else:
+                    hi -= 1
+
+        def distinct_pairs(nums, target):
+            seen, pairs = set(), set()
+            for x in nums:
+                y = target - x
+                if y in seen:
+                    pairs.add((min(x, y), max(x, y)))
+                seen.add(x)
+            return pairs
+
+        class TwoSumStream:
+            def __init__(self):
+                self.counts = Counter()
+
+            def add(self, number):              # O(1): adds dominate, so keep them cheap
+                self.counts[number] += 1
+
+            def find(self, target):             # O(distinct values)
+                for x, c in self.counts.items():
+                    y = target - x
+                    if y != x and y in self.counts:
+                        return True
+                    if y == x and c >= 2:
+                        return True
+                return False
+      explanation: "Base O(n) time and space. Sorted: O(n) time, O(1) space, using monotonic sums. Distinct pairs: O(n) time, pairs normalised to avoid duplicates. Class: add O(1), find O(distinct); the alternative of precomputing all pair sums makes find O(1) but add O(distinct) and memory O(distinct²), which is wrong when adds dominate."
+    rubric:
+      - {key: base_correct, label: Base solution checks before inserting so an element never pairs with itself, points: 2}
+      - {key: sorted_adapt, label: "Names the change (sorted, O(1) space) and switches to two pointers with the monotonic-sum argument", points: 2}
+      - {key: distinct_pairs, label: Normalises pairs to avoid duplicates and handles repeated values, points: 2}
+      - {key: stream_design, label: "Chooses cheap add and O(distinct) find because adds dominate, and handles x + x with a count of at least 2", points: 3}
+      - {key: assumptions_stated, label: States which assumption each follow-up changed before coding it, points: 1}
+    follow_ups:
+      - prompt: Now finds dominate and adds are rare. What changes in the class?
+        look_for: "Precompute a set of all pairwise sums on add (O(distinct) per add, O(distinct²) memory) so find is O(1); state the memory cost."
+      - prompt: The numbers do not fit in memory on one machine. How would you answer find(target)?
+        look_for: "Partition values by hash or by range across machines; for each x, the complement target - x lives in a known partition, so check partition pairs; or sort externally and use two pointers across files."
+- key: dsa.followup.interview
+  type: interview_question
+  title: "Interview question: the interviewer adds a constraint"
+  skills: [execution.followup_handling, heap.top_k]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: "You have just solved 'return the k most frequent elements of an array' with a Counter and a size-k min-heap in O(n log k). The interviewer now says: the data is a log of item views that keeps arriving, and a dashboard asks for the current top 10 every few seconds. Adapt your solution, say what assumption changed, and give the cost of each operation."
+    key_points:
+      - "Restates the change: from a static array to a stream with periodic queries."
+      - "Names the broken assumptions: the input is no longer finite, and recomputing from scratch per query is too slow."
+      - "Keeps counts incrementally (dict updated per view, O(1)) and answers a query with heapq.nlargest over the counts in O(d log k) for d distinct items."
+      - "Addresses unbounded memory: a time window (for example the last hour, with expiring buckets) or an approximate structure if exact counts are not required, and asks which the product needs."
+      - States the trade-off between query cost and update cost.
+    model_answer: "The input became a stream with frequent queries, so I cannot rebuild the Counter per query. I update a dict of counts per view in O(1); each dashboard query runs nlargest(10) over the counts, O(d log 10) for d distinct items, which is fine for tens of thousands of items every few seconds. If counts must be 'recent', I keep per-minute buckets and subtract the bucket that expires. If d is huge, I would ask whether approximate answers are acceptable; then a count-min sketch plus a small heap of heavy hitters bounds memory. If queries were very frequent relative to updates, I would maintain the top k incrementally instead."
+    pitfalls:
+      - Re-reading the whole log for every query.
+      - Ignoring that the Counter grows without bound over an infinite stream.
+    follow_ups:
+      - prompt: The dashboard needs the top 10 for the last 5 minutes only. What changes?
+        look_for: "Per-second or per-minute count buckets in a deque; add the new bucket and subtract the expired one from a running count map; query as before."
+      - prompt: The views come from many servers. Where do you count?
+        look_for: "Each server keeps local counts and periodically ships them (or its local top candidates) to an aggregator; notes that merging only local top-k lists can miss items that are moderately popular everywhere, so ship counts or use a larger candidate set."
+      - prompt: How would you test the windowed version?
+        look_for: Inject a fake clock; add views across a window boundary and assert expired counts are subtracted; test empty windows and ties.
+- key: dsa.followup.timed
+  type: timed_problem
+  title: "Timed practice: solve, then answer your own follow-ups"
+  skills: [execution.followup_handling]
+  minutes: 45
+  difficulty: MEDIUM
+  problems: [3, 8, 19]
+  body:
+    guidance:
+      - Pick one problem and solve it in about 25 minutes.
+      - "Then write three follow-ups yourself: one about scale, one changing a constraint (negatives, duplicates, sorted, a stream) and one changing the output."
+      - "Answer each aloud in the four-sentence shape: change, assumption, adaptation, new complexity."
+      - Code the smallest delta for one of them within the remaining time.
+- key: dsa.followup.cards
+  type: revision_card
+  title: "Recall: follow-up moves"
+  skills: [execution.followup_handling]
+  minutes: 5
+  body:
+    cards:
+      - front: Four-sentence follow-up answer?
+        back: Change, assumption it breaks, adaptation, new complexity.
+      - front: Input becomes sorted, memory is tight?
+        back: Two pointers replace the hash map, O(1) space.
+      - front: Static range sums become range sums with updates?
+        back: Fenwick or segment tree, O(log n) per operation.
+      - front: Array becomes an endless stream?
+        back: Keep a bounded summary — counts, a size-k heap, a windowed deque.
+      - front: Return all answers instead of one?
+        back: State output-sensitive cost, O(n + output).
+      - front: Data no longer fits in memory?
+        back: Partition by hash or range, process parts, then combine.

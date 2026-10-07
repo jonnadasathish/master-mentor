@@ -1,0 +1,932 @@
+# Learning content: greedy algorithms and exchange arguments, dynamic programming fundamentals, knapsack and subset-sum DP.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- greedy
+- key: dsa.greedy.lesson
+  type: lesson
+  title: Greedy choices you can prove with an exchange argument
+  skills: [greedy.core, python.sorting_keys]
+  minutes: 22
+  difficulty: MEDIUM
+  body:
+    summary: Make the locally best choice, never revisit it, and only trust it once an exchange argument shows it cannot be worse than an optimal solution's choice.
+    what: |-
+      A **greedy algorithm** builds a solution one decision at a time, each time taking the option that looks best right now (earliest finishing meeting, farthest reachable index, highest value per kilogram), and never undoing a decision. It is usually a sort followed by one linear scan, so O(n log n) or O(n).
+
+      Greedy is correct only for problems with the **greedy-choice property**: some optimal solution starts with the greedy choice, and what remains is a smaller instance of the same problem. You establish that with an **exchange argument**: take any optimal solution, swap its first choice for the greedy one, and show the result is still valid and no worse.
+    why: |-
+      When greedy works it is the simplest and fastest correct answer, often O(n log n) where DP would be O(n²) or worse. When it does not work it produces confident, wrong answers that pass the examples, which is why interviewers ask you to justify it. Knowing the classic counter-examples is as important as knowing the classic greedy algorithms.
+    when: |-
+      Good signals: the problem asks for a maximum count or minimum number of something (meetings, arrows, platforms, jumps), sorting by one key makes a decision obviously safe, and choosing now never restricts future choices more than the alternative would.
+
+      Classic correct greedy choices:
+
+      - **Interval scheduling** (max non-overlapping intervals): sort by **end** time, take each interval that starts at or after the last taken end.
+      - **Reachability** (can you reach the end with jumps up to `a[i]`?): track the farthest index reachable so far.
+      - **Fractional knapsack**: take items by value per weight, splitting the last one.
+      - **Circular fuel route**: if total fuel ≥ total cost, start right after the last point where the running tank went negative.
+
+      Warning signs that you need DP instead: items cannot be split (0/1 knapsack), coin denominations are arbitrary, or a choice changes the value of later choices.
+    how: |-
+      Interval scheduling, with the proof attached:
+
+      ```python
+      def max_non_overlapping(intervals: list[tuple[int, int]]) -> int:
+          count, last_end = 0, None
+          for start, end in sorted(intervals, key=lambda iv: iv[1]):   # earliest end first
+              if last_end is None or start >= last_end:                 # touching counts as compatible
+                  count += 1
+                  last_end = end
+          return count
+      ```
+
+      **Exchange argument**: let O be an optimal schedule and g the interval with the earliest end. Replace O's first interval with g. Because g ends no later, it overlaps nothing that O's first interval did not, so the schedule is still valid and has the same size. Repeat on the rest. Hence greedy is optimal.
+
+      **Counter-examples** for tempting alternatives, which you should try before trusting any greedy:
+
+      - Earliest **start**: `[1, 10], [2, 3], [4, 5]` picks `[1, 10]` and stops at 1; the optimum is 2.
+      - Shortest **duration**: `[1, 5], [4, 7], [6, 10]` picks `[4, 7]`, which overlaps both others, giving 1; the optimum is 2.
+      - Largest coin first with coins `{1, 3, 4}` and amount 6: `4 + 1 + 1` is three coins; `3 + 3` is two. With `{1, 5, 6, 9}` and 11: `9 + 1 + 1` against `5 + 6`.
+    mental_model: |-
+      Greedy is a promise: "this choice is never worse than whatever an optimal solution did here". Your job is to check that promise by trying to break it with a tiny counter-example (three intervals, three coins) and, if you cannot, by showing that swapping the optimum's choice for yours keeps everything valid. If you cannot write that swap in two sentences, treat the greedy as a guess.
+    tradeoffs: |-
+      Greedy is fast and memory-light but brittle: a small change in the problem (integer items instead of fractional, arbitrary coins instead of standard ones, weights on intervals) can make it wrong, and then DP is needed, often at O(n × capacity) or O(n²). Some problems combine both: binary search on the answer with a greedy feasibility check, or Kadane's algorithm, which is DP that looks greedy.
+    mistakes:
+      - Choosing the sort key by intuition (start time, duration) without testing a counter-example.
+      - Using greedy for coin change with arbitrary denominations.
+      - Applying the fractional-knapsack ratio rule to 0/1 knapsack.
+      - "Getting the tie rule wrong: whether intervals that touch (end == start) overlap is a problem detail; say it out loud."
+      - "In custom-comparator sorts (largest concatenated number), comparing numbers instead of the strings `a + b` vs `b + a`, and forgetting the all-zeros result \"0\"."
+    interview: |-
+      State the greedy choice, then defend it: "sort by end time; exchange argument: swapping any optimal first choice for the earliest-ending interval keeps the schedule valid." Interviewers often ask "why not sort by start?" — answer with a three-interval counter-example. If you cannot prove a greedy quickly, say so and fall back to DP; that is a stronger signal than a confident wrong answer.
+    explain_it:
+      - State the greedy choice and the sort key.
+      - Give the exchange argument in two sentences.
+      - Give a counter-example for the most tempting alternative.
+      - Complexity (usually O(n log n) for the sort plus O(n) scan).
+    example:
+      language: python
+      code: |-
+        def can_reach_end(jumps: list[int]) -> bool:
+            farthest = 0
+            for i, step in enumerate(jumps):
+                if i > farthest:
+                    return False            # i is unreachable, so everything after it is too
+                farthest = max(farthest, i + step)
+            return True
+      explanation: "can_reach_end([2, 3, 1, 1, 4]) is True; can_reach_end([3, 2, 1, 0, 4]) is False because index 4 is beyond the farthest reachable index 3. O(n) time, O(1) space; the DP version is O(n²)."
+    complexity: Typically O(n log n) for the sort plus O(n) for the scan, and O(1) or O(n) extra space.
+    edge_cases:
+      - Empty input or a single item.
+      - Ties in the sort key (touching or identical intervals).
+      - All items incompatible with each other.
+    misconceptions:
+      - "\"Greedy works because it worked on the examples.\" Examples are chosen to be small; the counter-examples are also small."
+      - Greedy and DP are not opposites; a greedy algorithm is DP where only one choice per step ever needs to be considered.
+- key: dsa.greedy.check
+  type: concept_check
+  title: "Concept check: greedy choices and counter-examples"
+  skills: [greedy.core]
+  minutes: 9
+  difficulty: MEDIUM
+  body:
+    intro: For every greedy rule, try to break it with three items before you trust it.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "A scheduler sorts meetings by start time and keeps each meeting that does not overlap the last kept one. For `[1, 10], [2, 3], [4, 5]`, how many meetings does it keep, and what is the optimum?"
+        options: ["1 kept; optimum 2", "2 kept; optimum 2", "3 kept; optimum 3", "1 kept; optimum 1"]
+        answer: [0]
+        explanation: "It keeps [1, 10] first, which blocks both others. Sorting by end keeps [2, 3] and [4, 5]. The earliest-start rule fails because a long early meeting can block many short ones."
+      - id: q2
+        kind: single
+        prompt: "Which rule gives the maximum number of non-overlapping intervals for `[1, 5], [4, 7], [6, 10]` and for every other input?"
+        options: ["Shortest duration first", "Earliest end first", "Earliest start first", "Fewest overlaps first"]
+        answer: [1]
+        explanation: "Shortest first picks [4, 7] (length 3), which overlaps both others, so it gets 1 against the optimum 2. Earliest end is provably optimal by the exchange argument. Fewest overlaps first sounds clever but also has known counter-examples, and no exchange argument supports it."
+      - id: q3
+        kind: single
+        prompt: "Coins are `{1, 3, 4}` and the amount is 6. How many coins does largest-coin-first use, and what is the minimum?"
+        options: ["2 and 2", "3 and 2", "3 and 3", "2 and 1"]
+        answer: [1]
+        explanation: "Greedy takes 4, then 1 and 1: three coins. 3 + 3 uses two. Greedy is optimal for some coin systems (such as 1, 5, 10, 25) but not for arbitrary ones; use DP over amounts."
+      - id: q4
+        kind: multi
+        prompt: For which problems is the stated greedy rule correct?
+        options:
+          - Fractional knapsack, taking items by value per weight
+          - 0/1 knapsack, taking whole items by value per weight
+          - Maximum non-overlapping intervals, by earliest end
+          - "Can you reach the last index, tracking the farthest reachable index"
+        answer: [0, 2, 3]
+        explanation: "Ratio-greedy fails for 0/1 knapsack: capacity 10, items (weight 6, value 7) and two of (weight 5, value 5). The ratio rule takes the 6-weight item (value 7) and then nothing fits, while the two 5-weight items give 10. Splitting items is exactly what makes the fractional version safe."
+      - id: q5
+        kind: single
+        prompt: What does the lesson's `can_reach_end` return for `[3, 2, 1, 0, 4]`?
+        options: ["True", "False", "It raises IndexError", "It loops forever"]
+        answer: [1]
+        explanation: "farthest stays 3 for indices 0 to 3 (0 + 3, 1 + 2, 2 + 1, 3 + 0). At i = 4, i > farthest, so it returns False. Every path lands on the 0 at index 3."
+      - id: q6
+        kind: short
+        prompt: Give the exchange argument for "sort by earliest end" in interval scheduling.
+        model_answer: "Let O be any optimal set of non-overlapping intervals sorted by end, and g the interval with the earliest end overall. Replace O's first interval with g: g ends no later than it, so g does not overlap O's second interval, and the set is still valid with the same size. So some optimal solution starts with g. Remove g and everything overlapping it and apply the same argument to the remaining intervals; by induction the greedy result is optimal."
+        explanation: "The core sentence is \"ending earlier never blocks more\"; the induction makes it a proof."
+- key: dsa.greedy.exercise
+  type: coding_exercise
+  title: "Exercise: fit the most bookings into one room"
+  skills: [greedy.core, python.sorting_keys]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 900}
+  body:
+    prompt: |-
+      A meeting room receives booking requests as `(start, end)` pairs with `start < end`. A booking ending at time t and another starting at t do not conflict. Write `best_bookings(requests)` returning the largest possible list of non-conflicting bookings (any optimal list is accepted). Explain why your choice rule is optimal and give a counter-example for one tempting alternative.
+    examples:
+      - "best_bookings([(1, 4), (3, 5), (0, 6), (5, 7), (3, 9), (5, 9), (6, 10), (8, 11), (8, 12), (2, 14), (12, 16)]) returns 4 bookings, for example [(1, 4), (5, 7), (8, 11), (12, 16)]"
+      - "best_bookings([]) == []"
+    constraints:
+      - Up to 10⁵ requests.
+    hints:
+      - Which booking should you keep first so the room is free again as early as possible?
+      - Sort by end time; keep a booking if it starts at or after the last kept end.
+    solution:
+      language: python
+      code: |-
+        def best_bookings(requests):
+            kept, last_end = [], None
+            for start, end in sorted(requests, key=lambda r: r[1]):
+                if last_end is None or start >= last_end:
+                    kept.append((start, end))
+                    last_end = end
+            return kept
+      explanation: O(n log n) for the sort and O(n) for the scan. Earliest end is optimal by the exchange argument; earliest start fails on (1, 10), (2, 3), (4, 5).
+    rubric:
+      - {key: rule, label: Sorts by end time and keeps compatible bookings, points: 4}
+      - {key: touching, label: "Treats end == start as compatible, as specified", points: 1}
+      - {key: proof, label: Gives the exchange argument in their own words, points: 3}
+      - {key: counter, label: Gives a valid counter-example for start-time or shortest-duration ordering, points: 2}
+    follow_ups:
+      - prompt: Each booking now has a price and you want the maximum revenue. Does the greedy still work?
+        look_for: "No; weighted interval scheduling needs DP: sort by end, dp[i] = max(dp[i-1], price[i] + dp[p(i)]) where p(i) is the last compatible booking found by binary search; O(n log n)."
+      - prompt: How many rooms are needed to host every booking?
+        look_for: "Sweep or a min-heap of end times: sort by start, pop the heap when its earliest end ≤ start, push the end; the heap's maximum size is the answer; O(n log n)."
+- key: dsa.greedy.interview
+  type: interview_question
+  title: "Interview question: is greedy safe for making change?"
+  skills: [greedy.core, dp.knapsack_subset]
+  minutes: 10
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 600}
+  body:
+    prompt: "A payments service must return change using the fewest coins. A colleague proposes \"always take the largest coin that fits\". Explain when that is correct, show when it fails, and say what you would ship if the coin set is configurable per country."
+    key_points:
+      - States that largest-first is optimal for some coin systems (for example 1, 5, 10, 25) but not for arbitrary ones.
+      - "Gives a counter-example such as {1, 3, 4} for 6 (greedy 3 coins, optimal 2) or {1, 5, 6, 9} for 11."
+      - "Proposes DP over amounts: dp[a] = min over coins c of dp[a - c] + 1, O(amount × coins) time, O(amount) space."
+      - Handles the impossible case (no 1-coin) by returning a sentinel and keeping a parent choice to rebuild the coins.
+      - Mentions that a configurable system can be checked once (compare greedy with DP for all amounts up to a bound) and greedy used only if it is verified safe.
+    model_answer: |-
+      Largest-first is correct for coin systems like 1, 5, 10, 25, but not in general: with coins 1, 3 and 4, making 6 greedily gives 4 + 1 + 1 while 3 + 3 uses two coins. For a configurable coin set I would use DP: dp[0] = 0 and dp[a] = 1 + min(dp[a - c]) over coins c ≤ a, filled for a from 1 to the amount, storing which coin achieved the minimum so I can rebuild the change. That is O(amount × number of coins) time and O(amount) space, and it reports "impossible" when no combination exists. If performance mattered for large amounts, I could verify each country's coin set offline by comparing greedy with DP up to a bound and use greedy only where it is proven equal.
+    pitfalls:
+      - Claiming greedy always works because it works for familiar currencies.
+      - Initialising dp with 0 instead of infinity, so unreachable amounts look free.
+    follow_ups:
+      - prompt: How do you count the number of different ways to make the amount instead?
+        look_for: "dp[0] = 1, loop coins in the outer loop and amounts upward inside so each combination is counted once; amounts outer would count orderings (permutations)."
+      - prompt: Each coin type has a limited supply. What changes?
+        look_for: "It becomes bounded knapsack: treat each copy as a 0/1 item (or binary-split counts) and iterate amounts downward for each item."
+- key: dsa.greedy.guided
+  type: guided_problem
+  title: "Guided practice: farthest reach and partition by last occurrence"
+  skills: [greedy.core]
+  minutes: 30
+  difficulty: MEDIUM
+  problems: [36, 114]
+  body:
+    guidance:
+      - For the jump problem, state the invariant ("farthest is the largest index reachable using positions up to i") and why one pass is enough.
+      - For the partition problem, record each character's last index first, then extend the current part's end while scanning.
+      - Before coding each, try to break your rule with a three-element counter-example.
+      - State O(n) time and the extra space for each.
+    hints:
+      - In the jump problem, fail as soon as i passes farthest.
+      - A part can close exactly when the scan index equals the furthest last-occurrence seen in that part.
+- key: dsa.greedy.timed
+  type: timed_problem
+  title: "Timed practice: circular fuel route and largest concatenation"
+  skills: [greedy.core]
+  minutes: 50
+  difficulty: MEDIUM
+  problems: [113, 115]
+  body:
+    guidance:
+      - For the fuel route, state both facts before coding (total fuel ≥ total cost means a solution exists; a failed run from s to i rules out every start between s and i).
+      - For the concatenation, explain why the comparator `a + b` vs `b + a` defines a valid ordering, and handle an all-zeros input.
+      - Give complexity first and finish each within the time limit.
+- key: dsa.greedy.cards
+  type: revision_card
+  title: "Recall: greedy"
+  skills: [greedy.core]
+  minutes: 4
+  body:
+    cards:
+      - front: Maximum non-overlapping intervals — sort by?
+        back: End time; take each interval starting at or after the last taken end.
+      - front: What is an exchange argument?
+        back: Swap an optimal solution's choice for the greedy one and show it stays valid and no worse.
+      - front: Counter-example for largest-coin-first?
+        back: Coins 1, 3, 4 and amount 6 — greedy 4+1+1, optimal 3+3.
+      - front: Fractional vs 0/1 knapsack?
+        back: Fractional is greedy by value per weight; 0/1 needs DP.
+      - front: Circular fuel route start?
+        back: Right after the last point where the running tank went negative, if total fuel ≥ total cost.
+
+# ---------------------------------------------------------------------------------------------- DP fundamentals
+- key: dsa.dp_basics.lesson
+  type: lesson
+  title: "Dynamic programming: state, transition, base case and order"
+  skills: [dp.fundamentals, recursion.fundamentals]
+  minutes: 30
+  difficulty: MEDIUM
+  body:
+    summary: When a recursion solves the same subproblems again and again, name the subproblem (the state), write how it combines smaller ones (the transition), and compute each state once.
+    what: |-
+      **Dynamic programming** (DP) solves a problem by combining answers to smaller instances of the same problem, storing each answer so it is computed only once. It applies when the problem has:
+
+      - **Optimal substructure**: the best answer is built from best answers to subproblems.
+      - **Overlapping subproblems**: a plain recursion would solve the same subproblem many times.
+
+      Every DP is four decisions, which you should write down before any code:
+
+      1. **State**: what does `dp[i]` (or `dp[i][j]`) mean, in one sentence?
+      2. **Transition**: how is a state computed from smaller states?
+      3. **Base cases**: which states are known directly?
+      4. **Order**: in what order do you fill states so every dependency is ready? Plus: where is the final answer?
+
+      Two implementations: **memoisation** (top-down recursion plus a cache) and **tabulation** (bottom-up loops over a table).
+    why: |-
+      Many interview problems have an exponential brute force (try every subset, every path, every split) that collapses to polynomial time once you notice that only a small number of distinct subproblems exist. Naive recursion for "ways to climb n stairs" makes a Fibonacci number of calls, more than 10²⁰ for n = 100; the DP makes about 100. That gap is the reason DP exists.
+    when: |-
+      - The question asks for a **count** of ways, a **min/max** value, or **whether** something is possible, over choices made in sequence.
+      - A brute-force recursion is easy to write and its arguments take few distinct values (an index, a remaining amount, a pair of indices).
+      - Greedy has a counter-example.
+
+      If the question asks you to **list** every solution, DP usually does not help (the output itself is exponential); use backtracking.
+    how: |-
+      Example: the most money you can take from houses in a row without taking two neighbours.
+
+      - State: `best[i]` = most money from the first `i` houses.
+      - Transition: either skip house `i - 1` (`best[i - 1]`) or take it (`best[i - 2] + money[i - 1]`); keep the larger.
+      - Base: `best[0] = 0`, `best[1] = money[0]`.
+      - Order: increasing `i`; answer `best[n]`.
+
+      ```python
+      from functools import cache
+
+      def rob_memo(money: list[int]) -> int:
+          @cache                                   # cache lives inside this call, so no stale results
+          def best(i: int) -> int:                 # best total from the first i houses
+              if i <= 0:
+                  return 0
+              return max(best(i - 1), best(i - 2) + money[i - 1])
+          return best(len(money))                  # recursion depth n: fine for n up to a few hundred
+
+      def rob_table(money: list[int]) -> int:
+          n = len(money)
+          best = [0] * (n + 1)
+          for i in range(1, n + 1):
+              best[i] = max(best[i - 1], (best[i - 2] if i >= 2 else 0) + money[i - 1])
+          return best[n]
+
+      def rob_rolling(money: list[int]) -> int:
+          prev2, prev1 = 0, 0                       # best[i - 2], best[i - 1]
+          for x in money:
+              prev2, prev1 = prev1, max(prev1, prev2 + x)
+          return prev1
+      ```
+
+      **Space optimisation**: when the transition only looks back a fixed number of steps, keep only those values (two variables here). For 2-D tables that look only at the previous row, keep one or two rows.
+    mental_model: |-
+      A DP table is a spreadsheet where each cell's formula refers only to cells that are already filled. Memoisation fills cells on demand, in whatever order the recursion asks for them; tabulation fills them row by row in an order you choose. Either way, the cost is (number of cells) × (work per formula).
+    tradeoffs: |-
+      Memoisation is the fastest way from a brute-force recursion to a correct DP and computes only reachable states, but in CPython it pays function-call overhead and risks RecursionError beyond about 1000 frames by default. Tabulation has no recursion limit, is usually faster in Python, and makes space optimisation possible, but you must get the fill order right and may compute states that are never needed. Space optimisation saves memory but loses the table you need to reconstruct *which* choices were made; keep the full table (or a parent array) when the question asks for the solution itself.
+    mistakes:
+      - Writing code before stating the state in one sentence, then patching off-by-one errors.
+      - "A module-level `@lru_cache` function that reads a global input list: the cache survives between test cases and returns stale answers."
+      - "Mutable default argument `memo={}`, which persists across calls for the same reason."
+      - Caching a function whose arguments are lists (unhashable); pass indices or tuples.
+      - Filling the table in an order where a cell's dependencies are not yet computed.
+      - Wrong base case (for counting problems, `dp[0] = 1`, the empty way, is usually right; 0 is not).
+      - Reaching for DP when a greedy or a formula suffices, or for greedy when DP is needed.
+    interview: |-
+      Narrate the four decisions before coding: "dp[i] means..., it comes from..., base case..., I fill left to right, answer at dp[n]". Start from the brute-force recursion if you are unsure; adding a cache is a legitimate first DP. Then give complexity as states × transition cost, and offer the space optimisation. Expect follow-ups: reconstruct the chosen items, a circular variant (solve twice, excluding the first or the last element), and negative numbers.
+    explain_it:
+      - State in one sentence.
+      - Transition with the choice it represents.
+      - Base cases and fill order, and where the answer is.
+      - "Complexity: number of states × work per state; space before and after optimisation."
+    example:
+      language: python
+      code: |-
+        def count_no_adjacent_ones(n: int) -> int:
+            """Number of binary strings of length n with no two consecutive 1s."""
+            if n == 0:
+                return 1
+            end0, end1 = 1, 1                    # strings of length 1 ending in 0 / in 1
+            for _ in range(n - 1):
+                end0, end1 = end0 + end1, end0   # a 0 can follow anything; a 1 only a 0
+            return end0 + end1
+      explanation: "Two states per length (ending in 0, ending in 1) capture everything the future needs. n = 3 gives 5 (000, 001, 010, 100, 101). O(n) time, O(1) space."
+    complexity: Time = number of states × cost per transition (1-D with O(1) transitions is O(n)); space = number of states, often reducible to the look-back window.
+    internals: |-
+      `functools.cache` (Python 3.9+) is `lru_cache(maxsize=None)`: a dict keyed by the call arguments, so arguments must be hashable and each distinct argument tuple is computed once. Each cache hit still costs a function call and a dict lookup, which is why tabulation is often several times faster in CPython for the same complexity.
+    edge_cases:
+      - Empty input (n = 0) and a single element.
+      - Inputs where the best choice is to take nothing (all negative values when "take nothing" is allowed).
+      - Very large n with memoisation (recursion depth).
+    misconceptions:
+      - "DP is not \"recursion with a cache\" only; the hard part is choosing a state that captures everything the future depends on."
+      - Tabulation is not always faster asymptotically; it can compute unreachable states that memoisation would skip.
+- key: dsa.dp_basics.visual
+  type: visual_explanation
+  title: "Visual: filling a 1-D DP table, house by house"
+  skills: [dp.fundamentals]
+  minutes: 6
+  body:
+    summary: "Filling best[i] = max(best[i - 1], best[i - 2] + money[i - 1]) for money = [2, 7, 9, 3, 1]. Each cell looks only at the two cells to its left."
+    frames:
+      - caption: Base cases. best[0] = 0 (no houses), best[1] = 2 (take the first).
+        diagram: |-
+          i:        0    1    2    3    4    5
+          money:         2    7    9    3    1
+          best:     0    2    .    .    .    .
+      - caption: "i = 2: skip house 2 → 2, or take it → best[0] + 7 = 7. Keep 7."
+        diagram: |-
+          i:        0    1    2    3    4    5
+          best:     0    2    7    .    .    .
+                         └── skip: 2
+                    └────── take: 0 + 7 = 7   → 7
+      - caption: "i = 3: skip → 7, or take → best[1] + 9 = 11. Keep 11."
+        diagram: |-
+          i:        0    1    2    3    4    5
+          best:     0    2    7   11    .    .
+                              └── skip: 7
+                         └────── take: 2 + 9 = 11   → 11
+      - caption: "i = 4: skip → 11, or take → best[2] + 3 = 10. Skipping wins."
+        diagram: |-
+          i:        0    1    2    3    4    5
+          best:     0    2    7   11   11    .
+                                   └── skip: 11
+                              └────── take: 7 + 3 = 10   → 11
+      - caption: "i = 5: skip → 11, or take → best[3] + 1 = 12. Answer 12 (houses 1, 3 and 5: 2 + 9 + 1)."
+        diagram: |-
+          i:        0    1    2    3    4    5
+          best:     0    2    7   11   11   12
+                                        └── skip: 11
+                                   └────── take: 11 + 1 = 12   → 12
+
+          Only two previous cells are ever read → two variables are enough (O(1) space).
+- key: dsa.dp_basics.worked
+  type: worked_example
+  title: "Worked example: from brute-force recursion to O(1)-space DP"
+  skills: [dp.fundamentals, recursion.fundamentals]
+  minutes: 15
+  difficulty: EASY
+  body:
+    problem: Count the ways to climb a staircase of n steps when each move climbs 1, 2 or 3 steps. Evolve the solution in four versions and give the complexity of each.
+    steps:
+      - title: Brute-force recursion
+        text: "The last move was 1, 2 or 3 steps, so ways(n) = ways(n - 1) + ways(n - 2) + ways(n - 3), with ways(0) = 1 (the empty climb) and ways of a negative number = 0. Each call branches three ways: exponential time (bounded by O(3ⁿ); the true growth is a little under 2ⁿ), O(n) stack."
+        code:
+          language: python
+          code: |-
+            def ways(n):
+                if n < 0:
+                    return 0
+                if n == 0:
+                    return 1
+                return ways(n - 1) + ways(n - 2) + ways(n - 3)
+      - title: Spot the overlap and memoise
+        text: "ways(5) calls ways(4) and ways(3); ways(4) calls ways(3) again. Only n + 1 distinct arguments exist, so caching makes each one cost O(1) after the first time: O(n) time, O(n) space, recursion depth n."
+        code:
+          language: python
+          code: |-
+            from functools import cache
+
+            @cache
+            def ways(n):
+                if n < 0:
+                    return 0
+                if n == 0:
+                    return 1
+                return ways(n - 1) + ways(n - 2) + ways(n - 3)
+      - title: Tabulate bottom-up
+        text: "Fill dp[0..n] in increasing order; every dp[i] needs only smaller indices. No recursion, so no depth limit. O(n) time and space."
+        code:
+          language: python
+          code: |-
+            def ways(n):
+                dp = [0] * (n + 1)
+                dp[0] = 1
+                for i in range(1, n + 1):
+                    dp[i] = sum(dp[i - k] for k in (1, 2, 3) if i - k >= 0)
+                return dp[n]
+      - title: Keep only the look-back window
+        text: "dp[i] reads only the previous three values, so three variables suffice: O(n) time, O(1) space. Values: 1, 1, 2, 4, 7, 13, 24 for n = 0..6."
+        code:
+          language: python
+          code: |-
+            def ways(n):
+                a, b, c = 0, 0, 1          # dp[i - 3], dp[i - 2], dp[i - 1], starting at i = 1
+                for _ in range(n):
+                    a, b, c = b, c, a + b + c
+                return c
+    takeaways:
+      - Write the brute force first; its arguments are your DP state.
+      - "Count the distinct states: that number times the work per state is the DP's cost."
+      - Tabulation removes the recursion limit; a look-back window removes the table.
+    complexity: "Brute force exponential; memo and table O(n) time and space; rolling O(n) time, O(1) space."
+- key: dsa.dp_basics.check
+  type: concept_check
+  title: "Concept check: DP fundamentals"
+  skills: [dp.fundamentals]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Trace on paper before answering.
+    questions:
+      - id: q1
+        kind: single
+        prompt: Using the worked example's recurrence (moves of 1, 2 or 3 steps), what is ways(5)?
+        options: ["8", "13", "24", "7"]
+        answer: [1]
+        explanation: "ways = 1, 1, 2, 4, 7, 13 for n = 0..5, each the sum of the previous three. 8 is the answer for moves of 1 or 2 only (Fibonacci); 24 is ways(6)."
+      - id: q2
+        kind: single
+        prompt: "What does `rob_rolling([2, 1, 1, 2])` return?"
+        options: ["3", "4", "5", "6"]
+        answer: [1]
+        explanation: "best goes 2, 2, 3, 4: take the first and last houses (2 + 2). Taking every other house starting at index 0 gives 2 + 1 = 3, which is why \"alternate houses\" is not the algorithm."
+      - id: q3
+        kind: single
+        prompt: "A solution defines `@lru_cache` on a module-level function `best(i)` that reads a global list `costs`. The test harness calls it for two different `costs` lists. What happens?"
+        options:
+          - Both answers are correct
+          - The second call can return cached answers computed for the first list
+          - It raises TypeError because lists are unhashable
+          - The cache is cleared automatically when the global changes
+        answer: [1]
+        explanation: "The cache key is only i; it knows nothing about costs, so results from the first list are reused. TypeError would only happen if the list were an argument. Define the cached function inside the solving function, or call best.cache_clear()."
+      - id: q4
+        kind: multi
+        prompt: Which statements about memoisation and tabulation are true?
+        options:
+          - Memoisation computes only the states reachable from the original call
+          - Tabulation avoids Python's recursion limit
+          - Tabulation is always asymptotically faster than memoisation
+          - When a transition looks back a fixed number of steps, the table can shrink to that many variables
+        answer: [0, 1, 3]
+        explanation: "Both have the same asymptotic cost (states × transition) when all states are needed; tabulation is usually faster by a constant in CPython because it avoids call overhead, and it can even be slower when many states are unreachable."
+      - id: q5
+        kind: single
+        prompt: "A DP has states dp[i][j] for 0 ≤ i, j < n, and each state takes the minimum over k between i and j. What is the time complexity?"
+        options: ["O(n²)", "O(n³)", "O(n² log n)", "O(2ⁿ)"]
+        answer: [1]
+        explanation: "n² states, each doing up to n work: O(n³). Counting states without the transition cost gives the tempting O(n²)."
+      - id: q6
+        kind: short
+        prompt: "Define a DP (state, transition, base case, answer) for counting binary strings of length n with no two consecutive 1s."
+        model_answer: "State: end0[i] and end1[i] = number of valid strings of length i ending in 0 and in 1. Transition: end0[i] = end0[i-1] + end1[i-1] (a 0 can follow anything); end1[i] = end0[i-1] (a 1 must follow a 0). Base: end0[1] = end1[1] = 1. Answer: end0[n] + end1[n] (with 1 for n = 0). It is Fibonacci; O(n) time, O(1) space."
+        explanation: Splitting the state by "what the last character was" is the standard way to encode a constraint between neighbours.
+- key: dsa.dp_basics.exercise
+  type: coding_exercise
+  title: "Exercise: cheapest way along a toll road"
+  skills: [dp.fundamentals]
+  minutes: 15
+  difficulty: EASY
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 900}
+  body:
+    prompt: |-
+      A road has toll posts `0..n-1` with tolls `toll[i]`. You start before post 0 and may advance one or two posts per move, paying the toll of every post you land on. You finish once you move past the last post (from post n-1 or post n-2). Write `min_toll(toll)` returning the minimum total toll. State the DP's state, transition and base case first, then give O(1)-space code.
+    examples:
+      - "min_toll([10, 15, 20]) == 15  (land only on post 1, then jump past the end)"
+      - "min_toll([1, 100, 1, 1, 1, 100, 1, 1, 100, 1]) == 6"
+    constraints:
+      - 2 ≤ n ≤ 10⁵, tolls are non-negative.
+    hints:
+      - "Let cost[i] be the cheapest total that ends standing on post i (including toll[i])."
+      - cost[i] = toll[i] + min(cost[i-1], cost[i-2]); you can start on post 0 or post 1.
+      - The answer is min(cost[n-1], cost[n-2]).
+    solution:
+      language: python
+      code: |-
+        def min_toll(toll):
+            before2, before1 = 0, 0          # cheapest cost ending on post i-2 / i-1 (virtual 0 before the road)
+            for t in toll:
+                before2, before1 = before1, t + min(before2, before1)
+            return min(before2, before1)     # leave from the last post or the one before it
+      explanation: "State: cheapest total ending on post i. Two virtual zero-cost positions before the road let you start on post 0 or 1. O(n) time, O(1) space."
+    rubric:
+      - {key: state, label: States the DP state in one sentence before coding, points: 2}
+      - {key: transition, label: Correct transition and base cases (can start on post 0 or 1), points: 3}
+      - {key: answer, label: Takes the minimum of the last two states as the answer, points: 2}
+      - {key: space, label: Reduces to O(1) space and states O(n) time, points: 2}
+      - {key: tests, label: Checks the n = 2 case aloud, points: 1}
+    follow_ups:
+      - prompt: Return which posts you land on, not just the total.
+        look_for: Keep the full cost array (or a parent per post) and walk back from the better of the last two posts, choosing the predecessor that achieved the minimum.
+      - prompt: You may now advance up to k posts per move. What is the complexity, and can you do better than O(n × k)?
+        look_for: "Naively O(n × k); a monotonic deque of the window minimum of the last k costs gives O(n)."
+- key: dsa.dp_basics.interview
+  type: interview_question
+  title: "Interview question: walk from brute force to DP"
+  skills: [dp.fundamentals]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    prompt: "You have a row of numbers (possibly negative) and must pick a subset with no two adjacent elements to maximise the sum; picking nothing is allowed. Walk the interviewer from the brute force to an O(1)-space solution, naming the state, transition, base cases and complexity at each step."
+    key_points:
+      - "Brute force: each element taken or skipped, with the adjacency constraint, O(2ⁿ) (Fibonacci-many valid subsets)."
+      - "Recursion best(i) with choices skip (best(i-1)) or take (best(i-2) + a[i-1]); observes repeated subproblems and memoises: O(n)."
+      - "Base cases best(0) = 0 and best(1) = max(0, a[0]); negatives handled because skipping is always allowed."
+      - "Tabulation in increasing i, then two rolling variables: O(n) time, O(1) space."
+      - Mentions that reconstructing the chosen elements needs the full table or parent choices.
+    model_answer: |-
+      The brute force tries every subset without neighbours, exponential. Defining best(i) as the maximum from the first i elements, the last element is either skipped, giving best(i-1), or taken, giving best(i-2) + a[i-1]. The recursion recomputes the same i many times, so memoising gives O(n) time and O(n) space. Base cases: best(0) = 0 and best(1) = max(0, a[0]); because skipping is always an option, negative numbers are never taken unless they help, and the answer is at least 0. Bottom-up, best[i] depends on the previous two cells, so two variables suffice: O(n) time and O(1) space. If the interviewer wants the chosen indices, I keep the table and walk back: if best[i] == best[i-1], element i-1 was skipped; otherwise it was taken and I jump to i-2.
+    pitfalls:
+      - Using "take every other element" (fails on [2, 1, 1, 2]).
+      - Initialising best(1) = a[0] when a[0] is negative and empty choices are allowed.
+    follow_ups:
+      - prompt: The elements are arranged in a circle, so the first and last are neighbours. What changes?
+        look_for: "Run the linear DP twice, once on a[1:] and once on a[:-1], and take the larger; O(n)."
+      - prompt: The elements are nodes of a binary tree and you cannot take a parent and its child together. How does the state change?
+        look_for: "Tree DP: each node returns (best if taken, best if not taken) from a post-order traversal; taken = val + children's not-taken; not taken = sum of children's max."
+      - prompt: Why is this DP and not greedy?
+        look_for: "Taking the largest element can block two neighbours whose sum is larger (for example [3, 4, 3]); no exchange argument exists, so all choices must be compared."
+- key: dsa.dp_basics.guided
+  type: guided_problem
+  title: "Guided practice: staircase counts and take-or-skip"
+  skills: [dp.fundamentals]
+  minutes: 30
+  difficulty: EASY
+  problems: [37, 38]
+  body:
+    guidance:
+      - Write the state as a comment in one sentence before any code.
+      - Start from the brute-force recursion, then add a cache, then convert to a loop.
+      - Finish with two rolling variables and state O(n) time, O(1) space.
+      - Test n = 1 and n = 2 (or one and two houses) by hand.
+    hints:
+      - The staircase count follows the same recurrence as Fibonacci.
+      - For take-or-skip, the two candidates are best(i-1) and best(i-2) + value.
+- key: dsa.dp_basics.timed
+  type: timed_problem
+  title: "Timed practice: decoding digits and best subarray"
+  skills: [dp.fundamentals]
+  minutes: 50
+  difficulty: MEDIUM
+  problems: [117, 116]
+  body:
+    guidance:
+      - For decoding, say the state and both transitions (one digit, two digits) and how zeros are handled before coding.
+      - For the best subarray, state Kadane's DP ("best sum ending here is either this element alone or this element plus the best ending at the previous index").
+      - Code both under the timer and give O(n) time, O(1) space.
+- key: dsa.dp_basics.cards
+  type: revision_card
+  title: "Recall: DP fundamentals"
+  skills: [dp.fundamentals]
+  minutes: 5
+  body:
+    cards:
+      - front: The four decisions of every DP?
+        back: State, transition, base cases, fill order (plus where the answer is).
+      - front: Two signs a problem is DP?
+        back: Optimal substructure and overlapping subproblems.
+      - front: Cost of a DP?
+        back: Number of states × work per transition.
+      - front: Memoisation risk in CPython?
+        back: RecursionError beyond about 1000 frames by default, plus call overhead.
+      - front: When can a DP table shrink to a few variables?
+        back: When each state looks back a fixed number of steps.
+      - front: Why can a module-level lru_cache give wrong answers between test cases?
+        back: Its key ignores globals the function reads, so old results are reused.
+
+# ---------------------------------------------------------------------------------------------- knapsack and subset sum
+- key: dsa.dp_knapsack.lesson
+  type: lesson
+  title: "Knapsack and subset sum: 0/1, unbounded and counting"
+  skills: [dp.knapsack_subset, dp.fundamentals]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: "Index the DP by capacity (or target sum); the direction of the capacity loop decides whether each item can be used once (downward) or many times (upward)."
+    what: |-
+      The **knapsack family** asks you to choose items, each with a weight (or value contributing to a sum), subject to a capacity or target:
+
+      - **0/1 knapsack**: each item at most once; maximise value within capacity W.
+      - **Unbounded knapsack**: each item any number of times (coin change).
+      - **Subset sum**: can some subset reach exactly target T? (boolean)
+      - **Counting**: how many subsets or combinations reach T?
+
+      The 2-D state is `dp[i][c]` = best (or possible, or count) using the first i items with capacity c. Transition for 0/1: `dp[i][c] = max(dp[i-1][c], dp[i-1][c - w] + v)` when `w ≤ c`.
+    why: |-
+      "Choose a subset under a budget" hides in many problems: splitting an array into two equal halves (subset sum to total/2), assigning + and - signs to hit a target (subset sum after algebra), fewest coins for an amount (unbounded min), number of ways to make change (unbounded count). Recognising the family turns each into a few lines.
+    when: |-
+      - A target sum or capacity is given and its value is small enough to index an array (up to about 10⁴ to 10⁵).
+      - Items are chosen or not chosen, and order does not matter.
+      - The brute force is "try all 2ⁿ subsets".
+
+      If the capacity is huge (10⁹) but n is small (≤ 40), the DP's O(n × W) is too large; consider meet-in-the-middle instead.
+    how: |-
+      Collapse to one row and choose the loop direction:
+
+      ```python
+      def knapsack_01(weights, values, capacity):
+          best = [0] * (capacity + 1)                    # best[c] = max value with capacity c
+          for w, v in zip(weights, values):
+              for c in range(capacity, w - 1, -1):       # DOWNWARD: best[c - w] is still the old row
+                  best[c] = max(best[c], best[c - w] + v)
+          return best[capacity]
+
+      def can_reach(nums, target):                       # subset sum, 0/1
+          ok = [True] + [False] * target
+          for x in nums:
+              for s in range(target, x - 1, -1):
+                  ok[s] = ok[s] or ok[s - x]
+          return ok[target]
+
+      def min_coins(coins, amount):                      # unbounded, minimise count
+          INF = amount + 1                               # larger than any real answer
+          dp = [0] + [INF] * amount
+          for a in range(1, amount + 1):
+              for c in coins:
+                  if c <= a and dp[a - c] + 1 < dp[a]:
+                      dp[a] = dp[a - c] + 1
+          return dp[amount] if dp[amount] < INF else -1
+
+      def count_combinations(coins, amount):             # unbounded, order does not matter
+          ways = [1] + [0] * amount
+          for c in coins:                                # coins OUTER: each multiset counted once
+              for a in range(c, amount + 1):             # UPWARD: coin c may be reused
+                  ways[a] += ways[a - c]
+          return ways[amount]
+      ```
+
+      Rules of thumb: **0/1 → capacity downward; unbounded → upward. Counting combinations → items outer; counting ordered sequences → amount outer.**
+    mental_model: |-
+      Picture the 2-D table with one row per item. A 0/1 item may only build on the **previous** row, i.e. on sums made without it. When you compress to one row and walk capacities downward, the cells you read (to the left) have not been overwritten yet, so they still hold the previous row. Walking upward, you read cells you just updated in this row, which means "this item again": exactly what the unbounded version wants and exactly the bug in the 0/1 version.
+    tradeoffs: |-
+      O(n × W) time is **pseudo-polynomial**: polynomial in the numeric value W, exponential in the number of bits needed to write W. It is excellent when W is up to about 10⁵ and hopeless at 10⁹. The 1-D form saves memory but loses the ability to reconstruct which items were chosen; keep the 2-D table (or a per-item decision record) when you must list them. For boolean subset sum in Python, a big-integer bitset (`bits |= bits << x`) runs the same DP far faster in practice.
+    mistakes:
+      - "Iterating capacity upward in a 0/1 problem, which silently reuses items (subset sum of [3] wrongly reaches 6)."
+      - "Initialising min-coin DP with 0 instead of a large sentinel, so unreachable amounts look free."
+      - Swapping loop order in counting problems and counting permutations instead of combinations (or the reverse).
+      - "Target-sum reduction without checks: (total + target) must be even and |target| ≤ total, or the answer is 0."
+      - Using float('inf') and returning it instead of -1 for impossible amounts.
+      - Forgetting that `dp[0] = 1` (the empty subset) in counting problems.
+    interview: |-
+      Classify out loud: "each number used at most once and we need an exact sum, so 0/1 subset sum over sums up to total/2; downward loop." Give O(n × T) time and O(T) space and mention pseudo-polynomial. Common follow-ups: count the subsets instead of deciding, reconstruct the subset, the target-sum algebra, and what to do when T is huge.
+    explain_it:
+      - Name the variant (0/1, unbounded, boolean, count, min/max).
+      - State the 1-D state and the transition.
+      - Justify the loop direction and the loop nesting.
+      - "Complexity O(n × W) time, O(W) space; pseudo-polynomial."
+    example:
+      language: python
+      code: |-
+        def can_partition(nums: list[int]) -> bool:
+            total = sum(nums)
+            if total % 2:
+                return False
+            bits = 1                                  # bit s set means "sum s reachable"
+            for x in nums:
+                bits |= bits << x                     # every reachable sum, plus x
+            return (bits >> (total // 2)) & 1 == 1
+      explanation: "A Python int acts as a bitset of reachable sums; each shift-or is the whole downward-loop row update at once. Same O(n × T) bit operations, but word-parallel, so much faster in CPython."
+    complexity: O(n × W) time and O(W) space for the 1-D forms; O(n × W) space if you keep the table to reconstruct the choice.
+    internals: |-
+      Target sum with + and - signs: let P be the sum of the numbers given +, N those given -. Then P - N = target and P + N = total, so P = (total + target) / 2. Counting sign assignments equals counting subsets with sum P, a 0/1 counting knapsack. If total + target is odd or negative, there is no assignment.
+    edge_cases:
+      - Target 0 (the empty subset counts; with zeros in the input, each zero doubles the count).
+      - Items heavier than the capacity (the inner loop never runs for them).
+      - Amount 0 for coin change (0 coins).
+- key: dsa.dp_knapsack.visual
+  type: visual_explanation
+  title: "Visual: why 0/1 knapsack loops capacity downward"
+  skills: [dp.knapsack_subset]
+  minutes: 5
+  body:
+    summary: "One item of weight 2, capacities 0..4, boolean \"reachable\" row. Walking upward reuses the item; walking downward does not."
+    frames:
+      - caption: "Start: only sum 0 is reachable. The item has weight 2 and may be used once."
+        diagram: |-
+          capacity:  0  1  2  3  4
+          ok:        T  F  F  F  F
+      - caption: "Upward (wrong for 0/1): ok[2] = ok[0] = T, then ok[4] = ok[2] reads the cell just set in this pass, so the item is used twice."
+        diagram: |-
+          c = 2:  ok[2] = ok[2] or ok[0] → T
+          c = 3:  ok[3] = ok[3] or ok[1] → F
+          c = 4:  ok[4] = ok[4] or ok[2] → T   ← ok[2] was set by THIS item
+          ok:        T  F  T  F  T             sum 4 = 2 + 2 is wrong
+      - caption: "Downward (correct): ok[4] reads ok[2] before it is updated, so it still describes sums without this item."
+        diagram: |-
+          c = 4:  ok[4] = ok[4] or ok[2] → F   ← old value
+          c = 3:  ok[3] = ok[3] or ok[1] → F
+          c = 2:  ok[2] = ok[2] or ok[0] → T
+          ok:        T  F  T  F  F             only sums 0 and 2
+      - caption: Same idea with the 2-D table in mind. 0/1 reads the row above; unbounded reads its own row.
+        diagram: |-
+          capacity:      c-w      c
+          row i-1:  ...  [A]  ... [B]        0/1:        new[c] = B or A   (A from the row above)
+          row i:    ...  [A'] ... [?]        unbounded:  new[c] = B or A'  (A' already includes item i)
+
+          one-row version:  downward keeps A available,  upward exposes A'
+- key: dsa.dp_knapsack.check
+  type: concept_check
+  title: "Concept check: knapsack and subset sum"
+  skills: [dp.knapsack_subset]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Pay attention to loop direction and loop nesting in the code.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "What does this return for `nums = [3]` and `target = 6`?"
+        code:
+          language: python
+          code: |-
+            def can_reach(nums, target):
+                ok = [True] + [False] * target
+                for x in nums:
+                    for s in range(x, target + 1):
+                        ok[s] = ok[s] or ok[s - x]
+                return ok[target]
+        options: ["False, which is correct", "True, which is wrong", "True, which is correct", "IndexError"]
+        answer: [1]
+        explanation: "The upward loop sets ok[3] from ok[0], then ok[6] from the just-updated ok[3], using the single 3 twice. With 0/1 items the capacity loop must go downward. Upward is right only when items are unlimited."
+      - id: q2
+        kind: single
+        prompt: "Coins [1, 2], amount 3. Version A loops coins outer and amounts inner; version B loops amounts outer and coins inner, both with `ways[a] += ways[a - c]`. What do they return?"
+        options: ["A 2, B 3", "A 3, B 2", "Both 2", "Both 3"]
+        answer: [0]
+        explanation: "A counts multisets: {1, 1, 1} and {1, 2}. B counts ordered sequences: 1+1+1, 1+2 and 2+1. With coins outer, coin 2 is only ever added after all uses of coin 1, so each multiset appears once."
+      - id: q3
+        kind: single
+        prompt: "n = 30 items, capacity W = 10⁹. Why is the O(n × W) knapsack DP a poor choice?"
+        options:
+          - It is exponential in n
+          - "It is pseudo-polynomial: 3 × 10¹⁰ steps and a 10⁹-cell array are far too large"
+          - It cannot handle 0/1 items
+          - It gives wrong answers for large W
+        answer: [1]
+        explanation: "The DP is polynomial in the value W, not in the input size. With n = 30 and huge W, meet-in-the-middle (enumerate 2¹⁵ subsets per half and combine with sorting and binary search) is the usual approach."
+      - id: q4
+        kind: multi
+        prompt: Which problems reduce to 0/1 subset sum or 0/1 counting knapsack?
+        options:
+          - Split an array into two parts with equal sums
+          - Assign + or - to each number to reach a target
+          - Fewest coins to make an amount with unlimited coins
+          - Split stones into two groups minimising the difference of their sums
+        answer: [0, 1, 3]
+        explanation: "Equal split is subset sum to total/2; signs reduce to subsets summing to (total + target)/2; minimum difference is the largest reachable sum not exceeding total/2. Fewest coins with unlimited supply is unbounded knapsack (upward loop), not 0/1."
+      - id: q5
+        kind: single
+        prompt: "Using the lesson's `min_coins`, what is `min_coins([1, 3, 4], 6)`?"
+        options: ["2", "3", "4", "-1"]
+        answer: [0]
+        explanation: "dp = 0, 1, 2, 1, 1, 2, 2 for amounts 0..6; dp[6] = dp[3] + 1 = 2 (3 + 3). Greedy would give 3 (4 + 1 + 1)."
+      - id: q6
+        kind: short
+        prompt: Turn "assign + or - to every number so the total equals target" into a subset-counting problem, including the checks.
+        model_answer: "Let P be the sum of numbers with +, N with -. P - N = target and P + N = total, so P = (total + target) / 2. If total + target is odd, or |target| > total, the answer is 0. Otherwise count subsets summing to P with a 0/1 counting DP: ways[0] = 1, for each x loop s from P down to x and add ways[s - x]. O(n × P) time, O(P) space."
+        explanation: The algebra removes the minus signs; the checks are where most wrong submissions fail.
+- key: dsa.dp_knapsack.exercise
+  type: coding_exercise
+  title: "Exercise: pack the most valuable carry-on"
+  skills: [dp.knapsack_subset]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 1200}
+  body:
+    prompt: |-
+      You have items with integer weights and values, and a bag that holds at most `capacity`. Each item can be packed at most once. Write `best_value(weights, values, capacity)` returning the maximum total value, then extend it to also return the indices of one optimal set of items. State time and space for both versions.
+    examples:
+      - "best_value([1, 3, 4, 5], [1, 4, 5, 7], 7) == 9   (items of weight 3 and 4)"
+      - "best_value([2, 3, 4], [3, 4, 6], 5) == 7   (weights 2 and 3)"
+      - "best_value([5], [10], 4) == 0"
+    constraints:
+      - n ≤ 200, capacity ≤ 10⁴.
+    hints:
+      - "best[c] = maximum value using the items seen so far within capacity c."
+      - Each item once means the capacity loop runs downward.
+      - To recover the items, keep the 2-D table and walk back from (n, capacity), checking whether the value changed when item i was added.
+    solution:
+      language: python
+      code: |-
+        def best_value(weights, values, capacity):
+            best = [0] * (capacity + 1)
+            for w, v in zip(weights, values):
+                for c in range(capacity, w - 1, -1):
+                    best[c] = max(best[c], best[c - w] + v)
+            return best[capacity]
+
+        def best_items(weights, values, capacity):
+            n = len(weights)
+            table = [[0] * (capacity + 1) for _ in range(n + 1)]
+            for i in range(1, n + 1):
+                w, v = weights[i - 1], values[i - 1]
+                for c in range(capacity + 1):
+                    table[i][c] = table[i - 1][c]
+                    if w <= c:
+                        table[i][c] = max(table[i][c], table[i - 1][c - w] + v)
+            chosen, c = [], capacity
+            for i in range(n, 0, -1):
+                if table[i][c] != table[i - 1][c]:   # item i-1 must have been taken
+                    chosen.append(i - 1)
+                    c -= weights[i - 1]
+            return table[n][capacity], chosen[::-1]
+      explanation: "Value only: O(n × W) time, O(W) space. With reconstruction: O(n × W) time and space, because the one-row form forgets which items were used."
+    rubric:
+      - {key: state, label: States the DP state and transition before coding, points: 2}
+      - {key: direction, label: Uses a downward capacity loop (or a 2-D table) so each item is used once, points: 3}
+      - {key: reconstruct, label: Reconstructs a correct item set by walking the 2-D table back, points: 3}
+      - {key: complexity, label: "States O(n × W) time and the space of both versions, and calls it pseudo-polynomial", points: 2}
+    follow_ups:
+      - prompt: Each item now has a quantity limit q[i]. How do you avoid O(n × W × q)?
+        look_for: "Binary splitting: represent q copies as items of 1, 2, 4, ... copies plus a remainder, giving O(n × W × log q); then run 0/1 knapsack."
+      - prompt: The capacity is 10⁹ but values are small (≤ 100 each, n ≤ 100). Any other DP?
+        look_for: "Swap the roles: minWeight[v] = least weight achieving value v, over total value ≤ 10⁴; answer is the largest v with minWeight[v] ≤ capacity."
+- key: dsa.dp_knapsack.interview
+  type: interview_question
+  title: "Interview question: loop order in knapsack DPs"
+  skills: [dp.knapsack_subset]
+  minutes: 10
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 600}
+  body:
+    prompt: "Explain to an interviewer why, in a one-dimensional knapsack DP, the capacity loop runs downward for 0/1 items and upward for unlimited items, and why swapping the outer and inner loops in a coin-counting DP changes the answer. Use a tiny example for each."
+    key_points:
+      - "One-row DP: downward reads values from the previous item's row, so each item is used once."
+      - "Upward reads values already updated by the same item, which means reuse; correct for unbounded, a bug for 0/1."
+      - "Gives a tiny example, such as one item of weight 2 reaching sum 4 when looped upward."
+      - "Coins outer counts combinations (each multiset once); amounts outer counts ordered sequences; example coins [1, 2], amount 3 gives 2 vs 3."
+    model_answer: |-
+      The 2-D table has row i depending on row i-1 for 0/1 items. When I keep one row and go downward through capacities, the cell c - w that I read is to the left and has not been overwritten yet, so it still describes sums without the current item. Going upward, c - w was already updated in this pass, so it may already include the current item; that is reuse, which is what unbounded knapsack wants. With one item of weight 2, upward iteration marks 2 and then 4 as reachable, which is wrong for a single item.
+
+      For counting coin combinations, putting coins in the outer loop processes all uses of coin 1 before any use of coin 2, so each multiset is built in one canonical order and counted once: coins [1, 2] and amount 3 give 2. Putting amounts outer lets each amount end with any coin, so 1 + 2 and 2 + 1 are different: 3. Which one is right depends on whether order matters in the problem.
+    pitfalls:
+      - Saying "it is just a convention".
+      - Mixing up which nesting counts permutations.
+    follow_ups:
+      - prompt: Would loop direction matter if you kept the full 2-D table?
+        look_for: "No; with separate rows you always read row i-1 (0/1) or row i (unbounded) explicitly, and inner-loop direction no longer matters."
+      - prompt: How would you count ordered sequences that use each item at most once?
+        look_for: That is no longer a knapsack over sums alone; you need to track which items were used (bitmask DP for small n) or count subsets and multiply by permutation counts per subset size.
+- key: dsa.dp_knapsack.guided
+  type: guided_problem
+  title: "Guided practice: equal-sum split"
+  skills: [dp.knapsack_subset]
+  minutes: 25
+  difficulty: MEDIUM
+  problems: [118]
+  body:
+    guidance:
+      - "Reduce the problem first: an odd total is impossible; otherwise find a subset summing to total / 2."
+      - Write the boolean row and loop sums downward for each number.
+      - Stop early once the half sum becomes reachable.
+      - State O(n × total) time and O(total) space; mention the big-integer bitset as an alternative.
+    hints:
+      - "ok[0] is True: the empty subset."
+      - The largest number exceeding half the total means the answer is False immediately.
+- key: dsa.dp_knapsack.timed
+  type: timed_problem
+  title: "Timed practice: fewest coins and signed target sum"
+  skills: [dp.knapsack_subset]
+  minutes: 50
+  difficulty: MEDIUM
+  problems: [39, 119]
+  body:
+    guidance:
+      - For the coin problem, say "unbounded, minimise", initialise with a sentinel larger than any answer, and return -1 when unreachable.
+      - For the signed target, do the P = (total + target) / 2 algebra aloud with its two validity checks, then count subsets downward.
+      - Give complexity before coding each.
+- key: dsa.dp_knapsack.cards
+  type: revision_card
+  title: "Recall: knapsack and subset sum"
+  skills: [dp.knapsack_subset]
+  minutes: 5
+  body:
+    cards:
+      - front: 0/1 knapsack in one row — capacity loop direction?
+        back: Downward, so each item builds only on sums without it.
+      - front: Unbounded knapsack in one row — capacity loop direction?
+        back: Upward, so an item can build on itself.
+      - front: Count coin combinations vs ordered sequences?
+        back: Coins outer counts combinations; amounts outer counts sequences.
+      - front: Why is O(n × W) called pseudo-polynomial?
+        back: It is polynomial in the value W, exponential in the bits needed to write W.
+      - front: Target sum with + and - signs reduces to?
+        back: Count subsets with sum (total + target) / 2, after parity and range checks.

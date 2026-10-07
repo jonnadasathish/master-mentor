@@ -175,3 +175,26 @@ Daily snapshots are written from the last mentor run of each local date. A rebui
 | `plan_items` | (plan_id, status), (skill_id) |
 | `revision_item_actions` | (item_key, action_on) |
 | `audit_log` | (entity_type, entity_id), (at) |
+
+## 10. Learning layer (migration `0012_learning`, D-083)
+
+Catalog (written only by the seed loader, natural keys, `seed_version`):
+
+| Table | Key | Columns |
+|---|---|---|
+| `learning_tracks` | `track_key` | title, summary, components_json, position |
+| `learning_topics` | `topic_key` | track_id, title, summary, position |
+| `learning_topic_skills` | (topic_id, skill_id) | position |
+| `learning_content` | `content_key` | content_type (17 values), title, minutes, difficulty, stages_json, observation_kind, time_limit_seconds, problem_ids_json, body_json (validated), source_file, position, active (deactivated, never deleted) |
+| `learning_content_skills` | (content_id, skill_id) | position (0 = primary) |
+
+`problems.guide_json` (nullable): seed coaching metadata (summary paraphrase, pattern, time, space, hints, mistakes, prerequisites, relevance).
+
+User state (exported with the decision history, imported after plan items, removed by `dev-reset`):
+
+| Table | Columns |
+|---|---|
+| `learning_sessions` | skill_id, stage, status ACTIVE/COMPLETED/ABANDONED, plan_item_id, budget_minutes, start_score, start_level, outcome, seed_version, started_at, completed_at |
+| `learning_session_steps` | session_id, position (unique per session), step_kind CONTENT/PROBLEM/REFLECTION, content_key, problem_id, title, minutes, status PENDING/DONE/SKIPPED, observation_type, observation_id, points, passed, reflection, completed_at |
+
+Progress is not stored: it is derived from current assessments with `source_key = content:<key>`. Learning sessions never hold evidence; their steps link to the observation that does.

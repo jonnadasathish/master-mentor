@@ -1,0 +1,550 @@
+# Learning content: problem-solving method — clarifying the problem, and going from brute force to optimal by naming the bottleneck.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- clarification
+- key: dsa.clarification.lesson
+  type: lesson
+  title: Clarify before you solve - inputs, outputs, constraints and edge cases
+  skills: [execution.clarification]
+  minutes: 15
+  difficulty: EASY
+  body:
+    summary: Spend the first few minutes turning a vague statement into a precise contract; every good clarifying question can change your algorithm or your tests.
+    what: |-
+      Clarification is the short phase at the start of a coding interview (or a ticket) where you pin down exactly what you are solving: the shape and range of the input, the exact output, the size constraints that set your complexity target, and the edge cases your code must handle. It ends with a restated problem and one or two worked examples that the interviewer has confirmed.
+    why: |-
+      Problem statements in interviews are often deliberately incomplete, and the most expensive bug is solving the wrong problem: returning values when indices were wanted, assuming sorted input, ignoring duplicates. Five questions asked in the first three minutes are cheaper than a rewrite at minute thirty. Clarifying also gives you the constraints, and the constraints usually point at the intended complexity (n up to 10⁵ rules out O(n²)).
+    when: |-
+      - At the start of every coding or design problem, before proposing an approach.
+      - When the interviewer adds a follow-up ("now the input is a stream"): re-clarify what changed.
+      - When you notice an assumption creeping into your code ("this can't be empty, right?"): ask instead of assuming.
+    how: |-
+      Work through four groups, and only ask what is not already stated:
+
+      - **Input:** type and shape; size range (n, string length, value range); sorted or not; duplicates; negatives or zero; empty input possible; may I modify it; character set (ASCII, Unicode, case).
+      - **Output:** values or indices (0- or 1-based); one answer or all; order of results; ties; what to return when there is no answer (-1, empty list, exception).
+      - **Constraints:** time and memory targets; called once or many times (precompute?); online or streaming input; must it be stable or deterministic.
+      - **Edge cases:** empty, single element, all equal, extreme values, very large outputs.
+
+      Then:
+
+      1. Restate the problem in one or two sentences in your own words.
+      2. Write one normal example and one edge example with the expected output, and ask the interviewer to confirm them.
+      3. If the answer is "you decide", state the assumption out loud, write it down, and say how the code would change otherwise.
+    mental_model: |-
+      Treat the problem statement as an API contract you are about to implement. A clarifying question is worth asking only if some answer to it would change the algorithm, the data structure or the test cases. If no answer would change anything, skip it.
+    tradeoffs: |-
+      Clarifying costs interview time; two to five minutes is typical for a 45-minute problem. Asking too little risks solving the wrong problem; asking a long generic checklist signals that you are not thinking about this problem. Prioritise questions with the largest effect on the approach (sortedness, size, duplicates, output format) and turn the rest into stated assumptions.
+    mistakes:
+      - Starting to code after reading the statement once, without restating it.
+      - Asking a generic list of questions, including ones the statement already answers.
+      - Assuming the input is sorted, non-empty or free of duplicates without saying so.
+      - Not confirming the output format (indices vs values, order, ties).
+      - Ignoring the constraints and therefore the complexity target.
+      - Clarifying, receiving an answer, and then not using it in the code or tests.
+    interview: |-
+      Interviewers usually observe whether you ask about the things that matter and whether you write the answers down. A strong opening sounds like: "Let me restate: given an unsorted list of up to 10⁵ integers, possibly negative and with duplicates, return the indices of two distinct positions summing to the target; exactly one answer exists. So I am aiming for O(n) or O(n log n). Let me check one example…"
+    explain_it:
+      - Restate the problem in one or two sentences.
+      - Name the inputs, their size and the properties you depend on.
+      - Name the exact output format and the no-answer case.
+      - Derive the target complexity from the constraints.
+      - List the edge cases you will test.
+    example:
+      language: text
+      code: |-
+        Problem as given: "Merge the overlapping meetings."
+
+        Restated:  given a list of [start, end] pairs, return a list of disjoint intervals covering the same times.
+        Input:     up to 10^4 intervals, integers, start <= end guaranteed? (asked: yes). Sorted? (asked: no).
+        Touching:  do [1, 2] and [2, 3] merge? (asked: yes, endpoints are inclusive)
+        Output:    sorted by start; a new list is fine; the input may be modified.
+        Edge:      empty list -> []; one interval; one interval containing all others; identical intervals.
+        Target:    n = 10^4 -> O(n log n) sort + one pass is plenty.
+        Example:   [[1,3],[2,6],[8,10],[10,12]] -> [[1,6],[8,12]]   (confirmed)
+      explanation: The answer about touching endpoints changes a single comparison (< versus <=), which is exactly the kind of detail that fails hidden tests when it is assumed rather than asked.
+    edge_cases:
+      - The interviewer answers "you decide" — state and record the assumption.
+      - The constraints are missing — ask for the expected input size explicitly.
+    misconceptions:
+      - "Asking questions looks weak — asking targeted questions is part of what is being assessed; silent assumptions are what look weak."
+- key: dsa.clarification.check
+  type: concept_check
+  title: "Concept check: clarifying a problem"
+  skills: [execution.clarification]
+  minutes: 8
+  difficulty: EASY
+  body:
+    intro: Pick the questions that would actually change your solution.
+    questions:
+      - id: q1
+        kind: single
+        prompt: The problem says "find two numbers in the array that add up to the target". Which clarifying question changes the algorithm the most?
+        options:
+          - Is the array sorted?
+          - Which language should I use?
+          - Can I name my function differently?
+          - Are the numbers written in base ten?
+        answer: [0]
+        explanation: "Sorted input allows two pointers in O(1) extra space; unsorted input suggests a hash map (O(n) space) or sorting first (losing indices). The other questions do not change the approach."
+      - id: q2
+        kind: multi
+        prompt: "For \"return the k most frequent words\", which are useful clarifying questions?"
+        options:
+          - How should ties in frequency be ordered?
+          - Can k exceed the number of distinct words?
+          - Is the comparison case-sensitive?
+          - Should I use a heap?
+        answer: [0, 1, 2]
+        explanation: "Ties, k's range and case-sensitivity all change the output or the code. Whether to use a heap is your design decision, not something to ask the interviewer; propose it with its trade-off instead."
+      - id: q3
+        kind: single
+        prompt: You learn that n is at most 20. What does that suggest?
+        options:
+          - Exponential approaches such as trying all subsets (2²⁰ ≈ 10⁶) are acceptable
+          - You must find an O(log n) solution
+          - The problem must be solved with a hash map
+          - Constraints do not matter for the approach
+        answer: [0]
+        explanation: "About a million subsets is cheap, so bitmask enumeration or backtracking is likely intended. Tiny limits are a strong hint, just as 10⁵ hints at O(n log n)."
+      - id: q4
+        kind: single
+        prompt: You ask whether the input can contain duplicates and the interviewer says "you decide". What is the best response?
+        options:
+          - "State an assumption explicitly (e.g. duplicates allowed, since it is more general), write it down, and mention how the code would differ otherwise"
+          - Assume no duplicates silently, because it is simpler
+          - Ask again until they choose
+          - Handle both cases with two separate solutions before starting
+        answer: [0]
+        explanation: "\"You decide\" tests whether you make and communicate a reasonable decision. Silent assumptions are risky; insisting wastes time; writing two solutions is over-engineering."
+      - id: q5
+        kind: single
+        prompt: When should you stop clarifying and move to an approach?
+        options:
+          - When no remaining question would change the algorithm, the data structure or the tests
+          - After exactly ten questions
+          - Only after the interviewer tells you to start
+          - Never; keep asking during coding instead
+        answer: [0]
+        explanation: "The value of a question is whether it can change what you build or test. A fixed count is arbitrary, and pushing clarifications into the coding phase causes rewrites."
+      - id: q6
+        kind: short
+        prompt: "Write the clarifying questions you would ask for \"merge overlapping intervals\"."
+        model_answer: "Is the input sorted by start? Do touching intervals like [1, 2] and [2, 3] count as overlapping (inclusive or half-open endpoints)? Is start <= end guaranteed? Can the list be empty? How large can it be? Should the output be sorted, and may I modify the input or must I return a new list? What type are the endpoints (integers, timestamps)?"
+        explanation: "The endpoint question and the sortedness question have the most impact: one changes a comparison, the other decides whether an O(n log n) sort is needed."
+- key: dsa.clarification.interview
+  type: interview_question
+  title: "Interview question: clarify an ambiguous analytics task"
+  skills: [execution.clarification]
+  minutes: 8
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 480}
+  body:
+    prompt: |-
+      The interviewer says only: "We have a log of user sessions. Write a function that returns the busiest hour."
+
+      You have eight minutes. Do not solve it yet. List the clarifying questions you would ask, grouped by input, output, constraints and edge cases, then restate the problem with your assumed answers and give one example with its expected output.
+    key_points:
+      - "Input shape: what a session record contains (user id, start and end timestamps), their type and time zone."
+      - "Definition of busy: number of sessions active during the hour, number of sessions started, or distinct users."
+      - "Hour semantics: calendar hours (10:00-11:00) or any 60-minute window; are endpoints inclusive."
+      - "Output: the hour start, the count as well, how to break ties, what to return for an empty log."
+      - "Constraints: number of sessions and time span; fits in memory or streamed; sorted by time or not; called once or repeatedly."
+      - "Restates the problem with explicit assumptions and gives a small example with the expected answer."
+    model_answer: "Input: each record is (user_id, start, end) as UTC epoch seconds? Can end be missing for open sessions? Sorted by start? How many records — thousands or billions, and is it a file or a stream? Busy: do we count sessions active at any point in the hour, sessions started in the hour, or distinct users? Hour: calendar hours in which time zone, or a sliding 60-minute window? Output: the hour's start time, plus the count? Ties — earliest hour? Empty log — None? Restated: given up to 10⁶ sessions in memory, unsorted, count for each UTC calendar hour the number of distinct sessions active at any moment within it, and return the earliest hour with the maximum count. Example: sessions [09:10-09:50], [09:30-10:15], [10:05-10:20] give 09:00 -> 2, 10:00 -> 2; tie, so return 09:00."
+    pitfalls:
+      - Jumping straight into a sweep-line algorithm without defining "busy".
+      - Asking only about input format and forgetting ties and the empty case.
+      - Not stating the time zone, which silently changes calendar hours.
+    follow_ups:
+      - prompt: The log is 500 GB and arrives as a stream. Which of your answers change, and how?
+        look_for: Cannot hold everything in memory; aggregate per hour incrementally (counters keyed by hour), handle late or out-of-order events, possibly approximate distinct users.
+      - prompt: Product says "busy means distinct users". What changes in the data structure?
+        look_for: Per-hour sets of user ids (or a cardinality sketch at scale) instead of counters; memory grows with distinct users per hour.
+- key: dsa.clarification.interview_2
+  type: interview_question
+  title: "Interview question: clarify a deduplication request"
+  skills: [execution.clarification]
+  minutes: 7
+  difficulty: EASY
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 420}
+  body:
+    prompt: |-
+      "Remove the duplicate users from this list." The list holds user records from a sign-up form (name, email, phone, created_at).
+
+      In seven minutes, ask the questions you need, decide on the contract, and say how each answer would change the implementation.
+    key_points:
+      - "Asks what makes two records duplicates: same email, same phone, or any shared field; exact match or normalised (case, whitespace, plus-addressing)."
+      - "Asks which record to keep: first, latest by created_at, or a merge of fields."
+      - "Asks whether the original order must be preserved and whether the input may be modified."
+      - "Asks about size (fits in memory, needs streaming) and missing values (null email)."
+      - "Connects answers to the implementation: a set of normalised keys, a dict from key to the kept record, union-find if any shared field links records transitively."
+    model_answer: "Duplicates by email only, or by email or phone? If 'either', records link transitively (A shares email with B, B shares phone with C), which needs union-find rather than a single set. Do we normalise emails (lower-case, trim)? Keep the earliest created_at or the latest, or merge fields? Preserve input order? How many records — can I hold them in memory? What about null emails — never duplicates of each other? Contract chosen: duplicates share the lower-cased trimmed email; keep the earliest record; preserve the order of kept records; nulls are kept as distinct. Implementation: one pass with a dict from normalised email to kept record, O(n) time and O(n) space."
+    pitfalls:
+      - Writing `list(set(records))`, which needs hashable records, loses order and treats records as equal only when every field matches.
+      - Missing the transitive case when more than one field defines a duplicate.
+    follow_ups:
+      - prompt: Two records match on email and two others on phone, and one record appears in both pairs. Are all three duplicates?
+        look_for: If any shared field links them, yes, transitively; this is a connected-components problem (union-find or graph search).
+      - prompt: The list has 200 million records on disk. What would you do?
+        look_for: External sort by the normalised key and dedupe neighbours, or partition by key hash into files that fit in memory.
+- key: dsa.clarification.cards
+  type: revision_card
+  title: "Recall: clarifying questions"
+  skills: [execution.clarification]
+  minutes: 5
+  body:
+    cards:
+      - front: The four groups of clarifying questions?
+        back: Input, output, constraints, edge cases.
+      - front: Test for whether a clarifying question is worth asking?
+        back: Some answer to it would change the algorithm, data structure or tests.
+      - front: The interviewer says "you decide". What do you do?
+        back: State the assumption aloud, write it down, note how the code would change otherwise.
+      - front: Output details people forget to confirm?
+        back: Indices vs values, 0- or 1-based, ordering, ties, the no-answer case.
+      - front: How does clarification end?
+        back: A restated problem and one or two examples confirmed by the interviewer.
+
+# ---------------------------------------------------------------------------------------------- brute force to optimal
+- key: dsa.brute_force.lesson
+  type: lesson
+  title: From brute force to optimal by naming the bottleneck
+  skills: [execution.brute_force_to_optimal, dsa.complexity_analysis]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: State a correct brute force and its cost, find the repeated work that dominates it, and pick the structure that keeps that work instead of redoing it.
+    what: |-
+      Brute force to optimal is a repeatable method for finding an efficient algorithm:
+
+      1. Describe the simplest correct solution and its time and space.
+      2. Compare it with the target complexity implied by the constraints.
+      3. Name the **bottleneck**: the part of the brute force that does the dominant amount of work, and in particular the work it repeats.
+      4. Choose a technique that removes that repeated work, and argue why it is still correct.
+      5. Re-state the new complexity and check it against a lower bound.
+    why: |-
+      Jumping straight to a pattern ("this is a sliding window") fails when the pattern almost fits. Starting from a brute force guarantees you have something correct, gives you a test oracle, and makes the optimisation explainable: "the inner loop searches for a complement; a hash map answers that in O(1)". Interviewers can follow, and help with, reasoning they can see.
+    when: |-
+      - At the start of every algorithm question, right after clarification.
+      - When you are stuck: write the brute force and look at what it recomputes.
+      - When asked "can you do better?" — answer by naming what your current solution still repeats.
+    how: |-
+      Look for repeated work, then map it to a tool:
+
+      - The inner loop **searches** earlier elements for a value: hash set or map; or sort plus binary search.
+      - The inner loop looks for a **partner** in sorted data: two pointers.
+      - You recompute **sums over overlapping ranges**: prefix sums, or a sliding window if the condition is monotonic.
+      - You recompute the **minimum or maximum** of a changing set: a heap; of a sliding window, a monotonic deque.
+      - You **scan forward for the next greater or smaller** element: monotonic stack.
+      - Recursion solves the **same subproblem** many times: memoisation or bottom-up DP.
+      - You **try every candidate answer** and feasibility is monotonic: binary search on the answer.
+      - You **re-sort** after every insert: a heap or a sorted structure with bisect.
+
+      A useful checklist (popularised as "BUD" by Gayle Laakmann McDowell): **B**ottlenecks, **U**nnecessary work, **D**uplicated work.
+
+      Then check the **best conceivable runtime**: you must read the input (Ω(n)) and produce the output; if you have reached that, stop optimising and start coding.
+    mental_model: |-
+      An optimisation is almost always "remember something across iterations instead of recomputing it". Point at the brute force's inner loop and ask: what does it compute, and how much of that did the previous iteration already know? The structure that stores that knowledge is your optimisation.
+    tradeoffs: |-
+      Most optimisations trade memory for time (hash maps, prefix arrays, memo tables) or add a preprocessing step (sorting) that changes what you can return (original indices). Some add code complexity for small gains: going from O(n log n) to O(n) is rarely worth a fragile solution in an interview unless asked. For tiny n, the brute force may be the right final answer.
+    mistakes:
+      - Skipping the brute force and then getting stuck with nothing correct on the board.
+      - Coding the brute force in full when stating it and its cost was enough (time management).
+      - Naming a pattern without the property that makes it valid (a sliding window without monotonicity).
+      - Optimising a non-dominant term (shaving the O(n) pass while an O(n²) loop remains).
+      - Claiming a complexity for the optimised version without counting pointer moves or amortised costs.
+      - Not keeping the brute force to test the optimised version on small inputs.
+    interview: |-
+      A clear sequence sounds like: "Brute force: check every pair, O(n²) time, O(1) space. With n up to 10⁵ that is too slow. The inner loop is looking for target - x among earlier values; if I keep those in a hash set, each lookup is O(1) average, so O(n) time and O(n) space. I cannot beat O(n) because I must read every value." If the interviewer asks you to code the brute force first, do it quickly; a working brute force beats an unfinished optimal solution.
+    explain_it:
+      - Brute force in one sentence, with time and space.
+      - Target complexity from the constraints.
+      - "The bottleneck: what is repeated and why it is wasted."
+      - The structure that removes it and why correctness is preserved.
+      - The new complexity and the lower bound.
+    example:
+      language: python
+      code: |-
+        import random
+
+        def stress_test(brute, fast, trials: int = 2000) -> None:
+            """Compare an optimised solution with the brute force on small random inputs."""
+            for _ in range(trials):
+                nums = [random.randint(-5, 5) for _ in range(random.randint(0, 8))]
+                k = random.randint(-5, 10)
+                expected, got = brute(nums, k), fast(nums, k)
+                assert expected == got, f"nums={nums} k={k} expected={expected} got={got}"
+      explanation: Small random inputs with small value ranges hit duplicates, negatives and empty arrays quickly. The brute force you wrote first becomes the oracle that catches off-by-one errors in the optimised version.
+    complexity: The method has no complexity of its own; its output is a sequence of claims (brute force cost, target, optimised cost, lower bound) that must each be justified.
+    edge_cases:
+      - The brute force is already optimal (e.g. the output itself has size n²).
+      - Two independent bottlenecks; remove the dominant one first.
+    misconceptions:
+      - "Interviewers only want the optimal solution — a correct, well-explained path from the brute force is part of the assessment."
+- key: dsa.brute_force.worked
+  type: worked_example
+  title: "Worked example: the full method on subarrays with a product below k"
+  skills: [execution.brute_force_to_optimal, execution.clarification, sliding_window.core]
+  minutes: 20
+  difficulty: MEDIUM
+  body:
+    problem: Count the contiguous subarrays of an integer array whose product is strictly less than k. Walk through the whole method, from clarification to a tested optimal solution.
+    steps:
+      - title: 1. Clarify
+        text: "Questions that change the algorithm: Are values positive? (Answer: yes, 1 <= value <= 1000.) Range of k? (0 <= k <= 10⁶.) Size? (n up to 3 × 10⁴.) Output a count, not the subarrays. Edge cases to note: k <= 1 means no product of positive integers is below k, so the answer is 0."
+      - title: 2. Example
+        text: "[10, 5, 2, 6] with k = 100. Qualifying subarrays: [10], [5], [2], [6], [10, 5], [5, 2], [2, 6], [5, 2, 6] — 8. [10, 5, 2] has product 100, which is not strictly below k. Confirm this with the interviewer."
+      - title: 3. Brute force and its cost
+        text: "For each start, extend the end while keeping a running product; stop once it reaches k (positive values only grow it). Worst case O(n²) time (e.g. all ones), O(1) space. With n = 3 × 10⁴ that is about 450 million steps, too slow in Python."
+        code:
+          language: python
+          code: |-
+            def brute(nums, k):
+                count = 0
+                for i in range(len(nums)):
+                    product = 1
+                    for j in range(i, len(nums)):
+                        product *= nums[j]
+                        if product >= k:
+                            break
+                        count += 1
+                return count
+      - title: 4. Name the bottleneck
+        text: "For start i the inner loop finds the furthest end e(i). For start i + 1 it starts again from i + 1, although e(i + 1) >= e(i): dropping a positive factor can only shrink the product. The repeated work is re-walking the ends we already know are valid. Because values are positive, validity is monotonic, which is exactly the condition for a sliding window."
+      - title: 5. Optimal approach
+        text: "Move right over the array, multiply in nums[right], and while the product is >= k divide out nums[left] and advance left. After shrinking, every subarray ending at right and starting in [left, right] qualifies: add right - left + 1. Integer division is exact because the product is a multiple of nums[left]."
+        code:
+          language: python
+          code: |-
+            def count_products_below(nums: list[int], k: int) -> int:
+                if k <= 1:
+                    return 0
+                product, left, count = 1, 0, 0
+                for right, x in enumerate(nums):
+                    product *= x
+                    while product >= k:
+                        product //= nums[left]
+                        left += 1
+                    count += right - left + 1
+                return count
+      - title: 6. Dry-run and test
+        text: "right 0: product 10, count 1. right 1: 50, count 3. right 2: 100 >= 100, divide by 10, left 1, product 10, count 5. right 3: 60, count 8. Then compare with the brute force on random small inputs, and check k = 0, k = 1 and a single element >= k (the window empties: left = right + 1, adding 0)."
+      - title: 7. Complexity and limits
+        text: "Each index enters and leaves the window once: O(n) time, O(1) space. Lower bound Ω(n) since every value must be read, so we stop here. If zeros or negatives were allowed, the monotonic argument would fail — which is why step 1 asked."
+    takeaways:
+      - The clarifying answer "values are positive" is what makes the optimal solution valid.
+      - The bottleneck was named as specific repeated work (re-walking known-valid ends), not as "it is slow".
+      - The brute force stays useful as a test oracle.
+    complexity: Brute force O(n²) time, O(1) space; optimal O(n) time, O(1) space.
+- key: dsa.brute_force.check
+  type: concept_check
+  title: "Concept check: finding the bottleneck"
+  skills: [execution.brute_force_to_optimal]
+  minutes: 8
+  difficulty: MEDIUM
+  body:
+    intro: For each brute force, name what it repeats before choosing.
+    questions:
+      - id: q1
+        kind: single
+        prompt: What is the time complexity of this function for an array of n values and q queries, and what removes the bottleneck?
+        code:
+          language: python
+          code: |-
+            def range_sums(nums, queries):
+                out = []
+                for left, right in queries:
+                    out.append(sum(nums[left:right + 1]))
+                return out
+        options:
+          - "O(n × q); a prefix-sum array makes it O(n + q)"
+          - "O(n + q) already; nothing to improve"
+          - "O(q log n); use binary search"
+          - "O(n × q); a hash map of values makes it O(n + q)"
+        answer: [0]
+        explanation: "Each query slices and sums up to n elements, recomputing overlapping ranges. A prefix array built once answers each range with one subtraction. A hash map of values does not help with range sums."
+      - id: q2
+        kind: single
+        prompt: "Brute force: for each day, scan forward until a warmer day is found. Which tool removes the repeated scanning?"
+        options: ["A monotonic stack of unresolved days", "A hash map of temperatures", "Sorting the temperatures", "A min-heap of all temperatures"]
+        answer: [0]
+        explanation: "The forward scans overlap: many days wait for the same warmer day. A decreasing stack of unresolved indices answers each one when its warmer day arrives, O(n) total. Sorting loses the order that defines next."
+      - id: q3
+        kind: multi
+        prompt: Which are correct best-conceivable-runtime arguments?
+        options:
+          - Finding the maximum of an unsorted array needs Ω(n), since every element could be the maximum
+          - Checking whether a sorted array contains x needs Ω(n)
+          - Listing all pairs with a given sum can need Ω(n²) when the output itself has about n² pairs
+          - Comparison-based sorting needs Ω(n log n) comparisons in the worst case
+        answer: [0, 2, 3]
+        explanation: "A sorted array allows binary search in O(log n), so the second claim is false. Output size is a valid lower bound, which is why some brute forces are already optimal."
+      - id: q4
+        kind: single
+        prompt: "A recursive count of ways to climb n stairs (steps of 1 or 2) runs in about 2ⁿ calls. What is the bottleneck?"
+        options:
+          - The same subproblem (ways from step i) is solved many times; memoisation makes it O(n)
+          - Function calls are slow in Python; rewrite it with a loop of the same structure
+          - The base cases are wrong
+          - The recursion depth; increase the recursion limit
+        answer: [0]
+        explanation: "ways(i) is recomputed along exponentially many paths. Caching it (or iterating bottom-up) computes each i once. Converting the same exponential recursion into a loop does not remove the duplicated work."
+      - id: q5
+        kind: single
+        prompt: "n <= 50, the function is called once, and your brute force is O(n³). The interviewer asks if you would optimise. Best answer?"
+        options:
+          - "50³ is about 125,000 operations, so the brute force is fine; I would mention the faster idea but ship the simple one"
+          - Always optimise to the best possible complexity
+          - Rewrite it in a compiled language
+          - Use multithreading
+        answer: [0]
+        explanation: "Optimisation is driven by the constraints. Showing that you can compute the cost and choose simplicity when it is enough is good engineering judgement."
+      - id: q6
+        kind: short
+        prompt: "The brute force for \"longest run of 1s after flipping at most one 0\" tries every start and extends until a second 0. Name the bottleneck and the optimised approach with its complexity."
+        model_answer: "For each start the scan restarts, although the furthest valid end for start i + 1 is at least the end for start i (removing an element never adds a zero). That re-walking is the repeated work. Keep a window with at most one zero: move right, count zeros, and shrink from the left while there are two; record the window length. Each index enters and leaves once: O(n) time, O(1) space."
+        explanation: Naming the monotonic property (ends never move backwards) is what justifies the sliding window.
+- key: dsa.brute_force.exercise
+  type: coding_exercise
+  title: "Exercise: replace a quadratic scan with a window"
+  skills: [execution.brute_force_to_optimal, sliding_window.core]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 1200}
+  body:
+    prompt: |-
+      The function below returns the length of the longest contiguous run of 1s you can get by flipping at most one 0 to 1. It is correct but O(n²). First write, in one or two sentences, the bottleneck. Then rewrite it in O(n) time and O(1) space, and use the original as a test oracle on random inputs.
+
+      ```python
+      def longest_ones_brute(bits):
+          best = 0
+          for i in range(len(bits)):
+              zeros = 0
+              for j in range(i, len(bits)):
+                  if bits[j] == 0:
+                      zeros += 1
+                  if zeros > 1:
+                      break
+                  best = max(best, j - i + 1)
+          return best
+      ```
+    examples:
+      - "[1, 0, 1, 1, 0] -> 4"
+      - "[1, 1, 1] -> 3"
+      - "[0] -> 1"
+      - "[] -> 0"
+    constraints:
+      - Up to 10⁵ bits.
+    hints:
+      - Does the furthest valid end ever move left when the start moves right?
+      - Keep a window with at most one zero.
+      - Shrink from the left only while the window holds two zeros.
+    solution:
+      language: python
+      code: |-
+        def longest_ones(bits: list[int]) -> int:
+            left = zeros = best = 0
+            for right, b in enumerate(bits):
+                if b == 0:
+                    zeros += 1
+                while zeros > 1:              # restore: at most one zero in the window
+                    if bits[left] == 0:
+                        zeros -= 1
+                    left += 1
+                best = max(best, right - left + 1)
+            return best
+
+        # oracle check
+        import random
+        for _ in range(1000):
+            bits = [random.randint(0, 1) for _ in range(random.randint(0, 10))]
+            assert longest_ones(bits) == longest_ones_brute(bits), bits
+      explanation: "Bottleneck: every start re-walks ends already known to be valid, although the furthest end never moves left. The window keeps that knowledge. O(n) time, O(1) space."
+    rubric:
+      - {key: bottleneck, label: Names the repeated work and the monotonic property before coding, points: 3}
+      - {key: correct, label: Optimised version passes all four examples, points: 3}
+      - {key: oracle, label: Uses the brute force as an oracle on random small inputs, points: 2}
+      - {key: complexity, label: States O(n) time and O(1) space with the pointer-move argument, points: 2}
+    follow_ups:
+      - prompt: Allow up to k flips. What changes?
+        look_for: Shrink while zeros > k; same complexity.
+      - prompt: The bits arrive as a stream and k = 1. Can you answer with O(1) memory?
+        look_for: Track the current run length and the run length before the last zero; no window buffer needed.
+- key: dsa.brute_force.interview
+  type: interview_question
+  title: "Interview question: bottleneck drill"
+  skills: [execution.brute_force_to_optimal, dsa.pattern_recognition]
+  minutes: 10
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 600}
+  body:
+    prompt: |-
+      For each brute force, say in one or two sentences what work it repeats, which structure removes it, and the new time complexity. Ten minutes for all four.
+
+      1. For each element, count how many earlier elements are equal to it, by scanning all earlier elements. O(n²).
+      2. For every window of k consecutive values, compute its maximum by scanning the window. O(n × k).
+      3. Repeatedly take the two smallest numbers from a list, add them, and put the sum back, until one number is left; the list is re-sorted every round. O(n² log n).
+      4. Count the ways to reach the top of n stairs with steps of 1 or 2, recursively, without caching. About 2ⁿ calls.
+    key_points:
+      - "1: the scan re-searches the past; a hash map of counts makes each step O(1) average, O(n) total."
+      - "2: consecutive windows share k - 1 values; a monotonic deque of indices gives O(n) total (a heap gives O(n log n))."
+      - "3: re-sorting a nearly sorted list each round; a min-heap gives O(log n) per round, O(n log n) total."
+      - "4: overlapping subproblems; memoisation or bottom-up iteration gives O(n) time (O(1) space with two variables)."
+      - States a lower bound or why further improvement is not needed for at least one item.
+    model_answer: "1) The inner scan searches earlier elements; a Counter of values seen so far answers 'how many equal' in O(1) average, O(n). 2) Each window rescans k - 1 values the previous window already saw; a decreasing deque of indices keeps the candidates for the maximum, each pushed and popped once, O(n). 3) The full re-sort ignores that only two elements left and one entered; a min-heap does two pops and one push per round, O(log n), so O(n log n). 4) ways(i) is recomputed along exponentially many paths; caching ways(i) or iterating from the bottom computes each once, O(n). For 1 and 2, Ω(n) is a lower bound since every element must be read."
+    pitfalls:
+      - Saying "use a hash map" for the window maximum, which does not track order or maximum.
+      - Proposing sorting once for problem 3, which breaks because new sums must be inserted in order.
+    follow_ups:
+      - prompt: If n were at most 30 in all four, which would you still optimise?
+        look_for: Only 4 (2³⁰ calls is about 10⁹); the others are trivially fast at n = 30.
+      - prompt: How would you convince yourself the optimised versions are correct?
+        look_for: Keep the brute force as an oracle and compare on many small random inputs, including duplicates and edge sizes.
+- key: dsa.brute_force.interview_2
+  type: interview_question
+  title: "Interview question: the full method aloud on overlapping meetings"
+  skills: [execution.brute_force_to_optimal, execution.clarification, execution.think_aloud]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    prompt: |-
+      Given a list of meetings as start and end times, return the maximum number of meetings in progress at the same moment. Talk through the whole method aloud: clarify, give a brute force with its complexity, name the bottleneck, give an optimised approach with its complexity, and test it on one edge case. Code only if time remains.
+    key_points:
+      - "Clarifies endpoint semantics: does a meeting ending at 10 overlap one starting at 10 (half-open or closed intervals)? Also input size and whether the list is sorted."
+      - "Brute force: the maximum overlap occurs at some meeting's start, so for each start count the meetings covering it: O(n²)."
+      - "Bottleneck: each count rescans all meetings although the active set changes by one meeting per event."
+      - "Optimised: sort start and end events and sweep with a counter (ends before starts at equal times for half-open intervals), or sort by start and keep a min-heap of end times; O(n log n) time, O(n) space."
+      - "Tests the touching-endpoints case and states the answer under the chosen semantics."
+    model_answer: "I'd ask whether [9, 10) and [10, 11) overlap — assume half-open, so no. n up to 10⁵, unsorted. Brute force: the peak happens at some start time, so for each start s count meetings with start <= s < end: O(n²). The waste is recounting from scratch, while moving from one event time to the next changes the active count by one per event. Sweep: build (time, +1) for starts and (time, -1) for ends, sort so that at equal times -1 comes first, run a counter and track its maximum: O(n log n) for the sort, O(n) space. Test: [[9, 10], [10, 11]] gives 1 under half-open semantics, 2 if endpoints were inclusive — which is why I asked."
+    pitfalls:
+      - Sorting events without deciding the tie order at equal times.
+      - Claiming O(n) while relying on a sort.
+      - Skipping the brute force and then being unable to justify the sweep.
+    follow_ups:
+      - prompt: Times are integers between 0 and 1440 (minutes in a day). Can you avoid sorting?
+        look_for: Difference array of size 1441, add +1 at start and -1 at end, prefix-sum it; O(n + T) time.
+      - prompt: Meetings arrive one by one and you must report the current maximum after each.
+        look_for: Needs a structure supporting range add and global max (segment tree with lazy propagation) or, with bounded times, an array updated per minute; discuss cost per update.
+      - prompt: Return how many rooms are needed if each meeting needs its own room.
+        look_for: It is the same number — the maximum overlap.
+- key: dsa.brute_force.cards
+  type: revision_card
+  title: "Recall: brute force to optimal"
+  skills: [execution.brute_force_to_optimal]
+  minutes: 5
+  body:
+    cards:
+      - front: The five steps of brute force to optimal?
+        back: Brute force + cost, target from constraints, bottleneck, tool that removes it, new cost vs lower bound.
+      - front: Inner loop searches earlier elements for a value?
+        back: Hash set or map (or sort + binary search).
+      - front: Recomputing sums over overlapping ranges?
+        back: Prefix sums, or a sliding window if the condition is monotonic.
+      - front: Scanning forward for the next greater element?
+        back: Monotonic stack.
+      - front: Recursion solving the same subproblem repeatedly?
+        back: Memoisation or bottom-up DP.
+      - front: What is BUD?
+        back: Bottlenecks, Unnecessary work, Duplicated work.

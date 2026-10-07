@@ -1,0 +1,689 @@
+# Learning content, DSA (2/4): recursion fundamentals (base case, recursion tree, call stack) and backtracking (subsets, permutations, combinations, constraints).
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- recursion
+- key: dsa.recursion.lesson
+  type: lesson
+  title: "Recursion: contract, base case, recursion tree and call stack"
+  skills: [recursion.fundamentals, dsa.complexity_analysis]
+  minutes: 30
+  difficulty: EASY
+  body:
+    summary: Define what the function returns for any input, handle the smallest input directly, and trust the call on a smaller input; then count nodes in the recursion tree for time and its depth for space.
+    what: |-
+      A recursive function solves a problem by calling itself on a **smaller instance** of the same problem and combining the result. Every correct recursion has:
+
+      - a **contract**: one sentence saying what `f(x)` returns (for example, "`height(node)` returns the number of nodes on the longest downward path from `node`");
+      - a **base case** that answers the smallest inputs without recursing;
+      - a **recursive case** that makes progress toward the base case and **combines** the sub-results.
+
+      Each call gets its own **stack frame** holding its parameters and local variables. Frames are pushed when a call starts and popped when it returns, so the deepest chain of unfinished calls is the extra memory the recursion uses.
+    why: |-
+      Trees, nested data (JSON, file systems, expressions), divide and conquer (merge sort, binary search), backtracking and dynamic programming are all recursive by nature. Writing them recursively is usually shorter and easier to prove correct than managing a stack by hand. Recursion is also the prerequisite for memoisation: a correct recursive definition becomes a DP solution by caching.
+    when: |-
+      - The input is self-similar: a tree node has subtrees, a list has a tail, an expression has sub-expressions.
+      - The problem splits into independent halves (divide and conquer).
+      - You must enumerate choices (backtracking).
+      - Avoid it, or convert to iteration, when depth can reach the size of a large input in Python (a 10⁵-node linked list or degenerate tree), because CPython's default recursion limit is 1000 frames.
+    how: |-
+      Design in four steps, in this order:
+
+      1. **Contract**: write the docstring first.
+      2. **Base case(s)**: the inputs where the answer is obvious (empty list, `None` node, `n == 0`).
+      3. **Reduce**: call the function on strictly smaller input(s). Assume — like an induction hypothesis — that those calls honour the contract. This is the "leap of faith": do not trace into them.
+      4. **Combine**: build this call's answer from the sub-answers.
+
+      ```python
+      def power(x: int, n: int) -> int:
+          """Return x**n for n >= 0."""
+          if n == 0:                       # base case
+              return 1
+          half = power(x, n // 2)          # one call on a smaller input, reused twice
+          if n % 2 == 0:
+              return half * half
+          return half * half * x
+      ```
+
+      **Analysing it.** Time = (number of calls) × (work per call, excluding sub-calls). Draw the recursion tree: `power` has one child per call and `n` halves each level, so about log₂ n calls and O(log n) time. Space = maximum depth × frame size: O(log n) stack. If you wrote `power(x, n // 2) * power(x, n // 2)`, the tree would branch twice per level: about 2^(log₂ n) = n calls, O(n) time for the same answer.
+
+      **Return value or accumulator.** Either return the result upward (`return 1 + max(h(l), h(r))`) or pass partial state down as arguments (`walk(node, depth + 1)`) and write to an outer variable. Returning is easier to reason about; passing down is natural for root-to-leaf state.
+
+      **Memoisation.** When the recursion tree contains repeated subproblems (naive Fibonacci computes `fib(2)` many times), cache results with `functools.cache` (Python 3.9+) or `lru_cache`. The number of distinct calls then bounds the time.
+    mental_model: |-
+      Think of each call as a separate worker with its own notepad (stack frame). A worker hands a smaller copy of the job to a new worker and waits. The waiting workers form a stack; when the smallest job is answered, results flow back up, each waiting worker finishing its own combine step. Time is the number of workers ever hired; memory is the longest line of workers waiting at once.
+    tradeoffs: |-
+      Recursion is clear and maps directly to a proof, but each frame in CPython costs noticeably more than a loop iteration, and depth is limited (default 1000; `sys.setrecursionlimit` raises it, but very deep recursion can then exhaust the C stack and crash the interpreter). CPython does not optimise tail calls, so a tail-recursive function still uses O(depth) frames. An explicit stack (a list) removes the depth limit at the cost of more code. Memoisation trades O(number of states) memory for avoiding repeated work.
+    mistakes:
+      - A base case that the recursion can skip over, for example checking `n == 0` when `n` can become negative, causing infinite recursion and a `RecursionError`.
+      - Making the same recursive call twice instead of storing its result, which can turn O(log n) into O(n) or O(n) into O(2ⁿ).
+      - "Passing slices (`a[1:]`, `s[1:]`) down the recursion: each slice copies, so a linear recursion becomes O(n²) time and memory. Pass an index instead."
+      - Sharing a mutable list between calls (or using a mutable default argument) and forgetting that every frame sees the same object.
+      - Forgetting the stack in space complexity, or assuming a tail call is free in Python.
+    interview: |-
+      State the contract and base case before writing the recursive line, then give time as calls × work and space as depth. Expect follow-ups: "draw the recursion tree", "what is the depth on a skewed input?", "can you make it iterative?", "where is the repeated work?" (which leads to memoisation and DP). Saying "the default recursion limit is about 1000 in CPython, so for 10⁵ nodes I would use an explicit stack" shows production awareness.
+    explain_it:
+      - The contract in one sentence.
+      - The base case and why every path reaches it.
+      - How sub-results combine.
+      - Time as number of calls × work per call, and space as maximum depth, including the call stack.
+    example:
+      language: python
+      code: |-
+        from functools import cache
+
+        @cache
+        def ways(n: int) -> int:
+            """Number of ways to climb n steps taking 1 or 2 steps at a time."""
+            if n <= 1:                 # ways(0) = ways(1) = 1
+                return 1
+            return ways(n - 1) + ways(n - 2)
+
+        # Without @cache: about 2ⁿ calls (the Fibonacci recursion tree).
+        # With @cache: n + 1 distinct calls, O(n) time, O(n) cache and O(n) stack depth.
+      explanation: The recursive definition is unchanged; caching collapses the repeated subtrees. For n near 1000 the O(n) depth still hits the recursion limit, which is the usual reason to switch to a bottom-up loop.
+    complexity: "Time = sum over all calls of the non-recursive work; space = maximum recursion depth × frame size plus any memo table. Halving recursion: O(log n) depth; linear recursion: O(n) depth; branching factor b to depth d: up to bᵈ calls."
+    internals: |-
+      In CPython each Python-level call creates a frame object holding locals, the evaluation stack and a pointer to the caller. `sys.getrecursionlimit()` returns the cap (1000 by default); exceeding it raises `RecursionError`, a subclass of `RuntimeError`. Because there is no tail-call elimination, `return f(n - 1)` still keeps every caller's frame alive until the base case returns.
+    edge_cases:
+      - The smallest valid input (empty list, None node, n = 0) handled by the base case.
+      - Inputs that skip the base case (negative numbers, odd steps of two).
+      - Maximum depth on a degenerate input, for example a sorted insert sequence into an unbalanced tree.
+    misconceptions:
+      - "\"Recursion is always slower and uses more memory.\" Same asymptotic cost as the iterative version in most cases; the stack is the explicit-stack version's list, just managed for you."
+      - "\"A recursive solution with memoisation is not DP.\" Top-down memoisation is DP; bottom-up tabulation is the other order of evaluation."
+- key: dsa.recursion.visual
+  type: visual_explanation
+  title: "Visual: recursion tree and call stack frames"
+  skills: [recursion.fundamentals]
+  minutes: 8
+  body:
+    summary: The same recursion seen two ways — as a tree of calls (time) and as a stack of frames over time (space).
+    frames:
+      - caption: "The recursion tree of naive fib(4). Each box is one call; there are 9 calls, and fib(2) is computed twice."
+        diagram: |2-
+                            fib(4)
+                         /         \
+                    fib(3)          fib(2)
+                   /      \         /     \
+               fib(2)    fib(1)  fib(1)  fib(0)
+               /    \
+           fib(1)  fib(0)
+
+          calls: 9      depth (longest root-to-leaf chain): 4
+          time ~ number of nodes ~ 2ⁿ        space ~ depth = n
+      - caption: "The call stack of fact(3) over time. Frames are pushed on the way down and popped as results return."
+        diagram: |-
+          step  action                         stack (top on the right)
+          ----  -----------------------------  -----------------------------
+           1    call fact(3)                   [fact(3) n=3]
+           2    fact(3) calls fact(2)          [fact(3) n=3, fact(2) n=2]
+           3    fact(2) calls fact(1)          [fact(3), fact(2), fact(1) n=1]
+           4    fact(1) is the base case → 1   [fact(3), fact(2)]
+           5    fact(2) returns 2 * 1 = 2      [fact(3)]
+           6    fact(3) returns 3 * 2 = 6      []
+
+          maximum stack depth = 3 frames → O(n) space for fact(n)
+      - caption: "With memoisation, each fib(k) is computed once; later requests are cache hits (marked *)."
+        diagram: |2-
+                            fib(4)
+                         /         \
+                    fib(3)          fib(2)*   ← cache hit, no subtree
+                   /      \
+               fib(2)    fib(1)*
+               /    \
+           fib(1)  fib(0)
+
+          computed calls: 5 (fib(0)..fib(4))   time O(n)   stack depth still O(n)
+      - caption: "Halving recursion: power(x, 13) makes one call per level, so the tree is a single chain of about log₂ n nodes."
+        diagram: |-
+          power(x, 13) → power(x, 6) → power(x, 3) → power(x, 1) → power(x, 0)
+              returns       returns       returns       returns        1
+           h*h*x (h=x⁶)  h*h (h=x³)   h*h*x (h=x)   1*1*x = x
+
+          5 calls for n = 13 → O(log n) time and O(log n) stack
+- key: dsa.recursion.check
+  type: concept_check
+  title: "Concept check: tracing recursion"
+  skills: [recursion.fundamentals]
+  minutes: 10
+  difficulty: EASY
+  body:
+    intro: Trace each function by drawing its recursion tree or its stack of frames.
+    questions:
+      - id: q1
+        kind: single
+        prompt: How many calls to f does f(5) make in total, including the first one?
+        code:
+          language: python
+          code: |-
+            def f(n):
+                if n <= 1:
+                    return n
+                return f(n - 1) + f(n - 2)
+        options: ["5", "9", "15", "32"]
+        answer: [2]
+        explanation: "Calls C(n) = 1 + C(n-1) + C(n-2) with C(0) = C(1) = 1: C(2)=3, C(3)=5, C(4)=9, C(5)=15. 9 is the count for f(4); 32 is 2⁵, an upper bound, not the exact count."
+      - id: q2
+        kind: single
+        prompt: What does g(3) print?
+        code:
+          language: python
+          code: |-
+            def g(n):
+                if n == 0:
+                    return
+                print(n, end=" ")
+                g(n - 1)
+                print(n, end=" ")
+        options: ["3 2 1", "3 2 1 1 2 3", "1 2 3 3 2 1", "3 2 1 0 1 2 3"]
+        answer: [1]
+        explanation: "Each frame prints before the call (on the way down: 3 2 1) and after it returns (on the way up: 1 2 3). The base case n == 0 returns without printing, so 0 never appears."
+      - id: q3
+        kind: single
+        prompt: Extra space used by power(x, n) when it makes one recursive call on n // 2?
+        options: ["O(1)", "O(log n)", "O(n)", "O(n log n)"]
+        answer: [1]
+        explanation: "Each frame waits for a call on half the exponent, so at most about log₂ n frames are on the stack. O(1) would only hold for an iterative version; O(n) would be a recursion on n - 1."
+      - id: q4
+        kind: multi
+        prompt: Which of these recursive functions take O(n²) time for an input of length n?
+        options:
+          - "def total(a): return 0 if not a else a[0] + total(a[1:])"
+          - "def total(a, i=0): return 0 if i == len(a) else a[i] + total(a, i + 1)"
+          - "def rev(s): return '' if not s else rev(s[1:]) + s[0]"
+          - "fib(n) decorated with functools.cache"
+        answer: [0, 2]
+        explanation: "Slicing copies the rest of the list or string at every level (n + (n-1) + … = O(n²)), and rev also builds a new string at each level. The index-passing version and the cached fib are O(n)."
+      - id: q5
+        kind: single
+        prompt: A recursive DFS in CPython goes 5000 frames deep with default settings. What happens?
+        options:
+          - "It runs normally; Python optimises tail calls"
+          - "RecursionError is raised because the default limit is 1000"
+          - "It silently returns None"
+          - "MemoryError is raised immediately"
+        answer: [1]
+        explanation: "CPython caps recursion depth (sys.getrecursionlimit() is 1000 by default) and raises RecursionError, a RuntimeError subclass. CPython does not eliminate tail calls, so rewriting as a tail call does not help; an explicit stack does."
+      - id: q6
+        kind: short
+        prompt: Describe how you design a recursive function before writing it, using "count the nodes of a binary tree" as the example.
+        model_answer: "Contract: count(node) returns the number of nodes in the subtree rooted at node. Base case: count(None) = 0. Reduce: trust count(node.left) and count(node.right). Combine: 1 + left + right. Time O(n) (one call per node plus one per None child), space O(h) for the stack."
+        explanation: The contract makes the recursive line obvious and lets you skip tracing into the sub-calls.
+- key: dsa.recursion.exercise
+  type: coding_exercise
+  title: "Exercise: depth-weighted sum of a nested list"
+  skills: [recursion.fundamentals]
+  minutes: 15
+  difficulty: EASY
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 900}
+  body:
+    prompt: |-
+      A value is either an integer or a list of values (lists can nest to any depth). Return the sum of every integer multiplied by its depth, where integers directly in the outer list have depth 1. Write it recursively, then say how you would handle nesting 10⁵ levels deep.
+    examples:
+      - "weighted_sum([1, [4, [6]]]) == 27  (1×1 + 4×2 + 6×3)"
+      - "weighted_sum([[1, 1], 2, [1, 1]]) == 10"
+      - "weighted_sum([]) == 0"
+    hints:
+      - "Contract: helper(items, depth) returns the weighted sum of items, which sit at the given depth."
+      - "An integer contributes value × depth; a list contributes helper(sublist, depth + 1)."
+      - For extreme nesting, push (list, depth) pairs onto an explicit stack instead of recursing.
+    solution:
+      language: python
+      code: |-
+        def weighted_sum(items: list, depth: int = 1) -> int:
+            total = 0
+            for x in items:
+                if isinstance(x, list):
+                    total += weighted_sum(x, depth + 1)
+                else:
+                    total += x * depth
+            return total
+
+        def weighted_sum_iterative(items: list) -> int:
+            total, stack = 0, [(items, 1)]
+            while stack:
+                current, depth = stack.pop()
+                for x in current:
+                    if isinstance(x, list):
+                        stack.append((x, depth + 1))
+                    else:
+                        total += x * depth
+            return total
+      explanation: O(N) time where N counts integers and lists; O(D) stack for depth D recursively, and the iterative version moves that to the heap so depth is not limited by the recursion cap.
+    rubric:
+      - key: correct
+        label: "Returns the right sum for nested, empty and flat lists"
+        points: 4
+      - key: contract
+        label: "States the contract and base case before coding"
+        points: 2
+      - key: complexity
+        label: "Gives O(N) time and O(D) depth-dependent space"
+        points: 2
+      - key: deep_input
+        label: "Explains the recursion limit and offers an explicit-stack version"
+        points: 2
+    follow_ups:
+      - prompt: Now weight by inverse depth (deepest integers have weight 1). What changes?
+        look_for: Compute the maximum depth first (one pass) or accumulate per-level sums then combine; weight = max_depth - depth + 1.
+      - prompt: Why is the default argument depth=1 safe here when mutable defaults are not?
+        look_for: Integers are immutable; the default is evaluated once but never mutated.
+- key: dsa.recursion.guided
+  type: guided_problem
+  title: "Guided practice: Fibonacci three ways"
+  skills: [recursion.fundamentals]
+  minutes: 15
+  difficulty: EASY
+  problems: [80]
+  body:
+    guidance:
+      - Write the naive recursion, then draw its tree for n = 5 and count the calls.
+      - Add functools.cache and state the new time and the unchanged stack depth.
+      - Finish with a two-variable loop and compare all three on time and space.
+    hints:
+      - Base cases are n == 0 and n == 1.
+      - The loop keeps only the last two values.
+- key: dsa.recursion.timed
+  type: timed_problem
+  title: "Timed practice: divide and conquer and linked-list recursion"
+  skills: [recursion.fundamentals]
+  minutes: 40
+  difficulty: MEDIUM
+  problems: [82, 81]
+  body:
+    guidance:
+      - "Parenthesisation: the contract is \"all values of this sub-expression\"; split at every operator and combine every left value with every right value."
+      - Memoise on the sub-expression string or its index range and say what that saves.
+      - "Swapping pairs: the contract is \"returns the new head of the swapped list starting here\"; handle zero and one remaining node as base cases."
+      - State the recursion depth of each and whether CPython's limit could be hit.
+- key: dsa.recursion.interview
+  type: interview_question
+  title: "Interview question: the recursive DFS that crashed in production"
+  skills: [recursion.fundamentals, trees.traversal]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: "A recursive function that walks a category tree passes all unit tests but raises RecursionError in production on one customer's data. Explain the likely cause, how you would confirm it, and two ways to fix it with their trade-offs."
+    key_points:
+      - "The tree is very deep (degenerate, like a linked list), so depth exceeds CPython's default limit of about 1000 frames."
+      - "Confirm by measuring the maximum depth of the data, or reproducing with a chain of 2000 nodes in a test."
+      - "Fix 1: rewrite with an explicit stack (list of nodes or (node, state) pairs), which is limited only by heap memory."
+      - "Fix 2: raise sys.setrecursionlimit, which is quick but risky, since very deep recursion can overflow the C stack and crash the process."
+      - "Mentions a cycle in the data (a category that is its own ancestor) as another cause, fixed with a visited set."
+    model_answer: "RecursionError means the depth exceeded sys.getrecursionlimit(), 1000 by default. Either one customer's tree is unusually deep, or it contains a cycle so the walk never ends. I would log the depth or detect a revisit to tell them apart, and add a regression test with a 5000-node chain. The robust fix is an explicit stack; raising the recursion limit is a stopgap because frames also use C stack and very deep recursion can crash the interpreter. For cycles, track visited ids."
+    pitfalls:
+      - Proposing to catch RecursionError and ignore it.
+      - Claiming tail recursion would fix it in Python.
+    follow_ups:
+      - prompt: Convert a recursive post-order computation (each node needs its children's results) to an explicit stack.
+        look_for: Push (node, visited_children_flag) or use two stacks; process a node only after its children, storing results in a dict keyed by node.
+      - prompt: Why does the unit test suite not catch this?
+        look_for: Fixtures are small and balanced; add property or size tests with degenerate shapes.
+- key: dsa.recursion.cards
+  type: revision_card
+  title: "Recall: recursion"
+  skills: [recursion.fundamentals]
+  minutes: 5
+  body:
+    cards:
+      - front: Four steps to design a recursive function?
+        back: Contract, base case, reduce to smaller input, combine.
+      - front: Time of a recursion?
+        back: Number of calls in the recursion tree × work per call.
+      - front: Space of a recursion?
+        back: Maximum depth × frame size, plus any memo table.
+      - front: CPython default recursion limit?
+        back: 1000 frames; exceeding it raises RecursionError.
+      - front: Does CPython optimise tail calls?
+        back: No; every pending call keeps its frame.
+      - front: Why pass an index instead of a slice?
+        back: Slicing copies, turning O(n) recursion into O(n²).
+
+# ---------------------------------------------------------------------------------------------- backtracking
+- key: dsa.backtracking.lesson
+  type: lesson
+  title: "Backtracking: choose, explore, unchoose"
+  skills: [backtracking.core, recursion.fundamentals]
+  minutes: 30
+  difficulty: MEDIUM
+  body:
+    summary: Build candidates one choice at a time, recurse, then undo the choice; prune branches that cannot lead to a valid answer.
+    what: |-
+      Backtracking is a depth-first search over a **decision tree**. Each level makes one choice (include this element or not, which number goes in this position, which cell to visit next). A path from the root to a leaf is one complete candidate. The algorithm keeps a single mutable **path**, adds a choice, explores, and removes the choice before trying the next one.
+
+      Three families cover most interview questions:
+
+      - **Subsets** (each element in or out): 2ⁿ results.
+      - **Combinations** (choose k, or reach a target sum): use a `start` index so each set is generated once in increasing index order.
+      - **Permutations** (order matters): track which elements are used; n! results.
+
+      Constraint problems (N-Queens, Sudoku, word search in a grid) are the same skeleton with a validity check before each choice.
+    why: |-
+      When a problem asks for **all** solutions, or for any solution under tight constraints with no greedy or DP structure, exhaustive search is the honest answer. Backtracking makes exhaustive search manageable: one path in memory instead of all partial candidates, and pruning that cuts whole subtrees as soon as a partial candidate is already invalid.
+    when: |-
+      - "Return all subsets, permutations, combinations, partitions or arrangements."
+      - Constraints are small (n ≤ 15 to 20 for subsets, n ≤ 8 to 10 for permutations).
+      - Find a path in a grid or graph that cannot reuse cells.
+      - If the question asks only for a count or an optimum and subproblems repeat, consider DP instead.
+    how: |-
+      The skeleton:
+
+      ```python
+      def backtrack(state):
+          if is_complete(state):
+              record(copy_of(state))
+              return
+          for choice in choices(state):
+              if not valid(state, choice):
+                  continue                 # prune
+              apply(state, choice)         # choose
+              backtrack(state)             # explore
+              undo(state, choice)          # unchoose
+      ```
+
+      **Combinations with a start index.** Choosing `i` and then only indexes `> i` generates each combination once (no `[2, 1]` after `[1, 2]`). When elements may repeat (each candidate reusable), recurse with `i`, not `i + 1`.
+
+      **Duplicates in the input.** Sort first, then skip a value equal to the previous one **at the same level**: `if i > start and nums[i] == nums[i - 1]: continue`. The `i > start` part allows the duplicate deeper in the tree (so `[2, 2]` is still produced) but forbids starting two sibling branches with the same value.
+
+      **Permutations.** Keep a `used` boolean array; at each level try every unused element.
+
+      **Grid search.** Mark the cell as visited (for example overwrite it with `#`), explore four neighbours, then restore it. Restoring is the unchoose step.
+    mental_model: |-
+      You walk a maze holding a single piece of chalk. At each fork you mark your choice, walk on, and when you hit a dead end you walk back and rub out the mark before taking the next fork. The chalk marks are the path; rubbing them out is why one path in memory is enough.
+    tradeoffs: |-
+      Backtracking is exponential by nature: output size alone is 2ⁿ or n!. Pruning improves the constant or the typical case, not the worst-case class. It uses only O(depth) memory besides the output, versus BFS-style generation that holds every partial candidate. When subproblems repeat (the same remaining target with the same start index), memoisation or DP gives polynomial time for counts and optima, but not for listing all solutions.
+    mistakes:
+      - "Recording `path` instead of `path[:]` (or `list(path)`): every recorded entry is the same list object, which is empty after the search unwinds."
+      - Forgetting the unchoose step, so choices leak into sibling branches.
+      - Using `i > 0` instead of `i > start` in the duplicate-skip rule, which also removes valid answers such as `[2, 2]`.
+      - Recursing with `i + 1` when elements may be reused, or with `i` when they may not.
+      - Pruning with a condition that is not actually impossible (for example, breaking on a negative number when values can be negative).
+    interview: |-
+      Draw the first two levels of the decision tree and say what one level decides. State the number of leaves (2ⁿ, n!, C(n, k)) and multiply by the O(n) cost of copying each result. Point out the prune. Common follow-ups: handle duplicates, return a count only (often DP), stop at the first solution, and iterative alternatives (bitmask enumeration for subsets).
+    explain_it:
+      - What one level of the decision tree decides.
+      - The choose / explore / unchoose lines and the base case that records a copy.
+      - The pruning rule and why it never drops a valid answer.
+      - Time as leaves × copy cost (for example O(n · 2ⁿ)); space O(n) for the path and stack, plus output.
+    example:
+      language: python
+      code: |-
+        def combine(n: int, k: int) -> list[list[int]]:
+            """All k-element combinations of 1..n, each in increasing order."""
+            out: list[list[int]] = []
+            path: list[int] = []
+
+            def backtrack(start: int) -> None:
+                if len(path) == k:
+                    out.append(path[:])                # copy: path keeps changing
+                    return
+                need = k - len(path)
+                for x in range(start, n - need + 2):   # prune: leave room for the rest
+                    path.append(x)                     # choose
+                    backtrack(x + 1)                   # explore
+                    path.pop()                         # unchoose
+
+            backtrack(1)
+            return out
+      explanation: "The bound n - need + 2 stops when fewer than need numbers remain, so no branch ends short. combine(4, 2) gives six results: [1,2] [1,3] [1,4] [2,3] [2,4] [3,4]. Time O(k · C(n, k)), stack depth k."
+    complexity: "Subsets O(n · 2ⁿ), permutations O(n · n!), combinations O(k · C(n, k)) including copying each result; recursion depth O(n) and path O(n) besides the output."
+    edge_cases:
+      - Empty input (subsets returns [[]], permutations returns [[]]).
+      - k = 0 or k = n for combinations.
+      - Duplicate values in the input.
+      - A target that no combination reaches (return an empty list, not None).
+    misconceptions:
+      - "\"Pruning makes backtracking polynomial.\" It reduces explored nodes but the worst case stays exponential."
+      - "\"Backtracking needs a visited set.\" Subsets and combinations use a start index instead; visited marking is for grids and permutations."
+- key: dsa.backtracking.visual
+  type: visual_explanation
+  title: "Visual: the decision trees behind subsets and permutations"
+  skills: [backtracking.core, recursion.fundamentals]
+  minutes: 8
+  body:
+    summary: Subsets record every node of a start-index tree; permutations record only leaves of a used-flag tree.
+    frames:
+      - caption: "Subsets of [1, 2, 3] with a start index. Every node is a recorded subset: 8 = 2³ in total."
+        diagram: |2-
+                                  []
+                    /             |            \
+                 [1]             [2]           [3]
+               /     \            |
+           [1,2]    [1,3]       [2,3]
+             |
+          [1,2,3]
+
+          children of a node only use indexes after its last element → no [2,1]
+      - caption: "The path list over time while producing [1,2,3] and then [1,3]. Pop is the unchoose step."
+        diagram: |-
+          action          path        recorded
+          -------------   ---------   --------------------
+          start           []          []
+          choose 1        [1]         [1]
+          choose 2        [1,2]       [1,2]
+          choose 3        [1,2,3]     [1,2,3]
+          pop 3           [1,2]
+          pop 2           [1]
+          choose 3        [1,3]       [1,3]
+          pop 3, pop 1    []          ... continue with 2
+      - caption: "Permutations of [1, 2, 3]. Each level fills one position with an unused value; only the 3! = 6 leaves are recorded."
+        diagram: |1-
+                                 []
+                  /              |              \
+               [1]              [2]             [3]
+              /    \           /    \          /    \
+          [1,2]  [1,3]     [2,1]  [2,3]    [3,1]  [3,2]
+            |      |         |      |        |      |
+         [1,2,3] [1,3,2] [2,1,3] [2,3,1] [3,1,2] [3,2,1]
+
+          depth n, n! leaves, O(n) to copy each → O(n · n!)
+      - caption: "Duplicates [1, 2, 2] after sorting: the second 2 is skipped as a sibling (i > start) but allowed below the first 2."
+        diagram: |2-
+                              []
+                   /          |          \
+                [1]          [2]         [2]  ← skipped: same value as previous sibling
+               /    \         |
+           [1,2]  [1,2]x    [2,2]
+             |
+          [1,2,2]
+
+            x = sibling skipped by the rule (second 2 at the same level)
+            recorded: [] [1] [1,2] [1,2,2] [2] [2,2]  → 6 unique subsets
+- key: dsa.backtracking.check
+  type: concept_check
+  title: "Concept check: backtracking"
+  skills: [backtracking.core]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Trace the path list as you go; most bugs are about copying, undoing or the start index.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "What does subsets([1, 2]) return with this code?"
+        code:
+          language: python
+          code: |-
+            def subsets(nums):
+                out, path = [], []
+                def bt(start):
+                    out.append(path)
+                    for i in range(start, len(nums)):
+                        path.append(nums[i])
+                        bt(i + 1)
+                        path.pop()
+                bt(0)
+                return out
+        options: ["[[], [1], [1, 2], [2]]", "[[], [], [], []]", "[[1, 2], [1, 2], [1, 2], [1, 2]]", "[[]]"]
+        answer: [1]
+        explanation: "out stores four references to the same list object path, which is empty after every pop. The fix is out.append(path[:]). The first option is what the corrected code returns."
+      - id: q2
+        kind: single
+        prompt: How many results and what time complexity for all permutations of 4 distinct elements, n in general?
+        options: ["16 results, O(2ⁿ)", "24 results, O(n · n!)", "24 results, O(n!) with no extra factor", "12 results, O(n²)"]
+        answer: [1]
+        explanation: "4! = 24 leaves, and copying each permutation costs O(n), so O(n · n!). 16 is the number of subsets (2⁴)."
+      - id: q3
+        kind: single
+        prompt: "For subsets with duplicates (sorted input), why is the skip rule `i > start and nums[i] == nums[i - 1]` and not `i > 0 and nums[i] == nums[i - 1]`?"
+        options:
+          - "Both are equivalent"
+          - "i > 0 would also skip the duplicate one level deeper, losing answers such as [2, 2]"
+          - "i > start is faster but i > 0 is also correct"
+          - "i > 0 would produce duplicate answers"
+        answer: [1]
+        explanation: "Duplicates must only be skipped among siblings (same start). With i > 0, after choosing the first 2 the recursive call starts at the second 2 and would skip it, so [2, 2] and [1, 2, 2] disappear."
+      - id: q4
+        kind: multi
+        prompt: "Combination sum: distinct positive candidates, sorted, each reusable any number of times. Which are correct?"
+        options:
+          - "Break the loop when the current candidate is larger than the remaining target"
+          - "After choosing candidate i, recurse with start i + 1"
+          - "Skip a candidate that already appears in the path"
+          - "Record a copy of the path when the remaining target is exactly 0"
+        answer: [0, 3]
+        explanation: "Sorted positive values make the break safe: every later candidate is larger too. Reuse requires recursing with start i, not i + 1, and the path may contain repeats, so skipping used candidates is wrong."
+      - id: q5
+        kind: single
+        prompt: In grid word search, why must you restore a cell after exploring from it?
+        options:
+          - "To save memory"
+          - "Other paths that start elsewhere or branch earlier may legitimately use that cell"
+          - "Python requires it"
+          - "Restoring is optional if you return early"
+        answer: [1]
+        explanation: "The visited mark only means \"used by the current path\". Without restoring, a cell used by a failed branch stays blocked for every later branch, so valid words are missed."
+      - id: q6
+        kind: short
+        prompt: Give the time and space complexity of generating all subsets of n distinct elements by backtracking, and justify both.
+        model_answer: "There are 2ⁿ subsets and each recorded copy costs up to O(n), so time O(n · 2ⁿ). Besides the output (also O(n · 2ⁿ)), the path and the recursion stack are at most n deep, so O(n) extra space."
+        explanation: Separating output size from working space is what interviewers look for.
+- key: dsa.backtracking.exercise
+  type: coding_exercise
+  title: "Exercise: all balanced bracket strings"
+  skills: [backtracking.core, recursion.fundamentals]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 900}
+  body:
+    prompt: |-
+      Return every string of `n` pairs of round brackets that is balanced (every prefix has at least as many opening as closing brackets, and the totals are equal). Generate only valid strings; do not generate all 2^(2n) strings and filter.
+    examples:
+      - "brackets(1) == ['()']"
+      - "sorted(brackets(3)) == ['((()))', '(()())', '(())()', '()(())', '()()()']"
+    constraints:
+      - 1 ≤ n ≤ 8.
+    hints:
+      - "State: the path so far, the number of opening and closing brackets used."
+      - You may add an opening bracket while fewer than n are used.
+      - You may add a closing bracket only while closing < opening.
+    solution:
+      language: python
+      code: |-
+        def brackets(n: int) -> list[str]:
+            out: list[str] = []
+            path: list[str] = []
+
+            def bt(opened: int, closed: int) -> None:
+                if len(path) == 2 * n:
+                    out.append("".join(path))
+                    return
+                if opened < n:
+                    path.append("(")
+                    bt(opened + 1, closed)
+                    path.pop()
+                if closed < opened:
+                    path.append(")")
+                    bt(opened, closed + 1)
+                    path.pop()
+
+            bt(0, 0)
+            return out
+      explanation: "Both rules are checked before choosing, so every leaf is valid and no branch is wasted. The number of results is the n-th Catalan number (5 for n = 3, 1430 for n = 8); each costs O(n) to build, and the stack depth is 2n."
+    rubric:
+      - key: correct
+        label: "Produces exactly the balanced strings with no duplicates"
+        points: 4
+      - key: prune
+        label: "Prunes with opened < n and closed < opened instead of filtering"
+        points: 3
+      - key: undo
+        label: "Undoes each choice (or passes immutable strings) correctly"
+        points: 1
+      - key: complexity
+        label: "States output-sensitive time (Catalan count × n) and O(n) depth"
+        points: 2
+    follow_ups:
+      - prompt: How would you only count the strings for n up to 1000?
+        look_for: Counting does not need enumeration; DP over (opened, closed) or the Catalan formula, with big integers in Python.
+      - prompt: What changes if three bracket types are allowed?
+        look_for: Keep a stack of open types; a closing bracket must match the top; the count multiplies by 3ⁿ.
+- key: dsa.backtracking.guided
+  type: guided_problem
+  title: "Guided practice: subsets"
+  skills: [backtracking.core]
+  minutes: 15
+  difficulty: MEDIUM
+  problems: [35]
+  body:
+    guidance:
+      - Draw the decision tree for three elements before coding.
+      - Record a copy of the path at every node, not only at leaves.
+      - State O(n · 2ⁿ) time and O(n) extra space besides the output.
+    hints:
+      - Use a start index so each subset appears once.
+      - "Alternative: start with [[]] and, for each element, add it to every existing subset."
+- key: dsa.backtracking.timed
+  type: timed_problem
+  title: "Timed practice: combinations, permutations and grid search"
+  skills: [backtracking.core]
+  minutes: 50
+  difficulty: MEDIUM
+  problems: [111, 110, 112]
+  body:
+    guidance:
+      - "Combination sum: recurse with the same index to allow reuse, and break when a sorted candidate exceeds the remaining target."
+      - "Permutations: used-flag array or in-place swaps; say the n · n! cost."
+      - "Word search: mark and restore cells; prune when the next letter does not match."
+      - For each, say aloud what one level of the decision tree decides.
+- key: dsa.backtracking.interview
+  type: interview_question
+  title: "Interview question: placing non-attacking queens"
+  skills: [backtracking.core]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    prompt: "Explain how you would list every way to place n queens on an n × n board so that no two attack each other. Describe the state, the pruning checks and their cost, and the complexity."
+    key_points:
+      - "Place one queen per row, so a level of the decision tree chooses the column for that row."
+      - "Keep three sets: used columns, used diagonals (row - col) and used anti-diagonals (row + col), giving O(1) validity checks."
+      - "Choose by adding to all three sets, recurse to the next row, unchoose by removing them."
+      - "Time is bounded by O(n!) placements (fewer in practice due to diagonal pruning); space O(n) besides the output."
+    model_answer: Each row gets exactly one queen, so the recursion goes row by row and tries every column. A column is allowed if it is not in the column set, row minus column is not in the diagonal set and row plus column is not in the anti-diagonal set. On reaching row n, record the board. The search tree has at most n · (n-1) · … nodes because columns cannot repeat, and diagonal pruning cuts far more. For n = 8 there are 92 solutions.
+    pitfalls:
+      - Checking validity by scanning the whole board, which makes each check O(n²).
+      - Using the same key for both diagonal directions.
+    follow_ups:
+      - prompt: How would you only count the solutions faster?
+        look_for: Same search without building boards; bitmasks for columns and diagonals shifted per row to get available positions in O(1) words.
+      - prompt: How would you stop at the first solution?
+        look_for: Return a boolean from the recursion and propagate True upward to stop exploring.
+- key: dsa.backtracking.cards
+  type: revision_card
+  title: "Recall: backtracking"
+  skills: [backtracking.core]
+  minutes: 5
+  body:
+    cards:
+      - front: Backtracking skeleton?
+        back: Check complete, then for each valid choice — choose, explore, unchoose.
+      - front: Why record path[:] and not path?
+        back: The path list keeps changing; you need a snapshot.
+      - front: Skip duplicates at the same level?
+        back: "Sort, then skip when i > start and nums[i] == nums[i - 1]."
+      - front: Reusable elements in combination sum?
+        back: Recurse with start i, not i + 1.
+      - front: Cost of subsets and permutations?
+        back: O(n · 2ⁿ) and O(n · n!), stack depth O(n).

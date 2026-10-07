@@ -58,7 +58,7 @@ watch(() => props.skill, load)
         :key="r.problem.id"
       >
         <RouterLink
-          :to="{ name: 'problem', params: { problemKey: r.problem.key.split(':').slice(1).join(':') } }"
+          :to="{ name: 'problem', params: { problemKey: r.problem.key } }"
           class="title"
         >
           {{ r.problem.title }}

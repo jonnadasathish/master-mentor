@@ -20,7 +20,10 @@ Master Mentor acts like a strict mentor:
 - record what happened as evidence;
 - reschedule revision;
 - escalate or de-escalate based on evidence only;
-- say "not ready" until gates prove otherwise.
+- say "not ready" until gates prove otherwise;
+- teach what it prescribes: every skill has a learning path (lesson → check → practice → timed → recall), and completing it is evidence like any other practice (MASTER_SPEC_V3, LEARNING_ENGINE.md).
+
+The promise is evidence-based readiness for strong product-company interviews, never a guaranteed interview, offer or salary.
 
 ## Architecture
 
@@ -39,9 +42,9 @@ Pure domain engines (no I/O, as_of_date and ruleset injected)
 Repositories (SQLAlchemy 2) → MySQL 8
 ```
 
-Docker Compose (`docker-compose.yml`) runs three services: `mysql`, `backend`, `frontend`, plus a host cron for the backup script. There are no queues, workers, event buses, caches or cloud services. A full recomputation (133 skills, a few thousand evidence rows) runs synchronously after each write.
+Docker Compose (`docker-compose.yml`) runs `mysql`, `backend`, `frontend` and the `backup` sidecar. There are no queues, workers, event buses, caches or cloud services. A full recomputation (133 skills, a few thousand evidence rows) runs synchronously after each write.
 
-Backend domains (packages under `backend/app/domain/`): `catalog`, `evidence`, `skills`, `gaps`, `revision`, `mentor`, `readiness`, `review`.
+Backend domains (packages under `backend/app/domain/`): `catalog`, `evidence`, `skills`, `gaps`, `revision`, `mentor`, `readiness`, `review`, and `learning` (content validation, grading, completion → observation mapping, sessions, practice resolution, coverage; it produces existing observations and owns no scoring rule).
 
 ## Determinism
 

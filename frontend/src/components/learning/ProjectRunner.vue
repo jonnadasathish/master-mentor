@@ -64,7 +64,9 @@ function rate(key: string, criterion: string, value: Rating): void {
           class="reqs"
         >
           <div>
-            <h3>Functional</h3>
+            <h2 class="sub">
+              Functional
+            </h2>
             <ul class="items">
               <li
                 v-for="r in (body.requirements as { functional: string[] }).functional"
@@ -78,7 +80,9 @@ function rate(key: string, criterion: string, value: Rating): void {
             </ul>
           </div>
           <div>
-            <h3>Non-functional</h3>
+            <h2 class="sub">
+              Non-functional
+            </h2>
             <ul class="items">
               <li
                 v-for="r in (body.requirements as { non_functional: string[] }).non_functional"
@@ -92,9 +96,13 @@ function rate(key: string, criterion: string, value: Rating): void {
             </ul>
           </div>
         </div>
-        <h3>Architecture</h3>
+        <h2 class="sub">
+          Architecture
+        </h2>
         <RichText :text="String(body.architecture ?? '')" />
-        <h3>Schema</h3>
+        <h2 class="sub">
+          Schema
+        </h2>
         <CodeBlock
           v-if="schema && typeof schema === 'object'"
           :code="(schema as CodeSnippet).code"
@@ -108,7 +116,9 @@ function rate(key: string, criterion: string, value: Rating): void {
           v-for="[key, title] in SPEC"
           :key="key"
         >
-          <h3>{{ title }}</h3>
+          <h2 class="sub">
+            {{ title }}
+          </h2>
           <ul class="items">
             <li
               v-for="s in listOf(key)"
@@ -249,6 +259,7 @@ function rate(key: string, criterion: string, value: Rating): void {
 .project { display: grid; gap: var(--s-5); max-width: 48rem; }
 h2 { font-size: var(--fs-lg); margin-bottom: var(--s-3); }
 h3 { font-size: var(--fs-base); }
+.sub { font-size: var(--fs-md); margin: 0; }
 .stack { display: flex; flex-wrap: wrap; gap: var(--s-2); }
 .chip { padding: 0.15rem 0.6rem; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); font-size: var(--fs-sm); }
 .spec summary { cursor: pointer; font-weight: 650; }

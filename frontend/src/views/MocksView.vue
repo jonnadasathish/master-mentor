@@ -11,6 +11,7 @@ import SectionHeading from '../components/common/SectionHeading.vue'
 import Skeleton from '../components/common/Skeleton.vue'
 import StatusPill from '../components/common/StatusPill.vue'
 import EffectsPanel from '../components/missions/EffectsPanel.vue'
+import MockKits from '../components/learning/MockKits.vue'
 import MockForm from '../components/mocks/MockForm.vue'
 import Sparkline from '../components/readiness/Sparkline.vue'
 import { plural, shortDate } from '../presentation/format'
@@ -199,6 +200,8 @@ onMounted(async () => {
             </li>
           </ul>
         </section>
+
+        <MockKits />
 
         <section
           class="diagnosis card"

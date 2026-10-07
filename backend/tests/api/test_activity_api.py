@@ -235,11 +235,12 @@ def test_every_write_is_audited(activity_client: TestClient, catalog_engine: Eng
 
 
 def test_problem_browsing_filters(activity_client: TestClient) -> None:
-    assert get(activity_client, "/problems")["meta"]["count"] == 44
-    assert get(activity_client, "/problems", difficulty="HARD")["meta"]["count"] == 4
-    assert get(activity_client, "/problems", skill="dp.fundamentals")["meta"]["count"] == 5
+    assert get(activity_client, "/problems")["meta"]["count"] == 137
+    assert get(activity_client, "/problems", difficulty="HARD")["meta"]["count"] == 24
+    assert get(activity_client, "/problems", skill="dp.fundamentals")["meta"]["count"] == 9
     assert [p["key"] for p in get(activity_client, "/problems", q="anagram")["data"]] == [
-        "LEETCODE:group-anagrams"
+        "LEETCODE:group-anagrams",
+        "LEETCODE:valid-anagram",
     ]
     assert get(activity_client, "/problems", source="PERSONAL")["meta"]["count"] == 0
     assert get(activity_client, "/problems/42")["data"]["key"] == "LEETCODE:lru-cache"
@@ -319,8 +320,8 @@ def test_seed_cannot_take_over_a_personal_problem(
         "/problems",
         {
             "platform": "LEETCODE",
-            "platform_key": "valid-anagram",
-            "title": "Valid Anagram",
+            "platform_key": "zigzag-conversion",
+            "title": "Zigzag Conversion",
             "difficulty": "EASY",
             "skills": [{"skill": "hashing.lookup_frequency", "mapping_weight_bp": 10000}],
         },
@@ -331,7 +332,9 @@ def test_seed_cannot_take_over_a_personal_problem(
     def add_same(raw: dict[str, Any]) -> None:
         bump_version(raw, "seed-v3")
         problems = raw["problem_catalog"]["problems"]
-        problems.append({**problems[0], "id": 900, "platform_key": "valid-anagram", "title": "Valid Anagram"})
+        problems.append(
+            {**problems[0], "id": 900, "platform_key": "zigzag-conversion", "title": "Zigzag Conversion"}
+        )
 
     seed = copy_seed(tmp_path, mutate=add_same)
     lock_seed_dir(seed)

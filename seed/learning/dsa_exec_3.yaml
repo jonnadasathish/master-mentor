@@ -1,0 +1,742 @@
+# Learning content: coding-round execution, part 1 (thinking aloud, bug-free first pass, testing and dry runs).
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- think aloud
+- key: dsa.think_aloud.lesson
+  type: lesson
+  title: Thinking aloud so the interviewer can follow and help
+  skills: [execution.think_aloud]
+  minutes: 20
+  difficulty: EASY
+  body:
+    summary: Narrate decisions and intent, not keystrokes, at the moments the interviewer most needs them — the plan, the trade-off, the doubt and the test.
+    what: |-
+      Thinking aloud is making your reasoning audible while you solve: restating the problem, saying which approach you are considering and why, announcing the plan before code, explaining what each block is for as you write it, and narrating the test. It is a skill separate from solving: a correct silent solution gives the interviewer little evidence of how you reason.
+    why: |-
+      The interviewer is assessing how you think, not only whether the code passes. Narration lets them give credit for a sound approach even if time runs out, spot a misunderstanding in the first minute instead of the twentieth, and offer a hint at the right moment. In real work the same skill appears in design reviews and pair debugging.
+    when: |-
+      - Restating and clarifying: in the first two minutes, always.
+      - Choosing an approach: say the brute force, its cost and the bottleneck you will remove.
+      - Before coding: a three-to-five-step plan, and ask "does that sound reasonable?"
+      - While coding: one sentence per block about intent ("this loop shrinks the window until it is valid again").
+      - When stuck: say what you know, what you tried and what you are unsure of.
+      - When testing: read the variable values aloud as you trace.
+    how: |-
+      A narration skeleton you can reuse:
+
+      1. "Let me restate: ... Inputs are ..., output is ..., and I will assume ... — is that right?"
+      2. "The brute force is ..., which is O(...). The repeated work is ..., so I will use ... to get O(...)."
+      3. "Plan: first ..., then ..., finally .... Edge cases I will handle: ...."
+      4. While coding: intent, not syntax. Say "I keep the last-seen index per character so the left edge can jump", not "for i in range len s".
+      5. Announce short silences: "Let me think about the duplicates case for twenty seconds." Then come back with what you concluded.
+      6. "Let me trace the example: after index 2, left is 0 and best is 3..."
+    mental_model: |-
+      You are pair programming with a senior colleague who can only see your screen and hear your voice. They want to help, but they can only help with what they hear. Every decision you keep in your head is one they cannot review.
+    tradeoffs: |-
+      Narrating everything slows you down and can make you lose your train of thought; narrating nothing hides your reasoning. Talk most at decision points (approach, plan, edge cases, test) and less during mechanical code. If you need quiet to work out a detail, announce it and keep it short — under a minute is a reasonable rule of thumb.
+    mistakes:
+      - Reading code aloud character by character instead of explaining intent.
+      - Going silent for several minutes, then presenting a finished solution.
+      - Talking continuously without a plan, so the interviewer hears a stream of half-ideas.
+      - Not pausing for the interviewer's reaction after stating the approach; you miss a hint or a correction.
+      - Saying "this is easy" or "I have seen this before" instead of reasoning from the statement.
+    interview: |-
+      Interviewers commonly rate communication alongside problem solving and coding. They notice whether you check assumptions, whether your plan matches the code you then write, whether you can explain a choice when asked "why a deque here?", and whether you react to hints. A candidate who is stuck but narrates clearly is much easier to help than one who is silent.
+    explain_it:
+      - Restate the problem and confirm assumptions aloud.
+      - Name the brute force, its cost and the bottleneck.
+      - Give a short plan and invite feedback before coding.
+      - Narrate intent per block and read values aloud when testing.
+    example:
+      language: python
+      code: |-
+        # Narration captured as comments, for "longest substring without repeated characters".
+        def longest_unique(s: str) -> int:
+            # "Brute force checks every substring, O(n^2) or worse. The repeated work is
+            #  rescanning; a window that only moves forward makes it O(n)."
+            last_seen: dict[str, int] = {}
+            left = best = 0
+            for right, ch in enumerate(s):
+                # "If ch is inside the window, jump left past its previous position."
+                if last_seen.get(ch, -1) >= left:
+                    left = last_seen[ch] + 1
+                last_seen[ch] = right
+                # "Window s[left..right] has no repeats now, so it is a candidate."
+                best = max(best, right - left + 1)
+            return best
+            # "Trace 'abba': right=2 sees b at 1 -> left=2; right=3 sees a at 0 < left, keep left=2. Answer 2."
+      explanation: Each comment is what you would say at that point; none of them describe syntax, all of them describe intent or a check.
+    complexity: Narration costs time; budget roughly one sentence per code block and full sentences only at decision points.
+    edge_cases:
+      - The interviewer is quiet and gives no feedback; keep narrating and ask explicit yes/no checks.
+      - You realise mid-code that the plan is wrong; say so immediately and state the new plan.
+    misconceptions:
+      - "Silence looks confident. It looks like nothing is happening, and it removes the interviewer's ability to help."
+      - "Thinking aloud means saying everything. It means saying the decisions and the doubts."
+- key: dsa.think_aloud.check
+  type: concept_check
+  title: "Concept check: what to say and when"
+  skills: [execution.think_aloud]
+  minutes: 8
+  difficulty: EASY
+  body:
+    intro: Pick the narration that gives the interviewer the most useful evidence.
+    questions:
+      - id: q1
+        kind: single
+        prompt: You are writing the loop of a sliding-window solution. Which sentence is the most useful narration?
+        options:
+          - "Now I write for right in range len of s colon."
+          - "This loop extends the window; the inner while shrinks it until no character repeats."
+          - "Okay, so, yeah, this part is the loop."
+          - Nothing; narration should only happen after the code is written
+        answer: [1]
+        explanation: "Intent and invariant are what the interviewer cannot see from the screen. Reading syntax aloud adds nothing they cannot read themselves; waiting until the end removes their chance to correct you early."
+      - id: q2
+        kind: multi
+        prompt: At which moments should you explicitly pause for the interviewer's reaction?
+        options:
+          - After restating the problem and your assumptions
+          - After stating the approach and its complexity, before coding
+          - After every single line of code
+          - After finishing the trace of your test case
+        answer: [0, 1, 3]
+        explanation: "Those are decision points where a correction is cheapest. Pausing after every line breaks your flow and theirs."
+      - id: q3
+        kind: single
+        prompt: You are stuck on how to handle duplicates. What is the best thing to say?
+        options:
+          - Nothing, until you have figured it out
+          - "\"I'm stuck.\""
+          - "\"Duplicates break my two-pointer move because equal values make both moves look the same. I'm considering skipping equal neighbours after a match — let me check that on [2, 2, 2].\""
+          - "\"Can you give me the answer?\""
+        answer: [2]
+        explanation: "It states what you know, why it fails and what you will try next, which invites a precise hint. A bare 'I'm stuck' gives the interviewer nothing to work with."
+      - id: q4
+        kind: single
+        prompt: The interviewer says "what if the array is very large?" right after you state an O(n²) plan. How do you treat it?
+        options:
+          - As small talk; continue with the plan
+          - As a hint that O(n²) is too slow; acknowledge it and look for the bottleneck before coding
+          - As a request to start coding immediately
+          - As a question about memory only
+        answer: [1]
+        explanation: "Questions right after a plan are usually steering. Saying 'so O(n²) is too slow; the repeated work is ...' shows you heard it. Ignoring hints is a common reason strong coders get weak communication scores."
+      - id: q5
+        kind: single
+        prompt: You need quiet time to work out a recurrence. What do you do?
+        options:
+          - Keep talking anyway
+          - "Announce it (\"let me think about the recurrence for half a minute\"), think, then summarise what you concluded"
+          - Think silently for as long as it takes
+          - Switch to a different problem
+        answer: [1]
+        explanation: "Announced, short silences are normal. The summary afterwards is what turns the silence into evidence."
+      - id: q6
+        kind: short
+        prompt: "Write the first three sentences you would say for: given an array and k, return the maximum sum of k consecutive elements."
+        model_answer: "Restate: I return the largest sum of any k adjacent elements; I assume 1 <= k <= n and values may be negative — correct? The brute force sums each window, O(n·k). Consecutive windows share k-1 elements, so I keep a running sum, add the new element and subtract the leaving one, for O(n) time and O(1) space."
+        explanation: Restate with assumptions, brute force with cost, then the bottleneck and the better approach — in under a minute.
+- key: dsa.think_aloud.timed
+  type: timed_problem
+  title: "Timed practice: narrate a full solve"
+  skills: [execution.think_aloud]
+  minutes: 35
+  difficulty: MEDIUM
+  problems: [8, 116, 31]
+  body:
+    guidance:
+      - Record yourself (audio is enough) or solve with a friend listening. Pick one problem per session.
+      - "Say the restatement, assumptions, brute force, bottleneck and plan aloud before typing anything."
+      - Narrate intent once per code block; announce any silence longer than a few seconds.
+      - Trace one example aloud at the end, reading variable values.
+      - "Afterwards, listen back and count: silences over a minute, syntax narration, and hints you missed."
+- key: dsa.think_aloud.interview
+  type: interview_question
+  title: "Interview question: explain your approach before coding"
+  skills: [execution.think_aloud, dsa.pattern_recognition]
+  minutes: 8
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 480}
+  body:
+    prompt: "Without writing code, talk through how you would solve this for five minutes as if the interviewer were listening: given a list of meeting time ranges, return the minimum number of rooms needed so no overlapping meetings share a room."
+    key_points:
+      - Restates the problem and asks at least one clarifying question (are end times exclusive, can the list be empty).
+      - Gives a brute force and its cost before the better approach.
+      - "States the approach and why it works: sort by start, min-heap of end times; reuse a room when the earliest end is at or before the next start."
+      - "Gives complexity O(n log n) time and O(n) space."
+      - Gives a short plan and names edge cases (empty list, touching meetings, identical meetings).
+      - Pauses at least once to invite a reaction.
+    model_answer: "Restate: the minimum rooms is the maximum number of meetings in progress at any moment. I will assume a meeting ending at 10 frees the room for one starting at 10 — is that right? Brute force: for each meeting count overlaps, O(n²). Better: sort by start; keep a min-heap of end times of rooms in use. For each meeting, if the smallest end is at or before its start, that room is free, so pop it; then push this meeting's end. The heap size at the end is the answer. O(n log n) time, O(n) space. Edge cases: empty list gives 0, identical meetings each need a room. Does that sound good before I code it?"
+    pitfalls:
+      - Starting to describe code before stating the approach.
+      - Not stating the end-time convention, which changes the answer for touching meetings.
+    follow_ups:
+      - prompt: The interviewer asks why a heap and not a sorted list. What do you say?
+        look_for: The only question asked each step is the earliest end; a heap answers it in O(log n) per push/pop, a sorted list needs O(n) inserts.
+      - prompt: Can you do it without a heap?
+        look_for: Sort starts and ends separately and sweep with two pointers, incrementing on a start and decrementing on an end; O(n log n) for sorting, O(n) space.
+- key: dsa.think_aloud.cards
+  type: revision_card
+  title: "Recall: narration moments"
+  skills: [execution.think_aloud]
+  minutes: 5
+  body:
+    cards:
+      - front: First thing to say on a new problem?
+        back: A restatement with your assumptions, ending in a question.
+      - front: What to narrate while coding?
+        back: Intent and invariant per block, never the syntax.
+      - front: How to take quiet time?
+        back: Announce it, keep it short, summarise what you concluded.
+      - front: When to pause for the interviewer?
+        back: After restating, after the plan, after the test trace.
+      - front: What to say when stuck?
+        back: What you know, why the current idea fails, what you will try.
+
+# ---------------------------------------------------------------------------------------------- bug-free coding
+- key: dsa.bug_free.lesson
+  type: lesson
+  title: Writing correct code on the first pass
+  skills: [execution.bug_free_coding, python.collections]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Most first-pass bugs come from a few classes — bounds, empty input, state not updated, aliasing — and each class has a habit or an idiom that prevents it.
+    what: |-
+      Bug-free coding is the habit set that makes your first submission correct: deciding the invariant and loop convention before typing, choosing idioms that cannot go out of bounds, handling edge cases explicitly, and reviewing the code line by line before running it. It does not mean never making mistakes; it means catching them before the interviewer or the test does.
+    why: |-
+      In a 45-minute round you typically have time for one solve and maybe one follow-up. A solution that needs three run-fix cycles burns that time and signals that your production code would need the same. First-pass correctness is also one of the clearest signals an interviewer can observe directly.
+    when: |-
+      Every time you write code under time pressure, and especially for the bug-prone shapes: index arithmetic (binary search, windows, matrix walks), linked-list pointer updates, in-place array edits, and recursion with shared state.
+    how: |-
+      **Before typing**
+
+      - Write the plan as three to five comments and the invariant in one line ("`left` is the first index of a valid window").
+      - Pick one range convention (half-open `[lo, hi)` is usually safest) and stick to it.
+      - List the edge cases you will handle: empty, single element, duplicates, negatives, all equal, answer at either end.
+
+      **While typing: idioms that delete bug classes**
+
+      - `for i, x in enumerate(a)` and `for a_i, b_i in zip(a, b)` instead of manual index arithmetic.
+      - A dummy head node for linked lists, so the first node is not a special case.
+      - `collections.Counter`, `defaultdict(list)` and `dict.get(k, 0)` instead of "if key not in d" branches.
+      - Guard clauses at the top (`if not nums: return 0`) rather than conditions buried inside the loop.
+      - Copy before mutating what you are iterating: `for k in list(d):`, or build a new list.
+      - Name variables for their meaning (`write`, `read`, `best_len`) rather than `i`, `j`, `t`.
+
+      **Before running: a ninety-second line review**
+
+      Read every line once asking: can this index be out of range? Is every variable initialised for the first iteration and updated on every path? Does the loop end? Is the return value right for the empty input? Then dry-run the smallest non-trivial example.
+    mental_model: |-
+      A pre-flight checklist. Pilots do not rely on remembering every switch; they run the list every time, quickly. The list catches the boring mistakes so attention can stay on the hard part.
+    tradeoffs: |-
+      The checklist costs two to three minutes per problem and saves far more when it catches a bug before the first run. Clever one-liners save typing but are harder to review; prefer the plain loop if you are not sure of the one-liner's edge behaviour. Very defensive code (checks on every line) hides the algorithm; check at boundaries, not everywhere.
+    mistakes:
+      - "Mutating a list while iterating over it (`for x in nums: nums.remove(x)`), which skips elements."
+      - Deleting dict keys inside `for k in d`, which raises RuntimeError in CPython 3.
+      - "`nums = nums.sort()` — `sort` returns None; use `nums.sort()` or `nums = sorted(nums)`."
+      - Initialising a running best to 0 when all values can be negative; use the first element or `-math.inf`.
+      - Updating a variable in one branch and forgetting it in the other (a pointer that only moves on success, giving an infinite loop).
+      - Forgetting the final flush after a loop (the last group or last run never appended).
+    interview: |-
+      The interviewer sees how many runs you need and what kinds of bugs appear. Saying "before I run it, let me review each line" and catching an off-by-one yourself is strong evidence. When asked "are you confident this works?", answer with the test cases you traced rather than "yes".
+    explain_it:
+      - The invariant and range convention you chose.
+      - The edge cases you handled and where in the code.
+      - The idioms you used to avoid index bugs.
+      - The line review and the trace you did before running.
+    example:
+      language: python
+      code: |-
+        def run_lengths(s: str) -> list[tuple[str, int]]:
+            """'aabccc' -> [('a', 2), ('b', 1), ('c', 3)]"""
+            if not s:                                 # guard: empty input
+                return []
+            runs: list[tuple[str, int]] = []
+            current, count = s[0], 1                  # initialised for the first char
+            for ch in s[1:]:
+                if ch == current:
+                    count += 1
+                else:
+                    runs.append((current, count))     # close the previous run
+                    current, count = ch, 1
+            runs.append((current, count))             # final flush: the last run
+            return runs
+      explanation: "Three bug classes are designed out: the guard handles the empty string, the initialisation covers the first character, and the final flush catches the last run, which is the most commonly forgotten line."
+    complexity: The habits add a constant few minutes per problem and no runtime cost.
+    edge_cases:
+      - Empty input and single-element input.
+      - The answer at the first or last position.
+      - All elements equal; all negative.
+    misconceptions:
+      - "Running the code is the review. Running finds the bugs your tests hit; reading finds the ones they miss."
+      - "Strong candidates do not write bugs. They write fewer and catch them before the interviewer does."
+- key: dsa.bug_free.worked
+  type: worked_example
+  title: "Worked example: merging two sorted arrays with the checklist"
+  skills: [execution.bug_free_coding]
+  minutes: 12
+  difficulty: EASY
+  body:
+    problem: Merge two sorted lists into one sorted list, applying the before, during and after habits explicitly.
+    steps:
+      - title: Plan and invariant before typing
+        text: "Invariant: `out` holds the smallest `i + j` elements in order, taken from `a[:i]` and `b[:j]`. Edge cases: either list empty, duplicates across lists, unequal lengths."
+      - title: Write with idioms that remove bounds checks
+        text: "The main loop runs only while both lists have elements, so indexing is always valid. The tails are appended with slices, which are safe even when empty."
+        code:
+          language: python
+          code: |-
+            def merge(a: list[int], b: list[int]) -> list[int]:
+                out: list[int] = []
+                i = j = 0
+                while i < len(a) and j < len(b):
+                    if a[i] <= b[j]:          # <= keeps the merge stable
+                        out.append(a[i])
+                        i += 1
+                    else:
+                        out.append(b[j])
+                        j += 1
+                out.extend(a[i:])             # at most one of these is non-empty
+                out.extend(b[j:])
+                return out
+      - title: Line review
+        text: "Every branch advances exactly one pointer, so the loop ends. Indexes are only read under `i < len(a) and j < len(b)`. Both tails are flushed. Empty inputs skip the loop and return the other list."
+      - title: Dry-run the smallest interesting case
+        text: "a = [1, 3], b = [2]: take 1 (i=1), take 2 (j=1), loop ends, extend [3]. Result [1, 2, 3]. Then a = [], b = [5]: loop skipped, result [5]."
+    takeaways:
+      - Loop only while every index you read is valid, then flush the leftovers.
+      - Check that every branch makes progress.
+      - Trace one normal and one empty case before running.
+    complexity: O(m + n) time, O(m + n) for the output.
+- key: dsa.bug_free.check
+  type: concept_check
+  title: "Concept check: spot the first-pass bug"
+  skills: [execution.bug_free_coding, python.collections]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: Predict before you check. Each snippet is a bug class that shows up in first drafts.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "What is `nums` after this runs with nums = [2, 4, 6, 1]?"
+        code:
+          language: python
+          code: |-
+            for x in nums:
+                if x % 2 == 0:
+                    nums.remove(x)
+        options: ["[1]", "[4, 1]", "[4, 6, 1]", "RuntimeError"]
+        answer: [1]
+        explanation: "Removing 2 shifts 4 into index 0 while the iterator moves to index 1, so 4 is skipped; 6 is removed; the loop ends. Lists do not raise on mutation during iteration, they silently skip. Build a new list instead: [x for x in nums if x % 2]."
+      - id: q2
+        kind: single
+        prompt: What happens here in CPython 3?
+        code:
+          language: python
+          code: |-
+            counts = {"a": 0, "b": 2}
+            for k in counts:
+                if counts[k] == 0:
+                    del counts[k]
+        options: ["counts becomes {'b': 2}", "RuntimeError: dictionary changed size during iteration", "KeyError", "Nothing changes"]
+        answer: [1]
+        explanation: "Unlike lists, dicts detect size changes during iteration and raise. Iterate over a snapshot (for k in list(counts)) or rebuild with a comprehension."
+      - id: q3
+        kind: single
+        prompt: "What does this return for s = 'aabccc'?"
+        code:
+          language: python
+          code: |-
+            def compress(s):
+                out, count = [], 1
+                for i in range(1, len(s)):
+                    if s[i] == s[i - 1]:
+                        count += 1
+                    else:
+                        out.append(s[i - 1] + str(count))
+                        count = 1
+                return "".join(out)
+        options: ["a2b1c3", "a2b1", "a2b1c2", "IndexError"]
+        answer: [1]
+        explanation: "A run is only appended when the next character differs, so the last run (c3) is never flushed. The fix is one more append after the loop, guarded for the empty string. It also returns '' for a single character."
+      - id: q4
+        kind: multi
+        prompt: Which habits remove a whole class of bugs rather than one bug?
+        options:
+          - A dummy head node in linked-list code
+          - "zip(a, b) instead of indexing both lists with one i"
+          - A half-open [lo, hi) convention used everywhere
+          - "Copying a list with b = a before modifying b"
+        answer: [0, 1, 2]
+        explanation: "A dummy head removes the first-node special case; zip cannot read past the shorter list; one convention prevents mixed bounds. b = a copies the reference, not the list, so modifying b modifies a — that creates a bug class rather than removing one."
+      - id: q5
+        kind: single
+        prompt: "`best = 0` then `best = max(best, window_sum)` for a maximum subarray sum. When is it wrong?"
+        options: ["Never", "When all values are negative", "When the array is empty", "When k = 1"]
+        answer: [1]
+        explanation: "If every sum is negative, best stays 0, which is not a sum of any subarray. Initialise with the first candidate or -math.inf. The empty array is a clarification question, not this bug."
+      - id: q6
+        kind: short
+        prompt: List the questions you ask yourself in a line-by-line review before the first run.
+        model_answer: "Can any index go out of range? Is every variable initialised for the first iteration? Is every variable updated on every branch, and does every loop make progress? Is anything mutated while being iterated? Is the last group or tail flushed after the loop? Is the return correct for empty and single-element input?"
+        explanation: A fixed list makes the review fast and repeatable; the bugs in this check are all caught by one of those questions.
+- key: dsa.bug_free.binary_search_bugs
+  type: coding_exercise
+  title: "Exercise: find the three bugs in this binary search"
+  skills: [execution.bug_free_coding, binary_search.boundaries, execution.debugging_under_pressure]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 900}
+  body:
+    prompt: |-
+      `first_index(nums, target)` should return the index of the first occurrence of `target` in the sorted list `nums`, or -1. It has three bugs. Find each one **by reading** (no running), say which input exposes it, and write the corrected function.
+
+      ```python
+      def first_index(nums, target):
+          lo, hi = 0, len(nums)
+          while lo <= hi:
+              mid = (lo + hi) // 2
+              if nums[mid] < target:
+                  lo = mid
+              else:
+                  hi = mid
+          return lo
+      ```
+    examples:
+      - "first_index([1, 3, 3, 5], 3) == 1"
+      - "first_index([1, 3, 3, 5], 4) == -1"
+      - "first_index([], 7) == -1"
+    constraints:
+      - O(log n) time, O(1) extra space.
+    hints:
+      - "hi starts at len(nums): which loop condition matches a half-open range?"
+      - What happens to the range when lo = mid and hi = lo + 1?
+      - The loop finds where target would go. Is something there?
+    solution:
+      language: python
+      code: |-
+        def first_index(nums, target):
+            lo, hi = 0, len(nums)            # half-open [lo, hi)
+            while lo < hi:                   # bug 1: <= reads nums[len(nums)]
+                mid = (lo + hi) // 2
+                if nums[mid] < target:
+                    lo = mid + 1             # bug 2: lo = mid can stop shrinking
+                else:
+                    hi = mid
+            if lo < len(nums) and nums[lo] == target:
+                return lo                    # bug 3: must confirm the target is there
+            return -1
+      explanation: "With the other two bugs fixed, bug 1 is exposed by [1] and target 5: lo reaches 1 == hi, the loop still runs and reads nums[1]. Bug 2 loops forever on [1, 3] with target 3: once hi is 1, mid is 0 and lo = mid never moves. Bug 3 returns 3 (the insertion point) instead of -1 for [1, 3, 3, 5] and target 4."
+    rubric:
+      - {key: bug_bounds, label: "Identifies lo <= hi with hi = len(nums) as an out-of-range read and fixes it to lo < hi", points: 3}
+      - {key: bug_progress, label: "Identifies lo = mid as a no-progress update and fixes it to mid + 1", points: 3}
+      - {key: bug_missing, label: Adds the found check and returns -1 when the target is absent, points: 2}
+      - {key: exposing_inputs, label: Names a concrete input that exposes each bug, points: 2}
+    follow_ups:
+      - prompt: Change the function to return the last occurrence. What is the smallest edit?
+        look_for: "Search for the first index with value > target (use <= in the comparison) and subtract one, then check that index holds the target."
+      - prompt: Which two-element inputs would you always trace for a binary search?
+        look_for: "Target equal to the first element, equal to the second, below both and above both; these hit both branches and both boundaries."
+- key: dsa.bug_free.interview
+  type: interview_question
+  title: "Interview question: how do you make the first run pass?"
+  skills: [execution.bug_free_coding, execution.testing_dry_run]
+  minutes: 10
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 600}
+  body:
+    prompt: "You are asked to rotate an n × n matrix 90 degrees clockwise in place. Before writing any code, explain what you will do to make your first run correct: the approach, the invariant, the edge cases, the idioms you will use to avoid index bugs, and how you will check the code before running it."
+    key_points:
+      - "Chooses a decomposable approach: transpose (swap a[i][j] with a[j][i] for j > i), then reverse each row."
+      - "States the index invariant for the transpose: only the upper triangle j > i is visited, so each pair is swapped once."
+      - "Names edge cases: n = 0, n = 1, even and odd n."
+      - "Uses idioms that avoid index arithmetic, such as row.reverse() for the second step."
+      - "Describes a line review and a dry run on a 2 × 2 or 3 × 3 matrix before running."
+    model_answer: I split the rotation into two easy steps instead of the four-way cycle swap. Transpose by looping i over rows and j from i + 1, swapping a[i][j] and a[j][i]; visiting only the upper triangle guarantees each pair is swapped once (looping j over all columns would swap twice and undo it). Then reverse each row in place with row.reverse(). Edge cases are n = 0 and n = 1, which both loops handle without special code. Before running I read each line for range bounds, then trace [[1, 2], [3, 4]] → transpose [[1, 3], [2, 4]] → reverse rows [[3, 1], [4, 2]], which is the clockwise rotation.
+    pitfalls:
+      - Transposing with j over the full range, which swaps every pair twice and leaves the matrix unchanged.
+      - Reversing the rows before transposing, which rotates counter-clockwise.
+    follow_ups:
+      - prompt: Rotate counter-clockwise instead. What changes?
+        look_for: Transpose then reverse each column (or reverse each row first, then transpose).
+      - prompt: The matrix is m × n, not square. Can it still be done in place?
+        look_for: Not with this method; the shape changes to n × m, so allocate a new matrix (or use a complex cycle-following scheme); state the extra O(m·n) space.
+      - prompt: How would you write a quick test for this function?
+        look_for: "Compare with a reference built from zip: list(map(list, zip(*a[::-1]))), on n = 1, 2 and 3."
+- key: dsa.bug_free.timed
+  type: timed_problem
+  title: "Timed practice: first-run-correct on index-heavy problems"
+  skills: [execution.bug_free_coding]
+  minutes: 60
+  difficulty: MEDIUM
+  problems: [62, 46, 59]
+  body:
+    guidance:
+      - Write the invariant and range convention as a comment before code.
+      - List edge cases before code and point to the line that handles each.
+      - "No running until you have done the line review and one dry run. Record how many runs you needed; the target is one."
+      - Log every bug you found and its class (bounds, initialisation, progress, flush, aliasing) to see your personal pattern.
+- key: dsa.bug_free.cards
+  type: revision_card
+  title: "Recall: first-pass correctness habits"
+  skills: [execution.bug_free_coding]
+  minutes: 5
+  body:
+    cards:
+      - front: Safest default range convention?
+        back: "Half-open [lo, hi), used consistently."
+      - front: Most forgotten line in group or run code?
+        back: The final flush after the loop.
+      - front: Initial value for a running maximum that may be negative?
+        back: The first element or -math.inf, never 0.
+      - front: Deleting dict keys while iterating?
+        back: Iterate over list(d) or rebuild; otherwise RuntimeError.
+      - front: Linked-list idiom that removes the head special case?
+        back: A dummy head node.
+      - front: Three questions of the line review?
+        back: In range? Initialised and updated on every path? Loop makes progress?
+
+# ---------------------------------------------------------------------------------------------- testing and dry run
+- key: dsa.dry_run.lesson
+  type: lesson
+  title: Testing and dry-running your own code
+  skills: [execution.testing_dry_run]
+  minutes: 20
+  difficulty: EASY
+  body:
+    summary: Pick a few targeted inputs, trace them in a variable table, and compare each row with what the invariant says should be there.
+    what: |-
+      A dry run is executing your code by hand on a small input, writing down the variables after each iteration. Testing is choosing which inputs to run (by hand or for real) so that each one could expose a different kind of bug. Together they are how you verify code before the interviewer asks "does this work?"
+    why: |-
+      Interviewers usually expect you to test without being prompted. A good dry run catches the off-by-one, the missing flush or the wrong initial value in a minute, and shows that you verify your work. Saying "I think it works" without a trace gives the interviewer nothing.
+    when: |-
+      - Before writing code: two or three examples to understand the problem and confirm expected outputs.
+      - After writing code: one normal case traced fully, then targeted edge cases checked quickly.
+      - After any fix: re-run the case that failed and one that previously passed.
+    how: |-
+      **Choose inputs by the bug they target**, not at random:
+
+      - The given example (sanity).
+      - Smallest non-trivial input (2–3 elements): fast to trace, hits every branch.
+      - Empty and single element: initialisation and guards.
+      - Answer at the very first or very last position: bounds and final flush.
+      - Duplicates, all equal, negatives, already sorted or reverse sorted: comparison and tie handling.
+      - The input that breaks the tempting wrong approach (for example, negatives for a sliding window).
+
+      **Trace in a table**, one row per iteration:
+
+      ```text
+      i | x | left | window   | best
+      0 | a | 0    | {a}      | 1
+      1 | b | 0    | {a,b}    | 2
+      2 | a | 1    | {b,a}    | 2
+      ```
+
+      Compare each row with what the invariant says it should be. The first divergent row locates the bug.
+
+      **If you can run code**, turn the cases into asserts: `assert f([]) == 0`. One line per case keeps them re-runnable after every fix.
+    mental_model: |-
+      Tests are a net with holes in different places: each input should catch a different kind of fish. Ten random arrays catch the same bug ten times; six chosen inputs catch six different bugs.
+    tradeoffs: |-
+      A full trace of a long input wastes time and invites arithmetic slips; trace the smallest input that exercises every branch, and check edge cases by reasoning about the guard lines. When you can run code, asserts are faster than hand traces, but a hand trace is still how you explain why a case passes.
+    mistakes:
+      - Tracing what you intended the code to do instead of what each line actually does.
+      - Testing only the provided example, which was usually chosen to be well-behaved.
+      - Using inputs too large to trace, then skipping rows.
+      - Forgetting to re-test previously passing cases after a fix.
+      - Not computing the expected output before running, so any output looks plausible.
+    interview: |-
+      After coding, say "let me test it" before the interviewer asks. Trace one example aloud with the variable values, then list the edge cases and say how the code handles each. If you find a bug, that is a good outcome: you found it before they did.
+    explain_it:
+      - Name each test input and the bug class it targets.
+      - Trace the smallest non-trivial case with a variable table.
+      - Compare each row with the invariant.
+      - Re-test after every fix.
+    example:
+      language: python
+      code: |-
+        def max_profit(prices: list[int]) -> int:
+            best, low = 0, float("inf")
+            for p in prices:
+                low = min(low, p)
+                best = max(best, p - low)
+            return best
+
+        # Targeted tests, written before running:
+        assert max_profit([7, 1, 5, 3, 6, 4]) == 5   # given example
+        assert max_profit([]) == 0                   # empty: guard by initial values
+        assert max_profit([5]) == 0                  # single price: no transaction
+        assert max_profit([5, 4, 3]) == 0            # falling prices: never negative
+        assert max_profit([1, 9]) == 8               # answer at the last position
+        assert max_profit([3, 3, 3]) == 0            # all equal
+      explanation: Each assert targets a different bug class; none of them repeats another's purpose.
+    complexity: A trace costs O(iterations × variables) of your time; keep inputs to a handful of elements.
+    edge_cases:
+      - Inputs where the expected output itself is ambiguous; clarify with the interviewer before testing.
+      - Randomised or order-independent outputs; compare sorted results or check properties instead of exact equality.
+    misconceptions:
+      - "If the example passes, the code is correct. Examples are chosen to explain the problem, not to break code."
+      - "More tests are better tests. Different tests are better tests."
+- key: dsa.dry_run.check
+  type: concept_check
+  title: "Concept check: choosing and tracing tests"
+  skills: [execution.testing_dry_run]
+  minutes: 8
+  difficulty: EASY
+  body:
+    intro: Pick the inputs and traces that would actually catch bugs.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "Your sliding-window loop is `for right in range(len(nums) - 1)`. Which test exposes the bug?"
+        options:
+          - The given example, where the best window is in the middle
+          - An input where the best window ends at the last element
+          - An empty input
+          - An input whose best window starts at index 0 and ends before the last element
+        answer: [1]
+        explanation: "The loop never processes the last element, so only a test whose answer needs that element fails. Middle answers pass by luck; that is why 'answer at either end' belongs in every test set."
+      - id: q2
+        kind: multi
+        prompt: "Which tests belong in a small, targeted set for a function returning the maximum subarray sum?"
+        options:
+          - A single negative number
+          - All negative numbers
+          - A mix with the best run at the end
+          - Ten random arrays of length 1,000
+        answer: [0, 1, 2]
+        explanation: "Each targets a bug class: initialisation, the best = 0 trap, and the end boundary. Random large arrays cannot be checked by hand and rarely hit a specific edge."
+      - id: q3
+        kind: single
+        prompt: Trace this monotonic-stack loop on temps = [3, 1, 2]. What is the stack (indices) after processing index 2?
+        code:
+          language: python
+          code: |-
+            answer = [0] * len(temps)
+            stack = []
+            for i, t in enumerate(temps):
+                while stack and t > temps[stack[-1]]:
+                    j = stack.pop()
+                    answer[j] = i - j
+                stack.append(i)
+        options: ["[0, 1, 2]", "[0, 2]", "[2]", "[1, 2]"]
+        answer: [1]
+        explanation: "i=0 push → [0]. i=1, 1 > 3 is false, push → [0, 1]. i=2, 2 > 1 pops index 1 (answer[1] = 1), 2 > 3 is false, push → [0, 2]. Index 0 stays because no warmer day follows it."
+      - id: q4
+        kind: single
+        prompt: Your trace's third row disagrees with the expected value. Where is the bug most likely?
+        options:
+          - In the return statement
+          - In whatever updated the variables between row two and row three
+          - In the first line of the function
+          - Anywhere; you need to retrace from the start with a bigger input
+        answer: [1]
+        explanation: "Rows one and two matched, so the state was correct entering that iteration. The first divergent row localises the bug to the code that ran just before it. A bigger input only adds rows."
+      - id: q5
+        kind: single
+        prompt: You fixed a bug found by the empty-input test. What do you run next?
+        options:
+          - Nothing; the fix is obviously correct
+          - The empty-input test and the tests that passed before the fix
+          - Only new tests
+          - Only the given example
+        answer: [1]
+        explanation: "Re-run the failing case to confirm the fix, and the passing ones to confirm nothing regressed. Guard fixes in particular can change the non-empty path."
+      - id: q6
+        kind: short
+        prompt: "List five test inputs for a function that merges overlapping intervals, and say what each targets."
+        model_answer: "Empty list (guard). One interval (no merge loop). Touching intervals [1,2],[2,3] (the boundary convention). One interval containing another [1,10],[2,3] (end must be max, not the later end). Unsorted input [5,6],[1,2] (forgot to sort). Optionally all overlapping into one (chain merge)."
+        explanation: The containment case catches the common bug of setting end = current end instead of max(end, current end).
+- key: dsa.dry_run.trace_exercise
+  type: coding_exercise
+  title: "Exercise: dry-run a monotonic stack and report the state"
+  skills: [execution.testing_dry_run, stack.monotonic]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 900}
+  body:
+    prompt: |-
+      Without running anything, trace the function below.
+
+      ```python
+      def days_until_warmer(temps):
+          answer = [0] * len(temps)
+          stack = []                      # indices
+          for i, t in enumerate(temps):
+              while stack and t > temps[stack[-1]]:
+                  j = stack.pop()
+                  answer[j] = i - j
+              stack.append(i)
+          return answer
+      ```
+
+      1. For `temps = [73, 74, 75, 71, 69, 72, 76, 73]`, write the stack (as indices) after each iteration and the final `answer`.
+      2. A colleague changes `>` to `>=`. Trace `[70, 70, 71]` with both versions, and say which output is correct for "strictly warmer" and why.
+      3. State the invariant the stack maintains.
+    hints:
+      - One row per index i, columns for popped indices and the stack after the push.
+      - Equal temperatures are the case the operator change affects.
+    solution:
+      language: python
+      code: |-
+        # Part 1
+        # i=0 73: push            stack [0]
+        # i=1 74: pop 0 (ans 1)   stack [1]
+        # i=2 75: pop 1 (ans 1)   stack [2]
+        # i=3 71: push            stack [2, 3]
+        # i=4 69: push            stack [2, 3, 4]
+        # i=5 72: pop 4 (ans 1), pop 3 (ans 2)   stack [2, 5]
+        # i=6 76: pop 5 (ans 1), pop 2 (ans 4)   stack [6]
+        # i=7 73: push            stack [6, 7]
+        # answer = [1, 1, 4, 2, 1, 1, 0, 0]
+        #
+        # Part 2
+        # '>'  on [70, 70, 71]: [0] -> [0, 1] -> 71 pops 1 (ans 1) and 0 (ans 2) -> [2]   answer [2, 1, 0]  correct
+        # '>=' on [70, 70, 71]: [0] -> 70 >= 70 pops 0 (ans 1) -> [1] -> pops 1 (ans 1) -> [2]   answer [1, 1, 0]  wrong
+        #
+        # Invariant: temperatures at the stack's indices are non-increasing from bottom to top,
+        # and every index on the stack has not yet seen a strictly warmer day.
+      explanation: "With >=, an equal temperature counts as warmer, so day 0 reports 1 instead of 2. Equal values are exactly the edge case an operator change affects, which is why 'duplicates' belongs in every test set."
+    rubric:
+      - {key: trace_correct, label: Stack after every iteration and the final answer match the reference, points: 4}
+      - {key: variant, label: "Traces both operator versions on [70, 70, 71] and identifies > as correct for strictly warmer", points: 3}
+      - {key: invariant, label: States the non-increasing stack invariant and what an index on the stack means, points: 2}
+      - {key: format, label: Uses a clear one-row-per-iteration table, points: 1}
+    follow_ups:
+      - prompt: Why is the function O(n) despite the nested while?
+        look_for: Each index is pushed once and popped at most once, so the inner loop runs at most n times in total.
+      - prompt: Which single test would you add to a test suite to protect against the >= change?
+        look_for: "An input with equal adjacent temperatures followed by a warmer one, such as [70, 70, 71] → [2, 1, 0]."
+- key: dsa.dry_run.timed
+  type: timed_problem
+  title: "Timed practice: write the tests before the code"
+  skills: [execution.testing_dry_run]
+  minutes: 55
+  difficulty: MEDIUM
+  problems: [52, 9]
+  body:
+    guidance:
+      - "Before coding, write five or six test inputs with expected outputs and the bug class each targets."
+      - After coding, trace the smallest non-trivial input in a variable table, aloud.
+      - Check each edge case by pointing to the line that handles it.
+      - Only then run. Note any case you had not listed that failed.
+- key: dsa.dry_run.cards
+  type: revision_card
+  title: "Recall: testing and dry runs"
+  skills: [execution.testing_dry_run]
+  minutes: 5
+  body:
+    cards:
+      - front: Best size of input for a hand trace?
+        back: The smallest one that exercises every branch, usually 2–3 elements.
+      - front: Where is the bug when trace row 3 diverges?
+        back: In the code that ran between row 2 and row 3.
+      - front: Edge cases to always consider?
+        back: Empty, single, duplicates, all equal, negatives, answer at either end.
+      - front: What to do before running a test?
+        back: Write the expected output, so a wrong output is recognisable.
+      - front: After a fix, which tests do you re-run?
+        back: The failing case and the previously passing cases.

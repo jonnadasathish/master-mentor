@@ -163,3 +163,17 @@ This is the single build order. It absorbs the former `BUILD_ORDER.md`. Update t
 - [x] Onboarding wizard (first-run guard), calibration hub, calibration-first Today, personal roadmap, current state with self-report vs measured on Progress, edit from Settings.
 - [x] Verified in a real browser as a brand-new user at 1280×720, 1440×900 and 390×844 (33 + 14 checks each, no console errors, no horizontal overflow); backend 474 tests, frontend 157 tests.
 
+
+## MASTER_SPEC_V3 — learning layer (D-083 – D-085)
+
+- [x] Phase A — repository audit and implementation map (`LEARNING_IMPLEMENTATION_BASELINE.md`); backup + restore verified before changes.
+- [x] Phase B — learning domain (vocabulary, validation, grading, completion → observation, sessions, practice resolution, progress, coverage), migration `0012_learning`, seed loader, repository/service/API, vertical slice (lesson → check → evidence → skill state) with unit + API tests.
+- [x] Phase C — skill page (why it matters, Learn/Practice/Test/Revise, A–D resolution, sessions), content page with runners, session page; "No problems match." dead end replaced.
+- [x] Phase D — problem bank 44 → 137 with guides, derived practice state, DSA curriculum content.
+- [x] Phase E — Python, DBMS/SQL, OS, networking/security, OOP content.
+- [x] Phase F — LLD (10 case studies, 2 machine-coding exercises) and system design (fundamentals, distributed topics, 10 full designs).
+- [x] Phase G — practical engineering scenarios and code reviews, 6 flagship projects with milestones and defense, behavioral STAR content; stories gain trade-offs.
+- [x] Phase H — mock kits per loop round (no new round types).
+- [x] Phase I/J — plan learning previews and "Start the session" on Today's missions; sessions close their plan item.
+- [x] Phase K — coverage report (API + Developer page) and the no-required-gap test.
+- [x] Phase L/M — UX hardening, browser validation, final audit (`FINAL_AUDIT.md`).

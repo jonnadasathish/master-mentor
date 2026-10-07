@@ -68,3 +68,12 @@ def test_effort_ignores_days_off_and_needs_a_goal_for_an_estimate() -> None:
         None,
         125,
     )
+
+
+def test_hybrid_means_enough_measured_with_the_battery_still_open() -> None:
+    """D-086: the mentor plans a learning mission only on a hybrid day; the phase rule itself is unchanged."""
+    assert status(1, 6).hybrid is True  # 60%, battery open
+    assert status(1, 5).hybrid is False  # below the threshold: calibration stays primary
+    assert status(4, 10).hybrid is False  # battery complete: the ordinary personalised plan
+    assert status(4, 10).enough_measured is True
+    assert calibration_phase(status(1, 6), v1) == "ENOUGH_MEASURED"

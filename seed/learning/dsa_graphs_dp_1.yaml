@@ -855,7 +855,7 @@ content:
       A build tool rejects pipelines that contain a dependency cycle. Users report that several valid pipelines are rejected, while pipelines with real cycles are rejected correctly. Each step's dependencies are stored as a directed adjacency list `deps[step] = [steps it depends on]`.
     symptoms:
       - "A pipeline where both `test` and `lint` depend on `compile`, and `package` depends on both, is rejected as cyclic."
-      - Pipelines that form a simple chain are accepted.
+      - "Whether a valid pipeline is rejected depends on declaration order: the two-step chain where `a` depends on `b` passes when `a` is declared first and fails when `b` is declared first."
       - "A real cycle (`a` depends on `b`, `b` depends on `a`) is rejected, as it should be."
     artifacts:
       language: python
@@ -872,7 +872,7 @@ content:
                         return True
                 return False
 
-            return any(visit(s) for s in deps)
+            return any(visit(s) for s in deps if s not in visited)
     tasks:
       - Explain exactly why the diamond-shaped pipeline is reported as cyclic.
       - Fix the function so it reports a cycle only when one exists.
@@ -881,7 +881,7 @@ content:
       - "Which step is reached twice in the diamond, and is it on the current path when it is reached the second time?"
       - You need to tell "currently being explored" apart from "already finished".
     reference: |-
-      `compile` is reached once via `test` and again via `lint`. The second time it is already in `visited`, but it is finished, not on the current path, so it is not a cycle. The fix is three states: mark a step grey when its visit starts and black when it ends, and report a cycle only when an edge reaches a grey step; skip black steps. The outer `any(...)` also restarts from steps that were already finished, which in the buggy version reports a "cycle" on the very first finished step; with colours, only white steps start a visit. A 5000-step chain recurses 5000 deep and exceeds CPython's default recursion limit of 1000, so use an iterative DFS with an explicit stack, or Kahn's algorithm (count steps with zero remaining dependencies; if fewer than all steps are removed, there is a cycle).
+      `compile` is reached once via `test` and again via `lint`. The second time it is already in `visited`, but it is finished, not on the current path, so it is not a cycle. The fix is three states: mark a step grey when its visit starts and black when it ends, and report a cycle only when an edge reaches a grey step; skip black steps. The declaration-order symptom has the same cause: when `b` is visited first and finished, visiting `a` later reaches the finished `b` and reports a cycle. With colours, a visit starts only from white steps and a black step is simply skipped. A 5000-step chain recurses 5000 deep and exceeds CPython's default recursion limit of 1000, so use an iterative DFS with an explicit stack, or Kahn's algorithm (count steps with zero remaining dependencies; if fewer than all steps are removed, there is a cycle).
     solution:
       language: python
       code: |-

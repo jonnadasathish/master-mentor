@@ -77,6 +77,12 @@ export const routes: RouteRecordRaw[] = [
     component: () => import('../views/settings/CatalogView.vue'),
     meta: { title: 'Catalog verification' },
   },
+  {
+    path: '/settings/developer/coverage',
+    name: 'coverage',
+    component: () => import('../views/settings/CoverageView.vue'),
+    meta: { title: 'Content coverage' },
+  },
   // Old locations keep working.
   { path: '/skills', redirect: '/prepare' },
   { path: '/revision', redirect: '/revise' },

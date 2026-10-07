@@ -38,7 +38,7 @@ def test_real_seed_is_valid_with_expected_counts() -> None:
     assert sum(len(s.prerequisites) for s in catalog.skills) == 134
     assert len(catalog.profiles) == 1 and len(catalog.profiles[0].targets) == 133
     assert sum(1 for t in catalog.profiles[0].targets if t.required) == 123
-    assert (len(catalog.problems), sum(len(p.skills) for p in catalog.problems)) == (44, 77)
+    assert (len(catalog.problems), sum(len(p.skills) for p in catalog.problems)) == (137, 242)
     assert (len(catalog.milestones), len(catalog.baseline)) == (18, 12)
     assert len(catalog.templates) == 86
     assert catalog.max_depth == 6

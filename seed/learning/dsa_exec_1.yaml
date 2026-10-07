@@ -1,0 +1,525 @@
+# Learning content: bit manipulation and number basics (GCD, modular arithmetic, overflow, primes).
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- bit manipulation
+- key: dsa.bits.lesson
+  type: lesson
+  title: Bit manipulation, from operators to XOR tricks
+  skills: [bit_manipulation.core]
+  minutes: 20
+  difficulty: EASY
+  body:
+    summary: Treat an integer as a row of switches; a handful of operators and three identities solve most interview bit problems in O(1) extra space.
+    what: |-
+      Bit manipulation works on the binary representation of integers directly, using the operators `&` (and), `|` (or), `^` (xor), `~` (not), `<<` (shift left) and `>>` (shift right).
+
+      - `x & mask` keeps only the bits set in `mask`.
+      - `x | mask` turns bits on; `x & ~mask` turns them off; `x ^ mask` flips them.
+      - `x << k` multiplies by 2ᵏ; `x >> k` floor-divides by 2ᵏ.
+      - Bit `i` of `x` is `(x >> i) & 1`.
+    why: |-
+      Some problems are really about parity or set membership over a small universe. XOR cancels pairs, so "every number appears twice except one" becomes a single pass with O(1) memory instead of a hash map. A set of up to about 20 items fits in one integer, so all 2ⁿ subsets can be enumerated by counting from 0 to 2ⁿ - 1, and a DP state "which items are used" becomes an integer index.
+    when: |-
+      - "Every element appears k times except one or two": XOR or per-bit counting.
+      - "Missing number in 0..n": XOR of indices and values, or the arithmetic sum.
+      - Powers of two, counting set bits, reversing bits, Gray codes.
+      - Subset enumeration or bitmask DP when n is at most about 20.
+      - Packing flags or small sets compactly (permissions, visited states in BFS over a small grid of keys).
+    how: |-
+      Learn these identities; nearly everything else is a combination of them:
+
+      - `a ^ a == 0`, `a ^ 0 == a`, and XOR is commutative and associative, so the order of a XOR fold does not matter.
+      - `x & (x - 1)` clears the lowest set bit. `12 & 11` is `0b1100 & 0b1011 == 0b1000`.
+      - `x & -x` isolates the lowest set bit. `12 & -12 == 4`.
+      - `x > 0 and x & (x - 1) == 0` is true exactly for powers of two.
+      - Set, clear, toggle bit `i`: `x | (1 << i)`, `x & ~(1 << i)`, `x ^ (1 << i)`.
+
+      **Python specifics (CPython 3).** Integers have arbitrary precision and behave as if negative numbers had infinitely many leading 1 bits (two's complement extended forever). So `~x == -x - 1`, `-5 >> 1 == -3` (arithmetic, floor) and nothing ever overflows. To emulate a 32-bit register, mask with `& 0xFFFFFFFF`, and convert back to a signed value with `x - (1 << 32)` when bit 31 is set. `bin(x).count("1")` counts set bits; Python 3.10+ also has `x.bit_count()`.
+    mental_model: |-
+      An integer is a row of light switches. AND is a filter that lets through only the switches lit in both rows; OR lights a switch if either row has it; XOR is a toggle that remembers parity: flip the same switch twice and it is back where it started. That is why XOR-ing everything leaves only the elements that appeared an odd number of times.
+    tradeoffs: |-
+      Bit tricks save memory and are fast, but they are harder to read and review than a `Counter`. In an interview, give the clear O(n)-space hash-map version first if it comes to mind, then offer the O(1)-space XOR version when the interviewer asks for constant space. Bitmask enumeration is only viable for small n: 2²⁰ is about a million subsets, 2³⁰ is about a billion and will not finish in time.
+    mistakes:
+      - Forgetting operator precedence. In Python `x & 1 == 0` parses as `x & (1 == 0)`; write `(x & 1) == 0`.
+      - "Running a Kernighan loop `while n: n &= n - 1` on a negative Python int. It never reaches zero; mask first with `n &= 0xFFFFFFFF`."
+      - Assuming a 32-bit result in Python. `~0` is `-1`, not `4294967295`; mask when the problem fixes a width.
+      - Using `1 << i` with `i` beyond the intended width and expecting wraparound.
+      - Claiming bitmask enumeration is fine for n = 40; 2⁴⁰ is about 10¹².
+    interview: |-
+      Bit questions are usually short and test whether you know the identities and can justify them. Say the identity, show it on a 4-bit example such as `0b1100`, and state the complexity (O(n) time, O(1) space for a XOR fold). Typical follow-ups: what changes for elements that appear three times (count each bit modulo 3), what changes for two unique elements (partition by a differing bit), and how Python's unbounded integers affect a 32-bit solution.
+    explain_it:
+      - Name the identity you rely on (pairs cancel under XOR, x & (x - 1) drops the lowest one).
+      - Show it on a tiny binary example.
+      - State why the order of processing does not matter (associativity, commutativity).
+      - Give time and extra space, and mention any 32-bit masking in Python.
+    example:
+      language: python
+      code: |-
+        def single_number(nums: list[int]) -> int:
+            acc = 0
+            for x in nums:
+                acc ^= x          # pairs cancel: a ^ a == 0, a ^ 0 == a
+            return acc            # O(n) time, O(1) extra space
+
+        def count_set_bits(n: int) -> int:
+            n &= 0xFFFFFFFF       # treat n as a 32-bit pattern so negatives terminate
+            count = 0
+            while n:
+                n &= n - 1        # drop the lowest set bit
+                count += 1
+            return count          # iterations = number of set bits, at most 32
+      explanation: The XOR fold replaces a hash map of counts. The Kernighan loop runs once per set bit, not once per bit position.
+    complexity: Each operator on a fixed-width integer is O(1). A XOR fold over n numbers is O(n) time and O(1) space. Enumerating all subsets of n items is O(2ⁿ · n) if you sum each subset by scanning its bits.
+    internals: |-
+      CPython stores ints as arrays of 30-bit digits, so an operation on a huge int costs time proportional to its number of digits. For values that fit in a machine word the cost is effectively constant, which is what interview analysis assumes.
+    edge_cases:
+      - Zero (has no set bit; `0 & -0 == 0`, not a power of two).
+      - Negative numbers in Python (infinite sign bits; mask for fixed width).
+      - The most negative 32-bit value, -2³¹, whose negation does not fit in 32 bits.
+      - Shifts by large amounts (Python grows the int; fixed-width languages wrap or are undefined).
+    misconceptions:
+      - "XOR finds duplicates. It finds elements that appear an odd number of times; a value appearing three times survives the fold."
+      - "Python has a 32-bit int. It does not; widths only exist if you mask."
+- key: dsa.bits.check
+  type: concept_check
+  title: "Concept check: bit identities and Python integers"
+  skills: [bit_manipulation.core]
+  minutes: 8
+  difficulty: EASY
+  body:
+    intro: Work each one in binary on paper. Four bits are enough for every example.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "What is `12 & (12 - 1)`?"
+        options: ["11", "8", "4", "0"]
+        answer: [1]
+        explanation: "12 is 0b1100 and 11 is 0b1011; AND gives 0b1000 = 8. The expression clears the lowest set bit. The tempting 4 is `12 & -12`, which isolates the lowest set bit instead of clearing it."
+      - id: q2
+        kind: multi
+        prompt: Which statements are true in CPython 3?
+        options: ["~5 == -6", "-5 >> 1 == -3", "1 << 40 overflows to a negative number", "-1 & 0xFF == 255"]
+        answer: [0, 1, 3]
+        explanation: "~x is -x - 1, so ~5 is -6. Right shift on negatives is arithmetic and floors, so -5 >> 1 is floor(-5 / 2) = -3, not -2. Python ints never overflow, so 1 << 40 is simply 1099511627776. Masking -1 (all ones) with 0xFF keeps eight ones: 255."
+      - id: q3
+        kind: single
+        prompt: What happens when this is called with n = -1 in Python?
+        code:
+          language: python
+          code: |-
+            def popcount(n):
+                count = 0
+                while n:
+                    n &= n - 1
+                    count += 1
+                return count
+        options: ["Returns 32", "Returns 64", "Returns 1", "Never terminates"]
+        answer: [3]
+        explanation: "A negative Python int has infinitely many leading ones. Each step clears the lowest one (-1, -2, -4, -8, ...) but the value never reaches 0. 32 is what the same code returns in a fixed-width language, or in Python after masking with 0xFFFFFFFF."
+      - id: q4
+        kind: single
+        prompt: "An array holds 0..n with one value missing, e.g. [3, 0, 1] for n = 3. What does XOR-ing every index 0..n with every value give?"
+        options: ["The largest value", "The missing value", "0", "n"]
+        answer: [1]
+        explanation: "Every present value appears once as an index and once as a value, so it cancels. Only the missing value appears an odd number of times (once, as an index). For [3, 0, 1]: 0^1^2^3^3^0^1 = 2."
+      - id: q5
+        kind: single
+        prompt: "In Python, what does `x & 1 == 0` evaluate when x = 4?"
+        options: ["True", "False", "0", "SyntaxError"]
+        answer: [2]
+        explanation: "Comparison binds tighter than `&`, so it is `4 & (1 == 0)` which is `4 & False` = 0. The intended parity test is `(x & 1) == 0`. The tempting answer True assumes C-like intent, not Python precedence."
+      - id: q6
+        kind: short
+        prompt: Write a one-line power-of-two test and say why each part is needed.
+        model_answer: "`x > 0 and x & (x - 1) == 0` — a power of two has exactly one set bit, and clearing the lowest set bit leaves 0 only in that case. The `x > 0` guard rejects 0 (which would also give 0) and negative numbers."
+        explanation: Interviewers often probe the zero case; the guard is the part people forget.
+- key: dsa.bits.guided
+  type: guided_problem
+  title: "Guided practice: XOR fold and bit DP"
+  skills: [bit_manipulation.core]
+  minutes: 25
+  difficulty: EASY
+  problems: [44, 131]
+  body:
+    guidance:
+      - "For the unique-element problem, first say the hash-map solution and its O(n) space, then derive the XOR fold from a ^ a == 0."
+      - "For counting bits up to n, write the relation first: i >> 1 has the same bits as i except the last one, which is i & 1."
+      - Trace both on a 4-bit example before coding.
+      - State time and extra space for each.
+    hints:
+      - XOR is order independent, so pairs cancel wherever they are in the array.
+      - "bits[i] = bits[i >> 1] + (i & 1) fills the table left to right in O(n)."
+- key: dsa.bits.timed
+  type: timed_problem
+  title: "Timed practice: every element three times except one"
+  skills: [bit_manipulation.core]
+  minutes: 30
+  difficulty: MEDIUM
+  problems: [132]
+  body:
+    guidance:
+      - Explain why a plain XOR fold fails (a triple survives) before coding.
+      - Count each of the 32 bit positions across all numbers and keep the count modulo 3.
+      - "In Python, if bit 31 of the rebuilt result is set, subtract 1 << 32 to get the negative value back."
+      - Test with a negative unique element before declaring done.
+- key: dsa.bits.subsets_exercise
+  type: coding_exercise
+  title: "Exercise: enumerate subsets with a bitmask"
+  skills: [bit_manipulation.core, backtracking.core]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 900}
+  body:
+    prompt: |-
+      `subsets_with_sum(nums, target)` returns every subset (as a list of values in index order) whose sum equals `target`. There are at most 20 numbers. Write it with a bitmask loop instead of recursion, then state its time complexity and the largest n you would accept.
+    examples:
+      - "subsets_with_sum([1, 2, 3], 3) == [[1, 2], [3]]  (order of subsets may differ)"
+      - "subsets_with_sum([], 0) == [[]]"
+    constraints:
+      - 0 <= len(nums) <= 20; values may be negative.
+    hints:
+      - Each integer mask from 0 to 2ⁿ - 1 describes one subset.
+      - Bit i of the mask says whether nums[i] is in the subset.
+      - The empty mask is a valid subset with sum 0.
+    solution:
+      language: python
+      code: |-
+        def subsets_with_sum(nums: list[int], target: int) -> list[list[int]]:
+            n = len(nums)
+            result = []
+            for mask in range(1 << n):
+                chosen = [nums[i] for i in range(n) if (mask >> i) & 1]
+                if sum(chosen) == target:
+                    result.append(chosen)
+            return result
+      explanation: "2ⁿ masks, O(n) work each: O(2ⁿ · n) time. n = 20 is about 2 × 10⁷ bit checks, acceptable; n = 30 is not."
+    rubric:
+      - {key: correct, label: Returns every matching subset including the empty one when target is 0, points: 4}
+      - {key: bit_test, label: "Tests membership with (mask >> i) & 1 or mask & (1 << i), with correct parentheses", points: 3}
+      - {key: complexity, label: "States O(2ⁿ · n) and names a realistic limit near n = 20", points: 3}
+    follow_ups:
+      - prompt: How would you reuse work so each subset sum costs O(1) instead of O(n)?
+        look_for: "sum[mask] = sum[mask without lowest bit] + nums[index of lowest bit], using mask & (mask - 1) and the bit index; O(2ⁿ) time, O(2ⁿ) space."
+      - prompt: n grows to 40. What do you do?
+        look_for: "Meet in the middle: enumerate each half (2²⁰ each), sort one side, and match sums by binary search or a hash map."
+- key: dsa.bits.interview
+  type: interview_question
+  title: "Interview question: two numbers that appear once"
+  skills: [bit_manipulation.core]
+  minutes: 10
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 600}
+  body:
+    prompt: "Every number in an array appears exactly twice except two different numbers, which appear once each. Explain how to return both in O(n) time and O(1) extra space, and walk through why it works."
+    key_points:
+      - "XOR of everything equals a ^ b, which is non-zero because a != b."
+      - "Any set bit of a ^ b is a position where a and b differ; isolate one with x & -x."
+      - "Partition all numbers by that bit; each group XORs to one of the answers because pairs land in the same group."
+      - "States O(n) time with two passes and O(1) extra space; mentions the hash-map alternative and its O(n) space."
+    model_answer: XOR all values to get d = a ^ b. Since a differs from b, d has at least one set bit; low = d & -d isolates the lowest. Every duplicate pair goes to the same side of the split on that bit, so XOR-ing the numbers with that bit set gives one answer and d ^ that answer gives the other. Two passes, O(n) time, O(1) space. In Python d & -d works for negative values too because ints act as infinite two's complement.
+    pitfalls:
+      - Partitioning by the highest bit of a value instead of a bit where a and b differ.
+      - Forgetting that the duplicates also split, and assuming only a and b land in the groups.
+    follow_ups:
+      - prompt: Every other number now appears three times and only one appears once. Does the XOR trick still work?
+        look_for: No; a triple survives XOR. Count each bit position modulo 3 (or use the ones/twos state machine), handling the sign bit in Python.
+      - prompt: Why does `d & -d` isolate the lowest set bit?
+        look_for: "-d is ~d + 1; inverting flips every bit and the + 1 carries up to the lowest set bit, so only that bit is set in both d and -d."
+- key: dsa.bits.cards
+  type: revision_card
+  title: "Recall: bit identities"
+  skills: [bit_manipulation.core]
+  minutes: 5
+  body:
+    cards:
+      - front: What does x & (x - 1) do?
+        back: Clears the lowest set bit (12 → 8).
+      - front: What does x & -x do?
+        back: Isolates the lowest set bit (12 → 4).
+      - front: Power-of-two test?
+        back: "x > 0 and x & (x - 1) == 0."
+      - front: Why does a XOR fold find the unique element?
+        back: "a ^ a == 0 and a ^ 0 == a, in any order."
+      - front: Emulate a 32-bit int in Python?
+        back: Mask with 0xFFFFFFFF; subtract 1 << 32 if bit 31 is set.
+      - front: Largest n for full subset enumeration?
+        back: About 20 (2²⁰ ≈ 10⁶ masks).
+
+# ---------------------------------------------------------------------------------------------- number basics
+- key: dsa.math.lesson
+  type: lesson
+  title: "Number basics: GCD, modular arithmetic, overflow and primes"
+  skills: [math.number_basics]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Four small tools — Euclid's GCD, modular arithmetic, fast exponentiation and the sieve — plus care with signs and overflow cover most interview maths.
+    what: |-
+      - **GCD** (greatest common divisor) by Euclid: `gcd(a, b) = gcd(b, a % b)`, ending at `gcd(a, 0) = a`. `lcm(a, b) = a // gcd(a, b) * b`.
+      - **Modular arithmetic**: work with remainders so numbers stay small. `(a + b) % m` and `(a * b) % m` can be reduced at every step. Division is different: dividing by `b` means multiplying by its modular inverse, which exists only when `gcd(b, m) == 1`.
+      - **Fast exponentiation**: compute `aᵇ` with O(log b) multiplications by squaring.
+      - **Primes**: trial division up to √n tests one number; the sieve of Eratosthenes marks all primes below n at once.
+      - **Overflow**: fixed-width integers wrap or are undefined when they exceed their range; problems often ask you to clamp to 32-bit.
+    why: |-
+      Answers in counting problems grow exponentially, so problems ask for results modulo a prime such as 10⁹ + 7. Reducing at every step keeps numbers small and fast. Euclid's algorithm turns "divide into equal groups", "repeating pattern" and "step size" questions into one line. Primes and divisors appear in factorisation and sieve problems.
+    when: |-
+      - "Return the answer modulo 10⁹ + 7": reduce after every addition and multiplication.
+      - "Largest tile, step or block that divides both": GCD.
+      - "x to the power n" for large n, or modular inverse: fast exponentiation.
+      - "Count or list primes below n": sieve. "Is this one number prime": trial division to √n.
+      - "Clamp to the signed 32-bit range": explicit overflow checks.
+    how: |-
+      ```python
+      def gcd(a: int, b: int) -> int:
+          while b:
+              a, b = b, a % b
+          return abs(a)
+
+      def power_mod(base: int, exp: int, mod: int) -> int:
+          result = 1
+          base %= mod
+          while exp > 0:
+              if exp & 1:                 # this bit of the exponent contributes
+                  result = result * base % mod
+              base = base * base % mod    # base^(2^k) for the next bit
+              exp >>= 1
+          return result
+      ```
+
+      Python already has `math.gcd`, `math.lcm` (3.9+), `math.isqrt` (3.8+), `pow(a, b, m)` and, since 3.8, `pow(b, -1, m)` for the modular inverse. In an interview, use them, but be ready to write the loop.
+
+      **Signs.** Python's `//` floors and `%` takes the sign of the divisor: `-7 // 2 == -4`, `-7 % 3 == 2`. C, C++ and Java truncate towards zero: `-7 / 2 == -3`, `-7 % 3 == -1`. For a ceiling division of positive integers use `(a + b - 1) // b` or `-(-a // b)`; avoid `int(a / b)`, which goes through a float and loses precision for large values.
+    mental_model: |-
+      Modular arithmetic is a clock: adding or multiplying moves the hand, and you may reduce whenever you like because only the hand position matters. Euclid's algorithm is cutting the largest possible square tiles from a rectangle: the remainder strip has the same tile size as the whole, and it shrinks fast.
+    tradeoffs: |-
+      The sieve answers "which numbers below n are prime" in O(n log log n) time but needs O(n) memory: about 10⁷ bytes for n = 10⁷ with a `bytearray`, which is fine, but n = 10¹⁰ is not. Trial division needs no memory but costs O(√n) per number. Reducing modulo at every step costs a little time but keeps every multiplication on small numbers; in fixed-width languages it is required to avoid overflow, in Python it keeps big-int arithmetic from slowing down.
+    mistakes:
+      - Reducing only at the end. Intermediate products grow huge; in Java or C++ they overflow, in Python they become slow.
+      - Dividing under a modulus with `/` instead of multiplying by a modular inverse.
+      - "Forgetting that a subtraction can go negative: write `(a - b) % m` (Python already returns a non-negative result; in Java add m before taking %)."
+      - Computing `lcm` as `a * b // gcd(a, b)` in a fixed-width language, where `a * b` can overflow; divide first.
+      - "Starting the sieve's inner loop at `2 * i` instead of `i * i` (correct but slower) or looping `i` up to n instead of √n."
+      - "Using `int(math.sqrt(n))` for an integer square root; it can be off by one for large n. Use `math.isqrt`."
+    interview: |-
+      Maths shows up as a sub-step: a GCD inside a string or array problem, a modulo in a counting DP, an overflow clamp in a parser, or fast power as its own question. Interviewers look for the right tool, the complexity (`O(log min(a, b))` for Euclid, `O(log n)` for fast power, `O(n log log n)` for the sieve) and correct handling of negatives, zero and overflow.
+    explain_it:
+      - Name the identity (gcd(a, b) = gcd(b, a mod b), aᵇ = (a^(b/2))² for even b).
+      - Show two or three steps on small numbers.
+      - State the complexity and why it is logarithmic (the numbers at least halve every two steps, the exponent halves every step).
+      - Say how you handle negatives, zero and overflow.
+    example:
+      language: python
+      code: |-
+        import math
+
+        def count_primes_below(n: int) -> int:
+            if n < 3:
+                return 0
+            is_prime = bytearray([1]) * n
+            is_prime[0] = is_prime[1] = 0
+            for i in range(2, math.isqrt(n - 1) + 1):
+                if is_prime[i]:
+                    # smaller multiples of i were already crossed out by smaller primes
+                    is_prime[i * i::i] = bytearray(len(range(i * i, n, i)))
+            return sum(is_prime)
+
+        # count_primes_below(10) == 4   (2, 3, 5, 7)
+        # count_primes_below(100) == 25
+      explanation: Starting at i * i is safe because any smaller multiple k * i with k < i has a prime factor below i and was already crossed out.
+    complexity: "Euclid O(log min(a, b)); fast power O(log exp) multiplications; sieve O(n log log n) time and O(n) space; trial division O(√n) per number."
+    internals: |-
+      Euclid is fast because after two steps the larger number is at least halved: if b ≤ a / 2 then a % b < b ≤ a / 2, otherwise a % b = a - b < a / 2. The worst inputs are consecutive Fibonacci numbers.
+    edge_cases:
+      - gcd(0, 0) is defined as 0 by `math.gcd`; gcd(a, 0) is |a|.
+      - Exponent 0 gives 1 (even 0⁰ in `pow`), negative exponents need an inverse or a reciprocal.
+      - n < 2 for prime counting.
+      - The most negative 32-bit value when negating or taking an absolute value.
+    misconceptions:
+      - "Python cannot overflow, so overflow does not matter. The problem may specify a 32-bit range and expect a clamp, and big ints get slow."
+      - "Every number has an inverse modulo m. Only those coprime with m; with a prime m, every non-multiple of m does."
+- key: dsa.math.check
+  type: concept_check
+  title: "Concept check: GCD, modulo and primes"
+  skills: [math.number_basics]
+  minutes: 8
+  difficulty: MEDIUM
+  body:
+    intro: Answer with Python semantics unless the question says otherwise.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "What do `-7 // 2` and `-7 % 3` evaluate to in Python?"
+        options: ["-3 and -1", "-4 and 2", "-3 and 2", "-4 and -1"]
+        answer: [1]
+        explanation: "Python floors integer division (minus three and a half rounds down to -4) and `%` takes the divisor's sign, so -7 % 3 is 2 and -7 == 3 * (-3) + 2. The tempting -3 and -1 are C and Java results, which truncate towards zero."
+      - id: q2
+        kind: single
+        prompt: "How many loop iterations does `while b: a, b = b, a % b` take for gcd(48, 18)?"
+        options: ["2", "3", "6", "18"]
+        answer: [1]
+        explanation: "(48, 18) → (18, 12) → (12, 6) → (6, 0): three iterations, answer 6. Euclid takes O(log min(a, b)) steps, far fewer than counting down from 18."
+      - id: q3
+        kind: multi
+        prompt: Under modulus m = 10⁹ + 7, which reductions are valid?
+        options:
+          - "(a + b) % m == (a % m + b % m) % m"
+          - "(a * b) % m == (a % m) * (b % m) % m"
+          - "(a // b) % m == (a % m) // (b % m)"
+          - "(a // b) % m == a * pow(b, -1, m) % m when b divides a and b is not a multiple of m"
+        answer: [0, 1, 3]
+        explanation: "Addition and multiplication commute with reduction. Integer division does not: (10 // 5) % 7 is 2 but (10 % 7) // (5 % 7) is 0. Exact division becomes multiplication by the modular inverse, which exists because m is prime and b is not a multiple of it."
+      - id: q4
+        kind: single
+        prompt: Why does the sieve's inner loop start crossing out at i * i?
+        options:
+          - Because i * i is the first composite number
+          - Because every smaller multiple of i has a smaller prime factor and is already crossed out
+          - It is an optimisation that makes the result slightly wrong but faster
+          - Because numbers below i * i are all prime
+        answer: [1]
+        explanation: "k * i with k < i is divisible by a prime factor of k, which is below i and was processed earlier. Starting at 2 * i is correct but repeats work. Numbers below i * i are not all prime (for i = 5, 6 and 8 are below 25)."
+      - id: q5
+        kind: single
+        prompt: How many multiplications does fast exponentiation need for a¹⁰⁰⁰⁰⁰⁰ (roughly)?
+        options: ["About 20 to 40", "About 1,000", "About 500,000", "About 1,000,000"]
+        answer: [0]
+        explanation: "The exponent has about 20 bits (2²⁰ ≈ 10⁶). Each bit costs one squaring and at most one extra multiplication, so 20 to 40. Naive repeated multiplication needs a million."
+      - id: q6
+        kind: short
+        prompt: "A parser accumulates `result = result * 10 + digit` and must clamp to the signed 32-bit range. How do you detect overflow in a language where the multiplication itself could overflow?"
+        model_answer: "Check before updating: overflow happens if result > (2³¹ - 1) // 10, or result == (2³¹ - 1) // 10 and digit > 7 (for positive numbers; the negative bound allows 8). Clamp to 2³¹ - 1 or -2³¹ instead of computing the product. In Python you may compute then compare, but the pre-check shows you understand fixed-width limits."
+        explanation: Testing after the multiplication is too late in C++ or Java, because the overflowed value is already wrong (or undefined behaviour for signed ints in C++).
+- key: dsa.math.guided
+  type: guided_problem
+  title: "Guided practice: GCD and the sieve"
+  skills: [math.number_basics]
+  minutes: 30
+  difficulty: MEDIUM
+  problems: [135, 134]
+  body:
+    guidance:
+      - "For the string divisor problem, first prove when an answer exists: s + t must equal t + s. Then the answer length is gcd(len(s), len(t))."
+      - "For counting primes, write the trial-division version and its O(n √n) cost, then switch to the sieve."
+      - "Use a bytearray for the sieve and start each inner loop at i * i; loop i only while i * i < n."
+      - Check n = 0, 1, 2 and 3 by hand before submitting.
+    hints:
+      - If both strings are built from one repeated block, concatenation order cannot matter.
+      - "Slice assignment `is_prime[i * i::i] = bytearray(count)` crosses out a whole progression at C speed."
+- key: dsa.math.timed
+  type: timed_problem
+  title: "Timed practice: fast power"
+  skills: [math.number_basics]
+  minutes: 25
+  difficulty: MEDIUM
+  problems: [133]
+  body:
+    guidance:
+      - State the O(log n) recursion or bit loop before coding.
+      - Handle a negative exponent by inverting the base and negating n; mention that in fixed-width languages negating the most negative int overflows.
+      - Test n = 0, n = 1, n = -1 and an odd n before declaring done.
+- key: dsa.math.modpow_exercise
+  type: coding_exercise
+  title: "Exercise: modular power and modular inverse"
+  skills: [math.number_basics, bit_manipulation.core]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 1200}
+  body:
+    prompt: |-
+      Without using the built-in three-argument `pow`, write:
+
+      - `power_mod(base, exp, mod)` returning baseᵉˣᵖ mod `mod` for `exp >= 0`, in O(log exp) multiplications.
+      - `inverse_mod(b, p)` for a prime `p` and `b` not divisible by `p`, using Fermat's little theorem (b^(p-2) is the inverse of b modulo p).
+
+      Then use them to compute `n choose k` modulo 10⁹ + 7 for n up to 10⁵ with precomputed factorials.
+    examples:
+      - "power_mod(2, 10, 1000) == 24"
+      - "inverse_mod(3, 7) == 5   (3 * 5 = 15 = 2 * 7 + 1)"
+      - "n_choose_k(5, 2) == 10"
+    constraints:
+      - 0 <= exp <= 10¹⁸; 2 <= mod <= 2³¹.
+      - 0 <= k <= n <= 10⁵.
+    hints:
+      - Look at the exponent in binary; each bit decides whether the current square is multiplied in.
+      - Reduce after every multiplication.
+      - "n! / (k! (n-k)!) becomes fact[n] * inv(fact[k]) * inv(fact[n - k]) mod p."
+    solution:
+      language: python
+      code: |-
+        MOD = 10**9 + 7
+
+        def power_mod(base: int, exp: int, mod: int) -> int:
+            result = 1 % mod
+            base %= mod
+            while exp:
+                if exp & 1:
+                    result = result * base % mod
+                base = base * base % mod
+                exp >>= 1
+            return result
+
+        def inverse_mod(b: int, p: int) -> int:
+            return power_mod(b, p - 2, p)        # valid only for prime p, b % p != 0
+
+        def make_n_choose_k(limit: int):
+            fact = [1] * (limit + 1)
+            for i in range(1, limit + 1):
+                fact[i] = fact[i - 1] * i % MOD
+            def n_choose_k(n: int, k: int) -> int:
+                if k < 0 or k > n:
+                    return 0
+                return fact[n] * inverse_mod(fact[k], MOD) % MOD * inverse_mod(fact[n - k], MOD) % MOD
+            return n_choose_k
+      explanation: "power_mod is O(log exp). Factorials take O(limit); each query costs two inverses, O(log MOD) each. Precomputing inverse factorials makes each query O(1)."
+    rubric:
+      - {key: fast_power, label: Uses square-and-multiply with O(log exp) steps and reduces after each multiplication, points: 4}
+      - {key: inverse, label: "Uses b^(p-2) mod p and states the preconditions (p prime, b not a multiple of p)", points: 3}
+      - {key: binomial, label: Computes n choose k from factorials and inverses and returns 0 for k > n, points: 2}
+      - {key: edge_cases, label: "Handles exp = 0 and mod = 1 (result 0)", points: 1}
+    follow_ups:
+      - prompt: The modulus is now 10⁹ (not prime). Does inverse_mod still work?
+        look_for: No; Fermat needs a prime and many values are not coprime with 10⁹. Use the extended Euclidean algorithm when gcd(b, m) = 1, otherwise no inverse exists.
+      - prompt: You must answer 10⁵ queries. How do you avoid two inverses per query?
+        look_for: "Precompute inv_fact[limit] once with one inverse, then inv_fact[i - 1] = inv_fact[i] * i mod p going down; each query is O(1)."
+- key: dsa.math.interview
+  type: interview_question
+  title: "Interview question: primes at scale"
+  skills: [math.number_basics]
+  minutes: 12
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 720}
+  body:
+    prompt: "You need the number of primes below n for n up to 5 × 10⁶, and separately a yes/no answer for whether one 12-digit number is prime. Compare trial division and the sieve for each case, with complexity and memory."
+    key_points:
+      - "Trial division tests one number in O(√n): for a 12-digit number that is about 10⁶ divisions, acceptable for a single query."
+      - "Counting primes below n by trial division costs O(n √n), too slow at 5 × 10⁶; the sieve is O(n log log n)."
+      - "The sieve needs O(n) memory; a bytearray of 5 × 10⁶ bytes is about 5 MB."
+      - "Starts crossing out at i * i and only iterates i up to √n."
+    model_answer: For the count, sieve once with a bytearray of n bytes, iterating i up to √n and crossing out from i * i; O(n log log n) time, about 5 MB. For a single 12-digit number, a sieve to 10¹² is impossible; trial division by 2 and odd numbers up to √n ≈ 10⁶ is fine. For many large queries, sieve primes up to 10⁶ once and trial-divide only by those, or use a primality test such as Miller-Rabin.
+    pitfalls:
+      - Proposing a sieve up to 10¹² for the single-number question.
+      - Iterating trial division up to n instead of √n.
+    follow_ups:
+      - prompt: n is now 10¹⁰ and you only need primes in a window [L, L + 10⁶). How?
+        look_for: "Segmented sieve: sieve base primes up to √(L + 10⁶) and cross out their multiples inside the window only; memory proportional to the window."
+      - prompt: Why is checking divisors only up to √n enough?
+        look_for: If n = a × b with both factors above √n, the product would exceed n; so a composite always has a factor at most √n.
+- key: dsa.math.cards
+  type: revision_card
+  title: "Recall: number basics"
+  skills: [math.number_basics]
+  minutes: 5
+  body:
+    cards:
+      - front: Euclid's recurrence and cost?
+        back: "gcd(a, b) = gcd(b, a % b); O(log min(a, b)) steps."
+      - front: "-7 // 2 and -7 % 3 in Python?"
+        back: "-4 and 2 (floor division; remainder takes the divisor's sign)."
+      - front: Modular division by b modulo a prime p?
+        back: "Multiply by pow(b, p - 2, p), or pow(b, -1, p) in Python 3.8+."
+      - front: Sieve of Eratosthenes cost?
+        back: O(n log log n) time, O(n) space; start each prime at i * i.
+      - front: Fast exponentiation cost?
+        back: O(log n) multiplications by repeated squaring.
+      - front: Safe integer square root in Python?
+        back: "math.isqrt(n), never int(math.sqrt(n)) for large n."

@@ -202,7 +202,7 @@ content:
       - prompt: Generalise to at most m copies. What changes?
         look_for: Replace 2 with m in both the guard and the index; complexity unchanged.
       - prompt: Why is comparing with nums[read - 2] wrong?
-        look_for: "Positions before read may already have been overwritten, and the input copy two places back may be a dropped duplicate; e.g. [1, 1, 1, 1] would keep too many."
+        look_for: "Positions before read may already have been overwritten by kept values; on [1, 1, 1, 2, 2] the second 2 is compared with an overwritten slot and dropped, returning 3 instead of 4."
 - key: dsa.arrays.guided
   type: guided_problem
   title: "Guided practice: one pass with running state"
@@ -915,7 +915,7 @@ content:
         explanation: "Inclusive l = 1, r = 2 means P[r + 1] - P[l] = P[3] - P[1] = 4 - 3 = 1, and indeed -1 + 2 = 1. P[2] - P[1] is only nums[1]."
       - id: q2
         kind: single
-        prompt: What does this return for `nums = [1, 1, 1]` and `k = 2`, and what happens if the seed `{0: 1}` is replaced by `{}`?
+        prompt: "What does this return for `nums = [1, 1, 1]` and `k = 2`, and what happens if the seed `{0: 1}` is replaced by `{}`?"
         code:
           language: python
           code: |-
@@ -998,7 +998,7 @@ content:
             return total
       explanation: Remainders are in 0..k-1, so a list replaces the dict. O(n + k) time and O(k) space. Each new prefix pairs with every earlier prefix of the same remainder.
     rubric:
-      - {key: correct, label: Returns 7, 0 and 3 for the examples, points: 4}
+      - {key: correct, label: "Returns 7, 0 and 3 for the examples", points: 4}
       - {key: identity, label: Explains that equal remainders imply a divisible difference, points: 2}
       - {key: seed_and_order, label: Seeds the empty prefix and looks up before incrementing, points: 2}
       - {key: complexity, label: "States O(n + k) time and O(k) space (or O(n) with a dict)", points: 2}

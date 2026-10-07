@@ -222,10 +222,12 @@ def upgrade() -> None:
         **TABLE_OPTIONS,
     )
     op.add_column("problems", sa.Column("guide_json", sa.JSON(), nullable=True))
+    op.add_column("behavioral_stories", sa.Column("tradeoffs", sa.Text(), nullable=True))
 
 
 def downgrade() -> None:
     # Dropping a table drops its indexes; dropping them first fails where MySQL uses them for a foreign key.
+    op.drop_column("behavioral_stories", "tradeoffs")
     op.drop_column("problems", "guide_json")
     for table in (
         "learning_session_steps",

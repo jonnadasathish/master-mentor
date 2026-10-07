@@ -1,0 +1,789 @@
+# Learning content: designing data structures and recognising the pattern from a problem statement.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- design a data structure
+- key: dsa.design_ds.lesson
+  type: lesson
+  title: Designing a data structure from operation-cost targets
+  skills: [design_ds.core, hashing.lookup_frequency]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: List the operations and their target costs, pick one structure per access path, and keep them consistent on every update.
+    what: |-
+      A "design a data structure" question gives you an API (`get`, `put`, `push`, `pop`, `get_min`, `get_random`, `next`) and a cost target, usually O(1) or O(log n) per operation. No single built-in meets every target, so you **combine** structures, each serving one access path, and write every method so all of them stay in sync.
+    why: |-
+      This is the everyday backend skill behind caches, rate limiters, schedulers and leaderboards: knowing what each structure is good at and paying for two of them to get both fast lookups and fast ordering. Interviewers use it because it tests data-structure knowledge, invariants and clean class code at once.
+    when: |-
+      - The prompt is an API with several methods rather than one function.
+      - Each method has a stated or implied cost ("in O(1)", "efficiently", "millions of calls").
+      - One method needs lookup by key and another needs order (recency, minimum, time, insertion).
+    how: |-
+      1. **Write the operation table**: method, what it must return, target cost.
+      2. **Pick a structure per access path**: by key → dict; by recency or insertion order with O(1) moves → doubly linked list (or `OrderedDict`); current minimum → stack of running minimums or a heap; random element → array; by time → deque or sorted list plus `bisect`.
+      3. **Link them**: the dict stores the node or index in the other structure, so you can jump straight to it.
+      4. **State the invariant** that ties them together ("every key in the dict has exactly one node in the list, and the list is ordered from most to least recently used").
+      5. **Write each method** so it restores the invariant, then trace a short sequence of calls.
+
+      Common designs:
+
+      - **LRU cache**: dict key → node, doubly linked list ordered by recency. `get` moves the node to the front; `put` inserts at the front and evicts from the back when over capacity. All O(1).
+      - **Min stack**: push `(value, min_so_far)` pairs; `get_min` reads the top. All O(1).
+      - **Insert, delete, get random in O(1)**: list of values plus dict value → index. Delete swaps the victim with the last element, fixes the moved element's index, then pops.
+      - **Queue from two stacks**: push onto `inbox`; when `outbox` is empty, move everything across. Amortised O(1) because each element moves once.
+    mental_model: |-
+      Think of a library: the catalogue (dict) finds a book's shelf position instantly, and the shelves (list, heap, deque) keep books in the order you need. Every time a book moves, the catalogue card must be updated in the same operation, or the next lookup sends you to the wrong shelf.
+    tradeoffs: |-
+      Two structures cost roughly twice the memory and double the places a bug can hide. `OrderedDict` gives a correct LRU in ten lines but some interviewers want the linked list written by hand to see pointer handling; ask which they prefer. A heap gives O(log n) minimum with deletions only by lazy marking; a stack of minimums is O(1) but only works because a stack removes in LIFO order. Amortised O(1) (two-stack queue, dynamic array) is not worst-case O(1): a single call can still be O(n).
+    mistakes:
+      - Updating one structure and forgetting the other (evicting from the list but not deleting the dict key).
+      - A singly linked list for LRU, which makes removing a middle node O(n) without its predecessor.
+      - In the random-set delete, popping the last element before copying it into the hole, or not updating the moved element's index.
+      - Treating `put` on an existing key as an insert (the cache grows past capacity or holds two nodes for one key).
+      - Not handling capacity 1, a get on a missing key, or deleting the element that is already last.
+    interview: |-
+      Start with the operation table out loud and the structures you will combine, then the invariant, then code. Interviewers check that every method meets its target, that edge cases (capacity 1, repeated keys, empty structure) are handled, and that the class is clean. Expect follow-ups such as thread safety, LFU instead of LRU, time-based expiry or a bounded memory budget.
+    explain_it:
+      - The operation table with target costs.
+      - Which structure serves which access path, and what the dict points to.
+      - The invariant that links them.
+      - A traced sequence of three or four calls, including an eviction or a delete.
+    example:
+      language: python
+      code: |-
+        from collections import OrderedDict
+
+        class LRUCache:
+            def __init__(self, capacity: int):
+                self.capacity = capacity
+                self.items: OrderedDict[int, int] = OrderedDict()   # oldest first
+
+            def get(self, key: int) -> int:
+                if key not in self.items:
+                    return -1
+                self.items.move_to_end(key)          # now most recently used, O(1)
+                return self.items[key]
+
+            def put(self, key: int, value: int) -> None:
+                if key in self.items:
+                    self.items.move_to_end(key)
+                self.items[key] = value
+                if len(self.items) > self.capacity:
+                    self.items.popitem(last=False)   # evict least recently used, O(1)
+      explanation: "OrderedDict is a dict plus a doubly linked list internally, so it is the same design with the linking done for you."
+    complexity: "LRU get and put O(1); min stack all O(1); randomised set insert, delete and get_random O(1) average; two-stack queue amortised O(1). Space O(n) for each, with a constant factor for the second structure."
+    edge_cases:
+      - Capacity of 1 (every new put evicts).
+      - Updating an existing key must not evict anything.
+      - Deleting the element that is already last in the random-set array.
+      - Duplicate values in a min stack.
+    misconceptions:
+      - "A heap gives O(1) delete of an arbitrary element. It gives O(log n) pop of the minimum; arbitrary deletes need an index map or lazy deletion."
+      - "Amortised O(1) means every call is O(1). Some calls are O(n); the average over a sequence is O(1)."
+- key: dsa.design_ds.worked_lru
+  type: worked_example
+  title: "Worked example: an LRU cache with a hand-written linked list"
+  skills: [design_ds.core, linked_list.manipulation]
+  minutes: 15
+  difficulty: MEDIUM
+  body:
+    problem: Build a fixed-capacity cache with O(1) get and put that evicts the least recently used key, without OrderedDict.
+    steps:
+      - title: Operation table and structures
+        text: "get(key) needs lookup by key: dict. Eviction needs the least recent entry and every access must move an entry to the most-recent end in O(1): doubly linked list. The dict maps key → node."
+      - title: Sentinels remove special cases
+        text: "A dummy head and a dummy tail mean every real node always has a prev and a next, so insert and remove never check for None. Most recent sits after head, least recent before tail."
+        code:
+          language: python
+          code: |-
+            class Node:
+                __slots__ = ("key", "value", "prev", "next")
+                def __init__(self, key=0, value=0):
+                    self.key, self.value = key, value
+                    self.prev = self.next = None
+      - title: Two pointer helpers
+        text: "Every method is built from remove(node) and add_front(node). Each touches four pointers and is O(1)."
+        code:
+          language: python
+          code: |-
+            def _remove(self, node):
+                node.prev.next = node.next
+                node.next.prev = node.prev
+
+            def _add_front(self, node):
+                node.prev, node.next = self.head, self.head.next
+                self.head.next.prev = node
+                self.head.next = node
+      - title: The methods restore the invariant
+        text: "Invariant: the dict and the list hold the same keys, and the list is ordered by recency. The node stores its key so eviction can delete it from the dict."
+        code:
+          language: python
+          code: |-
+            def get(self, key):
+                node = self.map.get(key)
+                if node is None:
+                    return -1
+                self._remove(node)
+                self._add_front(node)
+                return node.value
+
+            def put(self, key, value):
+                node = self.map.get(key)
+                if node:
+                    node.value = value
+                    self._remove(node)
+                    self._add_front(node)
+                    return
+                node = Node(key, value)
+                self.map[key] = node
+                self._add_front(node)
+                if len(self.map) > self.capacity:
+                    lru = self.tail.prev
+                    self._remove(lru)
+                    del self.map[lru.key]
+      - title: Trace with capacity 2
+        text: "put(1), put(2) → list 2,1. get(1) → list 1,2. put(3) → list 3,1,2 is over capacity, evict 2 → list 3,1. get(2) → -1. This one trace checks recency update, eviction and dict cleanup."
+    takeaways:
+      - The node stores its own key; without it eviction cannot clean the dict.
+      - Sentinels turn four special cases (empty, head, tail, single node) into none.
+      - Updating an existing key is a move plus a value change, never a second node.
+    complexity: O(1) per get and put; O(capacity) space.
+- key: dsa.design_ds.check
+  type: concept_check
+  title: "Concept check: combining structures"
+  skills: [design_ds.core]
+  minutes: 8
+  difficulty: MEDIUM
+  body:
+    intro: Each question names a design and asks about the detail that usually breaks it.
+    questions:
+      - id: q1
+        kind: single
+        prompt: In the O(1) insert/delete/get-random set, why does delete swap the victim with the last array element?
+        options:
+          - So that the array stays sorted
+          - Because removing from the end of a Python list is O(1) while removing from the middle is O(n)
+          - So that random.choice gives a uniform result
+          - Because dict deletion requires it
+        answer: [1]
+        explanation: "list.pop() at the end is O(1); removing at index i shifts everything after it. Swapping keeps the array dense and the delete O(1). Uniformity is a side benefit of a dense array, not the reason for the swap; the array is never sorted."
+      - id: q2
+        kind: multi
+        prompt: In an LRU cache, which calls make a key the most recently used?
+        options: ["get on an existing key", "put on an existing key", "put on a new key", "get on a missing key"]
+        answer: [0, 1, 2]
+        explanation: "Any successful access or write refreshes recency. A miss touches nothing, so there is no key to move. Forgetting the update on put of an existing key is the classic bug."
+      - id: q3
+        kind: single
+        prompt: A min stack keeps a second stack and pushes x onto it only when x < current min. What breaks?
+        code:
+          language: python
+          code: |-
+            push(2); push(2); pop(); get_min()
+        options: ["Nothing, it returns 2", "get_min fails or returns a stale value", "push raises", "pop returns the wrong value"]
+        answer: [1]
+        explanation: "The second 2 is not pushed on the min stack (2 < 2 is false). Popping the first 2 from the main stack also pops the only 2 from the min stack, leaving it empty while 2 is still in the main stack. Push when x <= current min, or store (value, min) pairs."
+      - id: q4
+        kind: single
+        prompt: Which OrderedDict call evicts the least recently used entry when you always move_to_end on access?
+        options: ["popitem()", "popitem(last=False)", "pop(next(reversed(d)))", "del d[0]"]
+        answer: [1]
+        explanation: "move_to_end puts recent items at the end, so the least recent is at the front; popitem(last=False) removes the front in O(1). popitem() removes the most recent. OrderedDict has no positional index, so d[0] is a key lookup."
+      - id: q5
+        kind: single
+        prompt: A queue built from two stacks moves all elements from inbox to outbox only when outbox is empty. What is the cost of n operations?
+        options: ["O(n²) worst case", "O(n) total, amortised O(1) each", "O(n log n)", "O(1) worst case each"]
+        answer: [1]
+        explanation: "Each element is pushed to inbox once, moved once and popped once: O(n) total. A single dequeue can still cost O(n), so it is not worst-case O(1)."
+      - id: q6
+        kind: short
+        prompt: Why does an LRU cache use a doubly linked list rather than a singly linked one?
+        model_answer: "Moving or evicting a node requires unlinking it from the middle. With a prev pointer that is O(1) from the node the dict gives you; a singly linked list needs the predecessor, which means an O(n) scan."
+        explanation: The dict gives direct access to the node; the list must allow O(1) removal of that node, which needs a back pointer.
+- key: dsa.design_ds.guided
+  type: guided_problem
+  title: "Guided practice: min stack and random set"
+  skills: [design_ds.core]
+  minutes: 35
+  difficulty: MEDIUM
+  problems: [136, 137]
+  body:
+    guidance:
+      - Write the operation table and target costs as a comment before any code.
+      - "For the min stack, store (value, min_so_far) pairs so pop needs no extra logic."
+      - "For the random set, write the delete as four steps: find index, copy last into it, update last's index, pop and delete the key."
+      - Trace deleting the last element and deleting the only element.
+    hints:
+      - The minimum below the top never changes while the top is on the stack.
+      - A dict from value to array index lets you find the hole in O(1).
+- key: dsa.design_ds.timed
+  type: timed_problem
+  title: "Timed practice: LRU cache"
+  skills: [design_ds.core]
+  minutes: 30
+  difficulty: MEDIUM
+  problems: [42]
+  body:
+    guidance:
+      - Say the dict plus doubly linked list design and the invariant in under two minutes.
+      - Ask whether OrderedDict is acceptable; if not, write the list with sentinels.
+      - Trace capacity 2 with an update of an existing key and one eviction before declaring done.
+- key: dsa.design_ds.hit_counter
+  type: coding_exercise
+  title: "Exercise: hits in the last five minutes"
+  skills: [design_ds.core, queue.deque]
+  minutes: 20
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 1200}
+  body:
+    prompt: |-
+      Design `HitCounter` with `hit(timestamp)` and `count(timestamp)`, where `count` returns the number of hits in the 300 seconds ending at `timestamp` (that is, timestamps `t` with `timestamp - 300 < t <= timestamp`). Timestamps are integer seconds and calls arrive in non-decreasing time order. Several hits can share a timestamp.
+
+      State the cost of each method and the memory used, then answer the follow-ups.
+    examples:
+      - "hit(1); hit(2); hit(3); count(4) == 3"
+      - "hit(300); count(300) == 4; count(301) == 3   (the hit at 1 has expired)"
+    constraints:
+      - Up to 10⁶ calls; timestamps non-decreasing.
+    starter:
+      language: python
+      code: |-
+        class HitCounter:
+            def hit(self, timestamp: int) -> None: ...
+            def count(self, timestamp: int) -> int: ...
+    hints:
+      - Old hits only ever leave from the front, new ones arrive at the back.
+      - Store (timestamp, count) pairs so a burst at one second takes one entry.
+      - Keep a running total so count does not need to sum the deque.
+    solution:
+      language: python
+      code: |-
+        from collections import deque
+
+        class HitCounter:
+            WINDOW = 300
+
+            def __init__(self) -> None:
+                self.buckets: deque[list[int]] = deque()   # [timestamp, hits], oldest first
+                self.total = 0
+
+            def _expire(self, now: int) -> None:
+                while self.buckets and self.buckets[0][0] <= now - self.WINDOW:
+                    self.total -= self.buckets.popleft()[1]
+
+            def hit(self, timestamp: int) -> None:
+                self._expire(timestamp)
+                if self.buckets and self.buckets[-1][0] == timestamp:
+                    self.buckets[-1][1] += 1
+                else:
+                    self.buckets.append([timestamp, 1])
+                self.total += 1
+
+            def count(self, timestamp: int) -> int:
+                self._expire(timestamp)
+                return self.total
+      explanation: "Each bucket is appended once and expired once, so both methods are amortised O(1); memory is at most 300 buckets because one bucket exists per distinct second in the window."
+    rubric:
+      - {key: correct_window, label: "Expires exactly the hits with t <= now - 300 (boundary checked on the example)", points: 3}
+      - {key: amortised_cost, label: Uses a deque or ring buffer so each hit is removed once; states amortised O(1), points: 3}
+      - {key: bounded_memory, label: Groups hits per second so memory is bounded by the window length, points: 2}
+      - {key: running_total, label: Keeps a running total instead of summing on every count, points: 2}
+    follow_ups:
+      - prompt: Calls can now arrive slightly out of order (up to 2 seconds late). What changes?
+        look_for: "A fixed ring of 300 slots indexed by t % 300, each slot storing its timestamp and count; reset a slot when its stored timestamp is stale. Late hits land in the right slot."
+      - prompt: Many threads call hit concurrently. What do you protect?
+        look_for: A lock around expire plus update (or per-slot atomic counters with the ring design); mentions that the total and the deque must change together.
+- key: dsa.design_ds.interview
+  type: interview_question
+  title: "Interview question: a game leaderboard"
+  skills: [design_ds.core, heap.top_k]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 900}
+  body:
+    prompt: "Design an in-memory leaderboard with add_score(player, delta), top(k) returning the sum of the k best totals, and reset(player) setting a player's total to zero. Choose structures, give each method's cost, and say what you would change if top(k) were called far more often than add_score."
+    key_points:
+      - "Dict player → total for O(1) add_score and reset."
+      - "top(k) with heapq.nlargest over the totals: O(n log k) per call."
+      - "If top(k) dominates, keep totals in an ordered structure (balanced tree or a sorted list with bisect) so updates cost O(log n) or O(n) and top(k) reads the end in O(k)."
+      - States the read/write trade-off explicitly and asks about n, k and call ratios.
+    model_answer: A dict from player to total makes updates O(1). top(k) then uses heapq.nlargest(k, totals.values()) in O(n log k) with O(k) extra space. If reads dominate, maintain an ordered index of (total, player); a balanced tree gives O(log n) updates and O(k) top(k). In Python without third-party packages, a sorted list with bisect gives O(log n) search but O(n) insert and delete, which is still fine for thousands of players. I would ask how many players and how often each method is called before choosing.
+    pitfalls:
+      - Re-sorting all players on every top(k) call without mentioning the O(n log n) cost.
+      - Keeping a heap of totals and forgetting that updating one player's total in a heap needs an index map or lazy deletion.
+    follow_ups:
+      - prompt: Ties must be broken by who reached the score first. What changes?
+        look_for: Store a sequence number or timestamp with each update and order by (-total, first_reached); updating a total resets the tie-break key.
+      - prompt: There are 10⁸ players across several servers. What changes?
+        look_for: "Partition players; each shard keeps its local top k and a merge step combines them (k-way merge); or use a store with a sorted set. Mentions approximate answers if exactness is not required."
+- key: dsa.design_ds.cards
+  type: revision_card
+  title: "Recall: data structure designs"
+  skills: [design_ds.core]
+  minutes: 5
+  body:
+    cards:
+      - front: LRU cache structures?
+        back: Dict key → node plus a doubly linked list ordered by recency.
+      - front: Why does an LRU node store its key?
+        back: So eviction from the list can delete the dict entry.
+      - front: Min stack in O(1)?
+        back: Push (value, min_so_far) pairs; get_min reads the top pair.
+      - front: O(1) delete in the random set?
+        back: Swap victim with last element, update its index, pop.
+      - front: Two-stack queue cost?
+        back: Amortised O(1); each element moves from inbox to outbox once.
+      - front: First step of any design question?
+        back: Write the operation table with target costs.
+
+# ---------------------------------------------------------------------------------------------- pattern recognition
+- key: dsa.patterns.lesson
+  type: lesson
+  title: Recognising the pattern from the problem statement
+  skills: [dsa.pattern_recognition]
+  minutes: 30
+  difficulty: MEDIUM
+  body:
+    summary: Read the constraints, the input shape and the question type; together they point to two or three candidate patterns, and one check picks the right one.
+    what: |-
+      Pattern recognition is mapping an unfamiliar problem to a known technique — two pointers, sliding window, prefix sum with a hash map, monotonic stack, binary search on the answer, BFS, topological sort, union-find, heap, dynamic programming, backtracking, greedy or a trie — **from signals in the statement**, before writing code. It is not memorising problems; it is noticing the property that makes a technique valid.
+    why: |-
+      In a 45-minute round the first five minutes decide the rest. Naming the right pattern early leaves time for code, testing and a follow-up; picking the wrong one costs fifteen minutes before you notice. Interviewers also want to hear why a pattern applies, because that reasoning transfers to problems you have never seen.
+    when: |-
+      Every problem, right after clarifying and before coding. Also whenever a follow-up changes a constraint (negatives allowed, data arrives as a stream), because the pattern may no longer apply.
+    how: |-
+      Three readings, in order:
+
+      1. **Constraints → target complexity.** n ≤ 20: exponential (backtracking, bitmask). n ≤ 10³: O(n²) fits. n ≤ 10⁵ or 10⁶: O(n log n) or O(n). Values up to 10⁹ with a numeric answer: possibly binary search on the answer.
+      2. **Input shape.** Sorted array, string, intervals, tree, graph or grid, stream, list of words.
+      3. **Question type.** Best or count over **contiguous** ranges; k-th or top k; next greater or smaller; minimum steps; ordering under dependencies; connectivity that changes over time; count or optimise over choices; list **all** combinations; prefix queries on words.
+
+      Trigger signals per pattern:
+
+      - **Two pointers**: sorted input, pairs or triples with a target sum, in-place partitioning or deduplication, palindromes, "container" style moves from both ends.
+      - **Sliding window**: contiguous subarray or substring, "longest or shortest with at most / at least", and validity that is monotonic (shrinking a valid window keeps it valid) — typically non-negative values or character counts.
+      - **Prefix sum + hash map**: contiguous subarray with an exact sum or a divisibility condition, especially when values can be negative so a window cannot shrink correctly; many range-sum queries.
+      - **Monotonic stack**: next greater or smaller element, span or "days until", largest rectangle, removing digits to make the smallest number.
+      - **Binary search on the answer**: "minimum maximum" or "maximum minimum", a numeric answer in a big range, and a feasibility check that flips once (if x works, x + 1 works).
+      - **BFS**: fewest steps or levels in an unweighted graph or grid; multiple sources spreading at once.
+      - **Topological sort**: prerequisites, build order, "is there a valid order", cycle detection in a directed graph.
+      - **Union-find**: edges arrive over time and you are asked "connected?", number of groups, or "which edge first creates a cycle" in an undirected graph.
+      - **Heap**: k-th largest, top k, merge k sorted streams, always process the cheapest or earliest next (Dijkstra, scheduling), running median with two heaps.
+      - **Dynamic programming**: count the ways, or min or max over a sequence of choices, where subproblems overlap (same prefix or remaining amount reached in many ways).
+      - **Backtracking**: list all permutations, combinations, subsets or boards; constraints prune partial choices; n small.
+      - **Greedy**: a locally best choice provably stays optimal (earliest end time, farthest reach); often after sorting; verify with an exchange argument or a counterexample.
+      - **Trie**: many words with prefix queries, autocomplete, word search across a grid against a dictionary.
+    mental_model: |-
+      Think of a triage nurse: constraints are the vital signs, the input shape is where it hurts, and the question type is the symptom. Together they narrow a hundred possibilities to two or three, and one targeted test (does a smaller window stay valid? does greedy fail on a tiny case?) settles it.
+    tradeoffs: |-
+      Several patterns can solve the same problem at different costs: top k with a heap is O(n log k), with sorting O(n log n), with quickselect O(n) average. Pick the one you can write correctly in the time left, and mention the others. Greedy is the fastest to write but needs a correctness argument; DP is safer but costs more time and memory.
+    mistakes:
+      - Matching on one keyword ("subarray" → sliding window) without checking the property; with negative numbers a window that shrinks on overshoot misses answers, so use prefix sums.
+      - Using greedy for coin change with arbitrary denominations; coins [1, 3, 4] and amount 6 gives 4 + 1 + 1 instead of 3 + 3.
+      - Using DFS for "fewest steps" in an unweighted grid; DFS finds a path, not the shortest one.
+      - Backtracking when only the count or the best value is asked and n is large; that usually signals DP.
+      - Ignoring the constraints, which are the strongest single hint.
+    interview: |-
+      Say the pattern and its trigger aloud before coding: "the subarray must be contiguous and values can be negative, so a sliding window does not work; prefix sums with a hash map of counts give O(n)." Interviewers listen for that justification, and for the moment you rule out a tempting alternative. When a follow-up changes a constraint, re-run the same three readings.
+    explain_it:
+      - The constraint and the complexity it implies.
+      - The input shape and the question type.
+      - The pattern and the property that makes it valid here.
+      - One alternative you rejected and why.
+    example:
+      language: python
+      code: |-
+        # Statement (paraphrased): count contiguous subarrays whose sum is exactly k; values may be negative.
+        # Readings: n up to 2 * 10^4 -> O(n) or O(n log n); array; count over contiguous ranges, exact sum.
+        # Negatives break the sliding window (growing can reduce the sum), so: prefix sum + hash map.
+        from collections import Counter
+
+        def count_subarrays(nums: list[int], k: int) -> int:
+            seen = Counter({0: 1})        # prefix sum 0 occurs once before any element
+            prefix = count = 0
+            for x in nums:
+                prefix += x
+                count += seen[prefix - k]  # earlier prefixes p with prefix - p == k
+                seen[prefix] += 1
+            return count
+      explanation: The comments are the recognition step; writing them first takes a minute and prevents a wrong window solution.
+    complexity: Recognition itself is the step that sets the complexity budget; each pattern's typical cost is two pointers and sliding window O(n), heap O(n log k), sort-based O(n log n), BFS and union-find about O(V + E), DP O(states × transitions), backtracking exponential.
+    edge_cases:
+      - Problems that combine two patterns (trie plus backtracking, BFS plus heap, binary search plus greedy check).
+      - A follow-up that removes the property (sorted becomes unsorted, non-negative becomes signed, offline becomes a stream).
+    misconceptions:
+      - "Pattern recognition is memorising solutions. It is checking a property; memorised solutions fail as soon as one constraint changes."
+      - "Every 'minimum number of' question is greedy or DP. Fewest steps in an unweighted graph is BFS; minimum maximum is often binary search on the answer."
+- key: dsa.patterns.worked
+  type: worked_example
+  title: "Worked example: classifying three statements aloud"
+  skills: [dsa.pattern_recognition]
+  minutes: 12
+  difficulty: MEDIUM
+  body:
+    problem: Classify three paraphrased statements using constraints, input shape and question type, including one tempting wrong choice each.
+    steps:
+      - title: Longest substring with at most k distinct characters (n up to 10⁵)
+        text: "Contiguous substring, longest, and validity is monotonic: if a window has at most k distinct characters, every smaller window inside it does too. That is the sliding-window property. Tempting wrong choice: DP, which is unnecessary because there are no overlapping choices. O(n) with a count map."
+      - title: Fewest days to ship all packages if you choose a daily capacity (weights up to 500, n up to 5 × 10⁴)
+        text: "The answer is a number in a range (max weight to total weight), and feasibility is monotonic: if capacity c ships in time, c + 1 does too. That is binary search on the answer with a greedy check. Tempting wrong choice: greedy alone, which cannot pick the capacity directly. O(n log(sum))."
+      - title: Given pairs of accounts that belong to the same person, arriving one at a time, answer how many people there are after each pair
+        text: "Undirected connectivity that changes over time with a count of groups: union-find, decrementing the group count on each successful union. Tempting wrong choice: re-running BFS after every pair, which is O(n × (V + E)). Near O(1) amortised per pair with path compression and union by rank."
+        code:
+          language: python
+          code: |-
+            parent = {}
+
+            def find(x):
+                parent.setdefault(x, x)
+                while parent[x] != x:
+                    parent[x] = parent[parent[x]]   # path halving
+                    x = parent[x]
+                return x
+    takeaways:
+      - Say the property that makes the pattern valid, not only its name.
+      - Name one tempting alternative and the reason it fails or is slower.
+      - Constraints often decide between two candidates.
+    complexity: O(n), O(n log(sum)) and near O(1) amortised per union respectively.
+- key: dsa.patterns.check
+  type: concept_check
+  title: "Concept check: triggers and the properties behind them"
+  skills: [dsa.pattern_recognition]
+  minutes: 10
+  difficulty: MEDIUM
+  body:
+    intro: These questions test the property behind each pattern, not the pattern names alone.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "Count contiguous subarrays with sum exactly k; values range from -1000 to 1000. Why does a sliding window fail?"
+        options:
+          - Sliding windows only work on strings
+          - With negative values, extending the window can decrease the sum, so shrinking on overshoot can skip valid subarrays
+          - Sliding windows cannot count, only find a maximum
+          - The window would be O(n²)
+        answer: [1]
+        explanation: "A window relies on monotonic validity: adding elements only moves the sum one way. Negatives break that, so use prefix sums with a hash map of counts. Windows can count (for example subarrays with at most k distinct values), so that option is wrong."
+      - id: q2
+        kind: single
+        prompt: "Constraints say n ≤ 15 and the task is to list every valid assignment. What is the strongest hint?"
+        options: ["Binary search", "Backtracking or bitmask enumeration", "Sliding window", "Union-find"]
+        answer: [1]
+        explanation: "n ≤ 15 allows 2¹⁵ ≈ 32,000 or even 15! with pruning, and listing every assignment means the output itself can be exponential. That is backtracking territory."
+      - id: q3
+        kind: multi
+        prompt: Which statements suggest binary search on the answer?
+        options:
+          - Minimise the largest sum when splitting an array into k parts
+          - Find the smallest speed that finishes all work within h hours
+          - Find the longest increasing subsequence
+          - Find the number of islands in a grid
+        answer: [0, 1]
+        explanation: "Both have a numeric answer and a monotonic feasibility check: if a largest-sum limit or a speed works, every larger one works. LIS is DP (or patience sorting, which uses binary search inside but not on the answer); islands is BFS/DFS or union-find."
+      - id: q4
+        kind: single
+        prompt: Fewest moves for a knight to reach a target square on a board. Which pattern?
+        options: ["DFS with backtracking", "BFS", "Greedy towards the target", "Topological sort"]
+        answer: [1]
+        explanation: "Every move costs the same, so the fewest moves is the shortest path in an unweighted graph: BFS. DFS finds some path, not the shortest; greedy towards the target fails near edges and corners."
+      - id: q5
+        kind: single
+        prompt: "Coins [1, 3, 4], amount 6. What does always taking the largest coin give, and what does that tell you?"
+        options:
+          - "2 coins; greedy is optimal"
+          - "3 coins (4 + 1 + 1) while 3 + 3 uses 2; greedy fails, use DP"
+          - "3 coins; any approach gives 3"
+          - "Greedy cannot produce an answer"
+        answer: [1]
+        explanation: "One small counterexample rules greedy out; overlapping subproblems (the same remaining amount reached many ways) point to DP."
+      - id: q6
+        kind: short
+        prompt: "A problem says: for each element, find the distance to the next element to its right that is strictly larger. Name the pattern and the invariant."
+        model_answer: "Monotonic stack of indices whose values are decreasing from bottom to top. Each new element pops every smaller element on the stack (it is their next greater) and then is pushed. Each index is pushed and popped once, so O(n)."
+        explanation: "'Next greater' is the textbook trigger. The invariant (stack values decreasing) is what you should say, not only the name."
+- key: dsa.patterns.quiz_arrays
+  type: quiz
+  title: "Pattern quiz 1: arrays, strings and windows"
+  skills: [dsa.pattern_recognition, sliding_window.core, two_pointers.core]
+  minutes: 12
+  difficulty: MEDIUM
+  body:
+    intro: Each prompt is a paraphrased problem. Pick the pattern you would reach for first. Read the explanation even when you are right; it names the trigger.
+    questions:
+      - id: q1
+        kind: single
+        prompt: Find the longest stretch of a string that contains at most two different characters.
+        options: ["Two pointers from both ends", "Sliding window", "Monotonic stack", "Dynamic programming"]
+        answer: [1]
+        explanation: "Triggers: contiguous, longest, 'at most'. Shrinking a valid window keeps it valid, so a variable window with a character count map is O(n). Opposite-end pointers do not fit because the answer can be anywhere in the middle."
+      - id: q2
+        kind: single
+        prompt: Count contiguous subarrays whose sum is exactly k, where values can be negative.
+        options: ["Sliding window", "Prefix sum + hash map", "Two pointers on the sorted array", "Heap"]
+        answer: [1]
+        explanation: "Triggers: contiguous, exact sum, negatives. A window cannot decide when to shrink; a running prefix with a count of earlier prefixes finds pairs with difference k in O(n). Sorting destroys contiguity."
+      - id: q3
+        kind: single
+        prompt: A sorted array; return two positions whose values add up to a target, using constant extra memory.
+        options: ["Hash map", "Two pointers", "Binary search on the answer", "Backtracking"]
+        answer: [1]
+        explanation: "Triggers: sorted, pair, target sum, O(1) space. Moving the left pointer up raises the sum, moving the right one down lowers it. A hash map also works but uses O(n) space, which the constraint rules out."
+      - id: q4
+        kind: single
+        prompt: For each day's temperature, report how many days you wait until a warmer day.
+        options: ["Monotonic stack", "Heap", "Sliding window", "Prefix sum + hash map"]
+        answer: [0]
+        explanation: "Trigger: next greater element to the right. Keep unresolved days on a stack with decreasing temperatures; a warmer day resolves everything colder on top. O(n). A heap gives the global maximum, not the next one."
+      - id: q5
+        kind: single
+        prompt: Choose the smallest daily capacity that lets you deliver a sequence of parcels, in order, within D days.
+        options: ["Greedy", "Binary search on the answer", "Dynamic programming", "Sliding window"]
+        answer: [1]
+        explanation: "Triggers: smallest numeric value, monotonic feasibility (more capacity never hurts). Binary search the capacity and check each candidate greedily in O(n). Greedy alone cannot choose the capacity; DP is unnecessary."
+      - id: q6
+        kind: single
+        prompt: Given a long list of words, return the k words that occur most often.
+        options: ["Heap", "Monotonic stack", "Two pointers", "Union-find"]
+        answer: [0]
+        explanation: "Trigger: top k. Count with a dict, then keep a size-k min-heap: O(n log k). Bucket sort by frequency is a valid O(n) alternative; sorting everything is O(n log n)."
+      - id: q7
+        kind: single
+        prompt: Find the largest sum among all runs of exactly k consecutive numbers.
+        options: ["Prefix sum + hash map", "Sliding window", "Binary search on the answer", "Backtracking"]
+        answer: [1]
+        explanation: "Triggers: contiguous, fixed length k. A fixed window adds the new element and subtracts the one leaving: O(n). A prefix array also works, but there is no exact-sum lookup, so the hash map is unnecessary."
+      - id: q8
+        kind: single
+        prompt: Given meeting start and end times, find the minimum number of rooms needed so no two overlapping meetings share a room.
+        options: ["Heap", "Two pointers from both ends", "Trie", "Dynamic programming"]
+        answer: [0]
+        explanation: "Triggers: intervals, 'which room frees up first'. Sort by start and keep a min-heap of end times; the heap size is the answer, O(n log n). A sweep over sorted starts and ends is an equivalent alternative."
+      - id: q9
+        kind: single
+        prompt: Find the area of the largest rectangle that fits under a bar chart.
+        options: ["Monotonic stack", "Sliding window", "Greedy", "BFS"]
+        answer: [0]
+        explanation: "Trigger: for each bar, how far it extends left and right before a shorter bar — the previous and next smaller element. An increasing stack finds both in O(n). A window has no monotonic validity here."
+      - id: q10
+        kind: multi
+        prompt: Which of these are typical two-pointer triggers?
+        options:
+          - Remove duplicates in place from a sorted array
+          - Check whether a string reads the same backwards
+          - Shortest path in a weighted graph
+          - Find all unique triples that sum to zero after sorting
+        answer: [0, 1, 3]
+        explanation: "In-place compaction (slow and fast pointers), palindromes (both ends) and sorted k-sum (fix one, two pointers on the rest) are all two-pointer problems. Weighted shortest path is Dijkstra with a heap."
+- key: dsa.patterns.quiz_graphs
+  type: quiz
+  title: "Pattern quiz 2: graphs, grids, trees and words"
+  skills: [dsa.pattern_recognition, graph.traversal]
+  minutes: 12
+  difficulty: MEDIUM
+  body:
+    intro: Each prompt is a paraphrased problem about connections or structure. Pick the pattern you would use first.
+    questions:
+      - id: q1
+        kind: single
+        prompt: Find the fewest moves to get from the top-left to the bottom-right of a grid with walls, moving one cell at a time.
+        options: ["DFS", "BFS", "Union-find", "Topological sort"]
+        answer: [1]
+        explanation: "Trigger: fewest steps, every step costs the same. BFS visits cells in order of distance, so the first time it reaches the goal is optimal. DFS can find a long path first."
+      - id: q2
+        kind: single
+        prompt: Given courses and their prerequisite pairs, return an order in which all courses can be taken, or report that none exists.
+        options: ["Topological sort", "BFS on an undirected graph", "Heap", "Union-find"]
+        answer: [0]
+        explanation: "Triggers: dependencies, an ordering, 'impossible' means a cycle in a directed graph. Kahn's algorithm processes nodes with in-degree zero; leftover nodes mean a cycle. Union-find ignores edge direction."
+      - id: q3
+        kind: single
+        prompt: Friendships arrive one at a time; after each one, answer whether two given people are in the same circle.
+        options: ["BFS after each friendship", "Union-find", "Topological sort", "Trie"]
+        answer: [1]
+        explanation: "Triggers: undirected connectivity that grows over time, many 'same group?' queries. Union-find answers each in near O(1) amortised. Re-running BFS each time costs O(V + E) per query."
+      - id: q4
+        kind: single
+        prompt: Support adding words and answering 'how many stored words start with this prefix?' many times.
+        options: ["Hash set of words", "Trie", "Heap", "Sliding window"]
+        answer: [1]
+        explanation: "Trigger: prefix queries over a dictionary. A trie node per prefix with a count answers in O(length of prefix). A set needs a scan of all words per query."
+      - id: q5
+        kind: single
+        prompt: Find the cheapest route between two cities when every road has a non-negative cost.
+        options: ["BFS", "Heap (Dijkstra)", "Topological sort", "Backtracking"]
+        answer: [1]
+        explanation: "Triggers: weighted edges, non-negative, minimum total cost. Dijkstra pops the cheapest frontier node from a min-heap, O((V + E) log V). Plain BFS is only correct when all edges cost the same."
+      - id: q6
+        kind: single
+        prompt: Several cells in a grid start burning at once; fire spreads to neighbours each minute. When is everything burnt?
+        options: ["Multi-source BFS", "DFS from each fire", "Dynamic programming", "Union-find"]
+        answer: [0]
+        explanation: "Triggers: several sources spreading simultaneously, time in equal steps. Put all sources in the queue at distance 0 and run one BFS. Running one search per source multiplies the work."
+      - id: q7
+        kind: single
+        prompt: Edges of an undirected graph are listed one by one; return the first edge that closes a cycle.
+        options: ["Topological sort", "Union-find", "Monotonic stack", "Heap"]
+        answer: [1]
+        explanation: "Trigger: incremental undirected edges and 'first edge whose endpoints are already connected'. find(u) == find(v) before the union identifies it. Topological sort is for directed graphs."
+      - id: q8
+        kind: single
+        prompt: Find every word from a large dictionary that can be traced through adjacent letters in a letter grid.
+        options: ["Trie with backtracking", "Sliding window", "Topological sort", "Heap"]
+        answer: [0]
+        explanation: "Triggers: many words, grid paths. A trie of the dictionary lets the grid DFS stop as soon as a path is not a prefix of any word; searching each word separately repeats the grid walk per word."
+      - id: q9
+        kind: single
+        prompt: Sorted words come from an unknown alphabet. Recover a valid letter order.
+        options: ["Topological sort", "Union-find", "Greedy", "Binary search"]
+        answer: [0]
+        explanation: "Triggers: ordering constraints between letters, derived from the first differing letter of adjacent words. Build a directed graph and topologically sort it; a cycle means no valid order."
+      - id: q10
+        kind: single
+        prompt: Print a binary tree level by level, left to right.
+        options: ["BFS", "Monotonic stack", "Union-find", "Prefix sum + hash map"]
+        answer: [0]
+        explanation: "Trigger: by level or by depth order. BFS with a queue, processing one level's worth of nodes per round. DFS can also do it with a depth parameter, but BFS matches the question directly."
+- key: dsa.patterns.quiz_optimise
+  type: quiz
+  title: "Pattern quiz 3: DP, greedy, backtracking and heaps"
+  skills: [dsa.pattern_recognition, dp.fundamentals, greedy.core]
+  minutes: 12
+  difficulty: MEDIUM
+  body:
+    intro: These prompts all ask to count, list or optimise choices. The hard part is telling DP, greedy and backtracking apart.
+    questions:
+      - id: q1
+        kind: single
+        prompt: Count the ways to climb n stairs taking one or two steps at a time.
+        options: ["Dynamic programming", "Backtracking listing every way", "Greedy", "Heap"]
+        answer: [0]
+        explanation: "Triggers: count the ways, each state (current stair) reached from a fixed set of previous states. ways[i] = ways[i - 1] + ways[i - 2], O(n). Listing each way is exponential when only the count is asked."
+      - id: q2
+        kind: single
+        prompt: Fewest coins to make an amount from a given set of denominations (any denominations).
+        options: ["Greedy, largest coin first", "Dynamic programming", "Two pointers", "BFS on the coin list"]
+        answer: [1]
+        explanation: "Triggers: minimise a count over choices, arbitrary denominations. Greedy fails for coins like [1, 3, 4] and amount 6. DP over amounts is O(amount × coins). BFS over amounts also works, but not over the coin list."
+      - id: q3
+        kind: single
+        prompt: Remove the fewest intervals so the rest do not overlap.
+        options: ["Greedy, sort by end time", "Backtracking", "Dynamic programming over all subsets", "Union-find"]
+        answer: [0]
+        explanation: "Trigger: interval scheduling. Keeping the interval that ends earliest leaves the most room; an exchange argument proves it. O(n log n). Subset search is exponential."
+      - id: q4
+        kind: single
+        prompt: List every combination of candidate numbers (reuse allowed) that adds up to a target.
+        options: ["Dynamic programming counting ways", "Backtracking", "Greedy", "Sliding window"]
+        answer: [1]
+        explanation: "Trigger: list all combinations. The output itself can be exponential, so explore choices with a start index and prune when the remaining target drops below zero. DP would count them, not list them."
+      - id: q5
+        kind: single
+        prompt: Each array value is the maximum jump length from that position. Can you reach the last index?
+        options: ["Greedy, track the farthest reachable index", "Backtracking", "Topological sort", "Heap"]
+        answer: [0]
+        explanation: "Trigger: reachability where reaching further never hurts. One pass keeping the farthest reachable index is O(n). Backtracking explores exponential paths; DP works in O(n²) but is unnecessary."
+      - id: q6
+        kind: single
+        prompt: Find the length of the longest sequence of characters that appears in both strings in order, not necessarily contiguous.
+        options: ["Sliding window", "Dynamic programming", "Two pointers", "Trie"]
+        answer: [1]
+        explanation: "Triggers: two sequences, subsequence, best length. dp[i][j] over prefix pairs, O(m × n). A window needs contiguity; two pointers only check whether one string is a subsequence of the other."
+      - id: q7
+        kind: single
+        prompt: Place n queens on an n × n board so none attack each other, and return every board.
+        options: ["Backtracking", "Dynamic programming", "Greedy", "BFS"]
+        answer: [0]
+        explanation: "Triggers: return every configuration, constraints prune partial placements, small n. Place row by row with column and diagonal sets, undoing on return."
+      - id: q8
+        kind: single
+        prompt: Given points on a plane, return the k closest to the origin.
+        options: ["Heap", "Dynamic programming", "Topological sort", "Monotonic stack"]
+        answer: [0]
+        explanation: "Trigger: k best by a key. A size-k max-heap on squared distance is O(n log k); quickselect is O(n) average. Sorting everything is O(n log n)."
+      - id: q9
+        kind: single
+        prompt: Minimum number of single-character inserts, deletes and replacements to turn one word into another.
+        options: ["Greedy", "Dynamic programming", "BFS over all strings", "Backtracking"]
+        answer: [1]
+        explanation: "Triggers: two strings, minimise operations, overlapping subproblems over prefix pairs. Edit distance is a classic O(m × n) DP. BFS over strings is correct in principle but explodes."
+      - id: q10
+        kind: single
+        prompt: Each child needs a cookie of at least some size; each cookie can go to one child. Maximise the number of satisfied children.
+        options: ["Greedy after sorting both lists", "Backtracking", "Union-find", "Dynamic programming over subsets"]
+        answer: [0]
+        explanation: "Triggers: matching with a simple order, giving the smallest sufficient cookie to the least demanding child never hurts. Sort both and use two pointers: O(n log n). Subset DP is exponential."
+- key: dsa.patterns.timed
+  type: timed_problem
+  title: "Timed practice: name the pattern in two minutes, then solve"
+  skills: [dsa.pattern_recognition]
+  minutes: 60
+  difficulty: MEDIUM
+  problems: [55, 98, 58, 63]
+  body:
+    guidance:
+      - "Before writing code, give yourself two minutes per problem to write three lines: constraint and target complexity, input shape and question type, pattern and the property that justifies it."
+      - Write one rejected alternative and why it fails for this problem.
+      - Then solve under the timer. If your pattern turned out wrong, note which signal you misread.
+- key: dsa.patterns.interview
+  type: interview_question
+  title: "Interview question: justify the pattern, then change a constraint"
+  skills: [dsa.pattern_recognition, prefix_sum.core, sliding_window.core]
+  minutes: 10
+  difficulty: MEDIUM
+  observation: {kind: CONCEPT_EXPLAIN, time_limit_seconds: 600}
+  body:
+    prompt: "An array of positive integers and a value s: find the length of the shortest contiguous run whose sum is at least s. Name the pattern, justify it with the property it relies on, and give the complexity. Then the interviewer says values may now be negative: what changes?"
+    key_points:
+      - "Positive values: sliding window, because extending raises the sum and shrinking lowers it, so the window can shrink greedily while the sum is at least s. O(n), O(1) space."
+      - "Names the property explicitly (monotonic sum as the window grows or shrinks)."
+      - "With negatives the property breaks; the window can skip answers."
+      - "Proposes prefix sums with a monotonic deque of prefix indices (O(n)), or prefix sums with sorted search (O(n log n)), and explains why."
+    model_answer: With positive values the window sum is monotonic in both directions, so a variable window that shrinks from the left while the sum is at least s finds every minimal candidate in O(n). With negatives, removing an element can increase the sum, so shrinking is no longer safe. Instead compute prefix sums P; I want the largest i < j with P[j] - P[i] >= s. A deque of indices with increasing P values lets each j pop answers from the front and maintain the deque from the back, O(n) overall.
+    pitfalls:
+      - Naming 'sliding window' without the monotonic property, then not noticing that negatives break it.
+      - Proposing O(n²) for the negative case without trying prefix sums.
+    follow_ups:
+      - prompt: Why can the deque discard an index i from the back when P[i] >= P[j] for the new j?
+        look_for: For any future end, j is both later (shorter run) and has a smaller or equal prefix (larger or equal sum), so i can never be a better start than j.
+      - prompt: What if the question asked for the number of runs with sum exactly s, values possibly negative?
+        look_for: "Prefix sum + hash map of prefix counts, O(n); a window or deque no longer applies because the condition is equality."
+- key: dsa.patterns.cards_linear
+  type: revision_card
+  title: "Recall: triggers for linear-structure patterns"
+  skills: [dsa.pattern_recognition]
+  minutes: 5
+  body:
+    cards:
+      - front: Two pointers trigger?
+        back: Sorted input, pair or triple sums, in-place compaction, palindromes.
+      - front: Sliding window trigger?
+        back: Contiguous range, longest or shortest with a monotonic validity condition.
+      - front: Prefix sum + hash map trigger?
+        back: Contiguous range with an exact sum or remainder, negatives allowed.
+      - front: Monotonic stack trigger?
+        back: Next or previous greater or smaller element, spans, histogram areas.
+      - front: Binary search on the answer trigger?
+        back: Numeric answer with a feasibility check that flips once.
+      - front: Heap trigger?
+        back: Top k, k-th, merge k sorted, always process the cheapest next.
+- key: dsa.patterns.cards_search
+  type: revision_card
+  title: "Recall: triggers for graph and search patterns"
+  skills: [dsa.pattern_recognition]
+  minutes: 5
+  body:
+    cards:
+      - front: BFS trigger?
+        back: Fewest steps with equal edge costs, levels, multiple simultaneous sources.
+      - front: Topological sort trigger?
+        back: Prerequisites, build order, cycle detection in a directed graph.
+      - front: Union-find trigger?
+        back: Undirected connectivity that grows over time; groups; first cycle edge.
+      - front: Dynamic programming trigger?
+        back: Count ways or optimise over choices with overlapping subproblems.
+      - front: Backtracking trigger?
+        back: List all combinations or boards; small n; prune partial choices.
+      - front: Greedy trigger?
+        back: A local choice provable by exchange argument, often after sorting.
+      - front: Trie trigger?
+        back: Many words with prefix queries, or a dictionary searched across a grid.

@@ -123,6 +123,8 @@ describe('Problem list for a skill without problems', () => {
     await settle(wrapper, '[data-testid="practice-fallback"]')
     expect(wrapper.text()).not.toContain('No problems match.')
     expect(wrapper.find('[data-testid="related-problems"]').text()).toContain('Two Sum')
+    // the problem page resolves the full key (platform:slug), as every other problem link does
+    expect(wrapper.findAllComponents(RouterLinkStub).some((l) => JSON.stringify(l.props('to')) === JSON.stringify({ name: 'problem', params: { problemKey: 'LEETCODE:two-sum' } }))).toBe(true)
     expect(wrapper.find('[data-testid="fallback-content"]').exists()).toBe(true)
     expect(linkTo(wrapper, 'open-skill')).toEqual({ name: 'skill', params: { key: 'dsa.complexity_analysis' } })
   })
@@ -258,5 +260,47 @@ describe('Today missions open their learning session', () => {
     await flushPromises()
     expect(api.post).toHaveBeenCalledWith('/learning/sessions', { skill: 'graph.traversal', stage: 'PATTERN_DRILL', plan_item_id: 7 })
     expect(push).toHaveBeenCalledWith({ name: 'session', params: { id: 12 } })
+  })
+})
+
+describe('Mock kits', () => {
+  it('offers rehearsal prompts per round with the skills to probe first', async () => {
+    const { default: MockKits } = await import('../src/components/learning/MockKits.vue')
+    const { summary } = await import('./learningFixtures')
+    serve(api, {
+      '/learning/mock-kits': [
+        { round: 'DSA_1', round_type: 'DSA', minutes: 45, components: ['dsa'], items: [summary('dsa.x.q', 'interview_question', { time_limit_seconds: 600 })],
+          focus_skills: [{ key: 'graph.traversal', name: 'Graphs', status: 'CRITICAL' }] },
+        { round: 'SYSTEM_DESIGN', round_type: 'SYSTEM_DESIGN', minutes: 45, components: ['system_design'], items: [], focus_skills: [] },
+      ],
+    })
+    const wrapper = mount(MockKits, { global: { stubs } })
+    await settle(wrapper, '[data-testid="mock-kits"]')
+    expect(wrapper.text()).toContain('Probe first:')
+    expect(wrapper.find('[data-testid="kit-items-DSA_1"]').text()).toContain('Title of dsa.x.q')
+    await wrapper.find('[data-testid="kit-SYSTEM_DESIGN"]').trigger('click')
+    expect(wrapper.text()).toContain('No timed prompts for this round in the library yet.')
+  })
+})
+
+describe('Coverage report (Developer / System)', () => {
+  it('summarises states for required skills and filters the table', async () => {
+    const { default: CoverageView } = await import('../src/views/settings/CoverageView.vue')
+    const row = (key: string, state: 'FULL' | 'CONTENT_GAP', required = true) => ({
+      skill_key: key, skill_name: key, component: 'dsa', tracks: ['dsa'], tier: required ? 'T1' : 'T4', importance: 100, required,
+      direct_learning_content: state === 'FULL' ? 1 : 0, concept_checks: 0, practice_count: 0, timed_practice: 0, revision_content: 0,
+      mock_coverage: ['DSA'], coverage_state: state,
+    })
+    serve(api, { '/learning/coverage': {
+      summary: { all: { FULL: 1, PARTIAL: 0, UNMEASURED: 0, CONTENT_GAP: 2 }, required: { FULL: 1, PARTIAL: 0, UNMEASURED: 0, CONTENT_GAP: 1 } },
+      content_counts: { lesson: 3, quiz: 0 },
+      rows: [row('a.full', 'FULL'), row('b.gap', 'CONTENT_GAP'), row('c.optional', 'CONTENT_GAP', false)],
+    } })
+    const wrapper = mount(CoverageView, { global: { stubs } })
+    await settle(wrapper, '[data-testid="coverage-table"]')
+    expect(wrapper.findAll('tbody tr')).toHaveLength(2) // required only by default
+    await wrapper.find('[data-testid="coverage-filter"]').setValue('CONTENT_GAP')
+    expect(wrapper.findAll('tbody tr').map((r) => r.text())).toEqual([expect.stringContaining('b.gap')])
+    expect(wrapper.text()).toContain('3 Lesson')
   })
 })

@@ -1,5 +1,5 @@
-"""Learning layer through the API (MASTER_SPEC_V3 Phase B vertical slice): one skill -> lesson -> concept check ->
-completion -> evidence -> skill state; skill learning read model; sessions; curriculum; coverage."""
+"""Learning layer through the API (MASTER_SPEC_V3 Phase B vertical slice): one skill -> lesson ->
+concept check -> completion -> evidence -> skill state; skill learning; sessions; curriculum; coverage."""
 
 from __future__ import annotations
 
@@ -124,7 +124,7 @@ def test_skill_learning_read_model_cases(activity_client: TestClient) -> None:
     assert (
         concept["why_it_matters"]["tier_label"] == "CRITICAL" and "DSA" in concept["why_it_matters"]["rounds"]
     )
-    # The mentor's own focus decides the stage: an unmeasured skill is diagnosed first (MENTOR_ENGINE, unchanged)
+    # The mentor's own focus decides the stage: an unmeasured skill is diagnosed first (MENTOR_ENGINE)
     assert concept["next_action"]["kind"] == "START_SESSION" and concept["next_action"]["stage"] == "DIAGNOSE"
     assert concept["next_action"]["reason"] == "GAP_FOCUS"
     assert concept["next_action"]["steps"][0]["content_key"] == CHECK
@@ -270,7 +270,7 @@ def test_curriculum_track_and_coverage(activity_client: TestClient) -> None:
 def test_plan_shows_the_session_a_skill_mission_opens(
     activity_client: TestClient, catalog_engine: Engine
 ) -> None:
-    """The planner is unchanged; the plan read model only adds, per pending skill mission, the session it opens."""
+    """The planner is unchanged; the plan read model adds, per pending skill mission, its session."""
     from app.models import PlanItemRow, Skill
 
     plan = get(activity_client, "/today")["data"]["plan"]
@@ -315,3 +315,31 @@ def test_plan_shows_the_session_a_skill_mission_opens(
         get(activity_client, "/today")["data"]["plan"]["learning"][str(item_id)]["session_id"]
         == started["id"]
     )
+
+
+def test_mock_kits_cover_every_round_with_timed_prompts(activity_client: TestClient) -> None:
+    kits = get(activity_client, "/learning/mock-kits")["data"]
+    assert [k["round"] for k in kits] == [
+        "DSA_1",
+        "DSA_2",
+        "CS_FUNDAMENTALS",
+        "LLD",
+        "SYSTEM_DESIGN",
+        "BEHAVIORAL",
+        "PROJECT_DEEP_DIVE",
+    ]  # the existing loop; the final simulation is the full mock
+    dsa = kits[0]
+    assert dsa["round_type"] == "DSA" and dsa["minutes"] == 45 and dsa["components"] == ["dsa", "coding"]
+    keys = [i["key"] for i in dsa["items"]]
+    assert "dsa.complexity.compare" in keys or "dsa.complexity.exercise" in keys
+    assert all(i["time_limit_seconds"] or i["type"] == "timed_problem" for k in kits for i in k["items"])
+    assert len({i["skills"][0] for i in dsa["items"]}) == len(dsa["items"])  # one prompt per skill
+    assert len(dsa["focus_skills"]) == 3
+
+
+def test_skill_focus_names_one_observation_kind_even_when_the_template_allows_several(
+    activity_client: TestClient,
+) -> None:
+    focus = get(activity_client, "/skills/dsa.complexity_analysis")["data"]["focus"]
+    assert focus is not None and focus["observation_kind"] in ("STUDY_SESSION", "RECALL_QUIZ", "ATTEMPT")
+    assert "[" not in focus["observation_kind"]

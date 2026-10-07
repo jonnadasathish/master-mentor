@@ -50,7 +50,7 @@ defineProps<{ content: ContentDetail }>()
         :data-testid="`problem-${p.id}`"
       >
         <RouterLink
-          :to="{ name: 'problem', params: { problemKey: p.key.split(':').slice(1).join(':') } }"
+          :to="{ name: 'problem', params: { problemKey: p.key } }"
           class="title"
         >
           {{ p.title }}
@@ -62,7 +62,7 @@ defineProps<{ content: ContentDetail }>()
           quiet
         />
         <RouterLink
-          :to="{ name: 'problem', params: { problemKey: p.key.split(':').slice(1).join(':') } }"
+          :to="{ name: 'problem', params: { problemKey: p.key } }"
           class="btn btn-sm btn-primary"
         >
           <Icon

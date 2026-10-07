@@ -1,0 +1,1177 @@
+# Learning content: DSA foundations — stacks, queues and deques, monotonic stacks, linked lists and fast/slow pointers.
+seed_version: seed-v2
+content:
+# ---------------------------------------------------------------------------------------------- stack
+- key: dsa.stack.lesson
+  type: lesson
+  title: Stacks for matching, nesting and evaluation
+  skills: [stack.basic]
+  minutes: 20
+  difficulty: EASY
+  body:
+    summary: A stack holds the things that are still open, most recent on top; whenever the newest open thing must be resolved first, a stack is the structure.
+    what: |-
+      A stack is last-in, first-out (LIFO): `push` adds on top, `pop` removes from the top, `peek` reads the top. In Python a `list` is the stack: `append`, `pop()` and `stack[-1]`, all amortised O(1).
+
+      Typical uses:
+
+      - **Matching:** brackets, tags, quotes — the most recent opener must be closed first.
+      - **Nesting:** decoding `3[a2[c]]`, simplifying file paths, undo history.
+      - **Evaluation:** postfix (reverse Polish) expressions, and infix expressions with operator precedence.
+      - **Replacing recursion:** an explicit stack for iterative DFS when the recursion depth could exceed Python's limit (1000 by default).
+    why: |-
+      Nested structure means the last thing opened is the first thing that can be closed. A counter can check a single bracket type, but as soon as there are several types or the content between them matters, you need to remember the order of what is open — exactly what a stack stores. Each element is pushed and popped at most once, so a stack pass is O(n).
+    when: |-
+      - The input has nesting or matching pairs.
+      - Processing an element may cancel or combine with the most recent unprocessed element ("remove adjacent duplicates", "asteroid collisions").
+      - You evaluate an expression or parse a path or a nested encoding.
+      - You need to convert recursion to iteration.
+    how: |-
+      **Matching brackets:**
+
+      ```python
+      pairs = {")": "(", "]": "[", "}": "{"}
+      stack = []
+      for ch in s:
+          if ch in "([{":
+              stack.append(ch)
+          elif not stack or stack.pop() != pairs[ch]:
+              return False
+      return not stack          # leftover openers mean unbalanced
+      ```
+
+      **Postfix evaluation:** push numbers; on an operator pop the **right** operand first, then the left, compute and push the result. For division that truncates toward zero, use `int(a / b)` for small values or sign-aware integer division; `//` floors, so `-7 // 2 == -4` while truncation gives `-3`.
+
+      **Nested decoding:** when you meet `[`, push a frame (the string built so far and the repeat count) and start fresh; on `]`, pop the frame and set `current = previous + count × current`.
+    mental_model: |-
+      The stack is the list of things still waiting for their partner, ordered by how recently they started. Invariant: the top is the only element that can be resolved next. If an element could be resolved out of order, a stack is the wrong tool.
+    tradeoffs: |-
+      A stack uses O(n) memory in the worst case (all openers). For a single bracket type a counter is O(1) memory and enough. Recursion is a stack too, and often reads more clearly for nested grammars, but Python's default recursion limit (1000) and frame overhead make an explicit stack safer for deep inputs.
+    mistakes:
+      - Returning True at the end without checking that the stack is empty.
+      - Popping from an empty stack (IndexError) when a closer arrives first.
+      - "Swapping operands for `-` and `/`: the first pop is the right operand."
+      - Using `//` where the problem asks for truncation toward zero.
+      - Reading multi-digit numbers one character at a time without accumulating them.
+      - Using `list.pop(0)` thinking it pops the top; that is the bottom, and O(n).
+    interview: |-
+      Stack problems are often warm-ups; the signal is how cleanly you handle the empty-stack and leftover cases. Say the invariant ("the stack holds unmatched openers"), then test with an input that starts with a closer and one that ends with an opener. Follow-ups: support another bracket type, evaluate with precedence, return the index of the first error.
+    explain_it:
+      - Say what the stack holds and when items are pushed and popped.
+      - State the invariant (the top is the only resolvable item).
+      - Cover the empty-stack case on pop and the non-empty stack at the end.
+      - O(n) time because each element is pushed and popped at most once; O(n) space worst case.
+    example:
+      language: python
+      code: |-
+        def simplify_path(path: str) -> str:
+            """Canonical form of a Unix-style absolute path."""
+            stack: list[str] = []
+            for part in path.split("/"):
+                if part == "" or part == ".":
+                    continue                    # empty segments and "." change nothing
+                if part == "..":
+                    if stack:
+                        stack.pop()             # go up, but never above the root
+                else:
+                    stack.append(part)
+            return "/" + "/".join(stack)
+
+        assert simplify_path("/a/./b/../../c/") == "/c"
+        assert simplify_path("/../") == "/"
+        assert simplify_path("/home//user/") == "/home/user"
+      explanation: The stack holds the directories of the current path; ".." resolves the most recent one. O(n) time and space.
+    complexity: Push, pop and peek are amortised O(1) on a Python list; a full pass is O(n) time with O(n) worst-case space.
+    edge_cases:
+      - Empty input.
+      - A closer before any opener.
+      - Only openers.
+      - Deep nesting (recursion limit if you solve it recursively).
+    misconceptions:
+      - "A counter is enough for any bracket problem — only for a single bracket type; \"([)]\" has balanced counts but is invalid."
+- key: dsa.stack.check
+  type: concept_check
+  title: "Concept check: stacks"
+  skills: [stack.basic]
+  minutes: 8
+  difficulty: EASY
+  body:
+    intro: Trace each snippet with a tiny input.
+    questions:
+      - id: q1
+        kind: single
+        prompt: This bracket checker has a bug. Which input does it wrongly accept?
+        code:
+          language: python
+          code: |-
+            def balanced(s):
+                pairs = {")": "(", "]": "[", "}": "{"}
+                stack = []
+                for ch in s:
+                    if ch in "([{":
+                        stack.append(ch)
+                    elif not stack or stack.pop() != pairs[ch]:
+                        return False
+                return True
+        options: ["\"(]\"", "\"((\"", "\")(\"", "\"([)]\""]
+        answer: [1]
+        explanation: "It never checks the leftover stack, so \"((\" returns True. The others are rejected inside the loop: a mismatched pop, a closer on an empty stack, and ) meeting [ on top."
+      - id: q2
+        kind: single
+        prompt: "A postfix evaluator handles `-` with `stack.append(stack.pop() - stack.pop())`. What does it produce for the tokens 2 1 - (correct answer 1)?"
+        options: ["1", "-1", "3", "It raises an error"]
+        answer: [1]
+        explanation: "Python evaluates the left operand first, so the first pop returns 1 (the right operand) and the expression computes 1 - 2 = -1. Pop into named variables: b = pop(), a = pop(), push a - b."
+      - id: q3
+        kind: single
+        prompt: "What are `-7 // 2` and `int(-7 / 2)` in Python?"
+        options: ["-4 and -3", "-3 and -3", "-3 and -4", "-4 and -4"]
+        answer: [0]
+        explanation: "`//` floors toward negative infinity (-4); int() truncates toward zero (-3). Problems that specify truncation need the second form (or sign-aware integer division to avoid float precision on huge values)."
+      - id: q4
+        kind: multi
+        prompt: Which problems are naturally solved with a stack?
+        options:
+          - "Decode a nested encoding such as 3[a2[c]]"
+          - Undo the most recent edit in an editor
+          - Shortest path in an unweighted grid
+          - Check that HTML-like tags are properly nested
+        answer: [0, 1, 3]
+        explanation: "Nesting and most-recent-first are stack properties. Shortest path in an unweighted grid needs BFS, which uses a FIFO queue; a stack would give DFS, which does not find shortest paths."
+      - id: q5
+        kind: single
+        prompt: What does `3[a2[c]]` decode to?
+        options: ["\"acc\"", "\"accaccacc\"", "\"aaacc\"", "\"acacac\""]
+        answer: [1]
+        explanation: "Inner first: 2[c] is cc, so a2[c] is acc, and 3[acc] is accaccacc. Decoding outer-first gives the wrong nesting."
+      - id: q6
+        kind: short
+        prompt: Describe the stack-based decoding of strings like `3[a2[c]]`, including multi-digit counts.
+        model_answer: "Keep current string and current number. Digits: number = number × 10 + digit. On [, push (current, number) and reset both. Letters: append to current. On ], pop (previous, count) and set current = previous + current × count. At the end current is the answer. Each character is handled once, but output size can be much larger than the input."
+        explanation: The frame (string so far, repeat count) is what makes nesting work; forgetting multi-digit counts is the usual bug.
+- key: dsa.stack.exercise
+  type: coding_exercise
+  title: "Exercise: remove adjacent equal pairs until none remain"
+  skills: [stack.basic, strings.manipulation]
+  minutes: 10
+  difficulty: EASY
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 600}
+  body:
+    prompt: |-
+      Repeatedly delete two adjacent equal characters from a lowercase string until no such pair remains, and return the result. The final result is unique regardless of the order of deletions. Do it in one pass.
+    examples:
+      - "\"abbaca\" -> \"ca\""
+      - "\"azxxzy\" -> \"ay\""
+      - "\"aa\" -> \"\""
+    constraints:
+      - Up to 10⁵ characters.
+    hints:
+      - After deleting a pair, the characters on each side become adjacent. Which one do you need to compare next?
+      - The previous surviving character is the top of a stack.
+    solution:
+      language: python
+      code: |-
+        def remove_adjacent_pairs(s: str) -> str:
+            stack: list[str] = []
+            for ch in s:
+                if stack and stack[-1] == ch:
+                    stack.pop()            # ch cancels the most recent survivor
+                else:
+                    stack.append(ch)
+            return "".join(stack)
+      explanation: The stack holds the survivors so far; each character is pushed and popped at most once, O(n) time and space. Re-scanning the string after every deletion is O(n²).
+    rubric:
+      - {key: correct, label: Returns the right result for the three examples, points: 4}
+      - {key: one_pass, label: Uses a stack in one pass instead of repeated scans, points: 3}
+      - {key: complexity, label: "States O(n) time and space and the O(n²) cost of the naive approach", points: 3}
+    follow_ups:
+      - prompt: Now remove groups of k adjacent equal characters.
+        look_for: Stack of (char, run count); pop when the count reaches k; O(n).
+- key: dsa.stack.guided
+  type: guided_problem
+  title: "Guided practice: matching brackets"
+  skills: [stack.basic]
+  minutes: 15
+  difficulty: EASY
+  problems: [13]
+  body:
+    guidance:
+      - State what the stack holds before writing code.
+      - Map each closer to its opener with a small dict.
+      - "Handle the three failure modes: closer on an empty stack, mismatched pair, leftover openers."
+      - Test with "]", "((" and "([)]".
+    hints:
+      - An odd length is an instant False, but it is only a shortcut, not the algorithm.
+- key: dsa.stack.timed
+  type: timed_problem
+  title: "Timed practice: evaluation and nested decoding"
+  skills: [stack.basic]
+  minutes: 45
+  difficulty: MEDIUM
+  problems: [69, 70]
+  body:
+    guidance:
+      - "Postfix evaluation: pop the right operand first; use truncation toward zero for division; say O(n) time and space."
+      - "Nested decoding: push a frame of (string so far, repeat count) on [ and combine on ]; accumulate multi-digit counts."
+      - Solve both without hints within the timer, then dry-run one nested example aloud.
+- key: dsa.stack.cards
+  type: revision_card
+  title: "Recall: stacks"
+  skills: [stack.basic]
+  minutes: 5
+  body:
+    cards:
+      - front: Bracket check — what must be true at the end?
+        back: The stack is empty (no unmatched openers).
+      - front: Postfix operator — which pop is the right operand?
+        back: The first pop.
+      - front: "-7 // 2 vs int(-7 / 2)?"
+        back: "-4 (floor) vs -3 (truncation toward zero)."
+      - front: Python list as a stack — operations and cost?
+        back: append, pop(), stack[-1]; amortised O(1).
+      - front: Why can a counter not validate "([)]"?
+        back: Counts balance, but the order of different bracket types matters.
+
+# ---------------------------------------------------------------------------------------------- queue and deque
+- key: dsa.deque.lesson
+  type: lesson
+  title: Queues, deques and the monotonic queue
+  skills: [queue.deque]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Use collections.deque for O(1) work at both ends; keep it monotonic to get the maximum or minimum of a sliding window in amortised O(1).
+    what: |-
+      A **queue** is first-in, first-out (FIFO). A **deque** (double-ended queue) allows O(1) appends and pops at both ends. In Python, `collections.deque` provides `append`, `appendleft`, `pop`, `popleft`, and an optional `maxlen` that turns it into a fixed-size ring buffer.
+
+      A **monotonic queue** is a deque whose values are kept sorted (increasing or decreasing) from front to back by popping dominated elements from the back before each append. Its front is the minimum or maximum of the current window.
+    why: |-
+      `list.pop(0)` shifts every remaining element, so a list-based queue costs O(n) per dequeue and O(n²) for a BFS over n nodes. A deque is a linked block structure with O(1) operations at both ends. The monotonic queue answers "maximum of each window of size k" in O(n) total instead of O(n × k), because an element that is smaller and older than a newer element can never be the window maximum again.
+    when: |-
+      - Breadth-first search, level-order traversal, multi-source BFS: FIFO.
+      - Rate limiting and "events in the last W seconds": drop expired items from the front.
+      - Recent history with a fixed size: `deque(maxlen=k)`.
+      - Sliding window maximum or minimum, or optimising a DP whose transition takes a max over a sliding range: monotonic deque.
+    how: |-
+      **Monotonic deque for window maximum** (store indices so you can tell when the front leaves the window):
+
+      1. Before appending index `i`, pop from the back every index whose value is `<=` `nums[i]` — they are older and not larger, so they are dominated.
+      2. Append `i`.
+      3. If the front index is `<= i - k`, it has left the window: `popleft`.
+      4. Once `i >= k - 1`, the front holds the window maximum.
+
+      **Queue from two stacks:** push onto `inbox`; to dequeue, if `outbox` is empty move everything from `inbox` to `outbox` (reversing the order), then pop from `outbox`. Each element is moved at most once, so every operation is amortised O(1).
+    mental_model: |-
+      For a window maximum, think of a queue of candidates for "future maximum". A new value walks in from the back and sends home every candidate that is smaller than it, because it is both larger and will stay longer. Invariant: indices in the deque are increasing (in arrival order), their values are decreasing, and all lie in the current window.
+    tradeoffs: |-
+      A deque gives O(1) at the ends but O(n) indexing in the middle, so it is not a replacement for a list when you need random access. A heap also gives the window maximum but costs O(log n) per step and needs lazy deletion of expired entries; the monotonic deque is O(1) amortised and simpler once learned. `queue.Queue` adds locking for threads and is slower; use it only for producer–consumer code, not for algorithms.
+    mistakes:
+      - "Using `list.pop(0)` for BFS, which makes it O(n²)."
+      - Storing values instead of indices in the monotonic deque, so you cannot tell when the front expires.
+      - Checking expiry before appending in a way that leaves an expired front when outputting.
+      - "Using `<` instead of `<=` (or vice versa) without thinking about duplicates; both work for maxima if expiry uses indices, but be able to say why."
+      - "Forgetting that `deque(maxlen=k)` silently drops from the opposite end when full."
+    interview: |-
+      Deques appear as the hidden structure inside BFS and as the "can you do better than a heap?" answer for window extremes. Explain the domination argument and the amortised bound: each index is appended once and popped at most once. A common follow-up is the queue-with-two-stacks design and its amortised analysis.
+    explain_it:
+      - Say why a list is the wrong queue in Python.
+      - "State the monotonic deque invariant: increasing indices, decreasing values, all in the window."
+      - Explain why a dominated element can be discarded forever.
+      - O(n) total time because each index is pushed and popped at most once; O(k) space.
+    example:
+      language: python
+      code: |-
+        from collections import deque
+
+        def window_minimums(nums: list[int], k: int) -> list[int]:
+            dq: deque[int] = deque()   # indices; values strictly increasing front to back
+            out: list[int] = []
+            for i, x in enumerate(nums):
+                while dq and nums[dq[-1]] >= x:   # older and not smaller: never the minimum again
+                    dq.pop()
+                dq.append(i)
+                if dq[0] <= i - k:                # front has left the window
+                    dq.popleft()
+                if i >= k - 1:
+                    out.append(nums[dq[0]])
+            return out
+
+        assert window_minimums([4, 2, 12, 3, 8, 1, 7], 3) == [2, 2, 3, 1, 1]
+      explanation: This is the mirror of the window-maximum deque (flip the comparison). O(n) time, O(k) space.
+    complexity: deque append, appendleft, pop, popleft are O(1); indexing near the middle is O(n). Monotonic deque over n elements is O(n) total.
+    internals: |-
+      CPython implements deque as a doubly linked list of fixed-size blocks (64 slots each in current versions), which is why both ends are O(1) and why indexing walks blocks from the nearer end. Unlike `list`, a deque never needs to move existing elements when it grows.
+    edge_cases:
+      - k equal to 1 (every element is its own window) and k equal to n.
+      - Duplicates of the maximum inside one window.
+      - Empty input.
+    misconceptions:
+      - "deque is a thread-safe queue for producers and consumers — its appends and pops are thread-safe, but blocking waits, bounded put/get and task tracking are what queue.Queue provides."
+- key: dsa.deque.check
+  type: concept_check
+  title: "Concept check: queues and deques"
+  skills: [queue.deque]
+  minutes: 8
+  difficulty: MEDIUM
+  body:
+    intro: Several questions are traces; write the deque contents after each step.
+    questions:
+      - id: q1
+        kind: single
+        prompt: What is `list(d)` at the end?
+        code:
+          language: python
+          code: |-
+            from collections import deque
+            d = deque([1, 2, 3], maxlen=3)
+            d.append(4)
+            d.appendleft(0)
+        options: ["[0, 2, 3]", "[0, 1, 2]", "[2, 3, 4]", "[0, 1, 2, 3, 4]"]
+        answer: [0]
+        explanation: "append(4) on a full deque drops from the left: [2, 3, 4]. appendleft(0) on a full deque drops from the right: [0, 2, 3]. The tempting [2, 3, 4] forgets the second step."
+      - id: q2
+        kind: multi
+        prompt: Which operations are O(1) on a collections.deque of length n?
+        options: ["popleft()", "append(x)", "d[n // 2]", "appendleft(x)"]
+        answer: [0, 1, 3]
+        explanation: "Both ends are O(1). Indexing walks blocks from the nearer end, so the middle is O(n)."
+      - id: q3
+        kind: single
+        prompt: A window-maximum deque stores indices with decreasing values and pops from the back while the back value is <= the new value. Processing [5, 3, 4] (no expiry yet), what does the deque hold at the end?
+        options: ["[0, 2]", "[0, 1, 2]", "[2]", "[1, 2]"]
+        answer: [0]
+        explanation: "5 enters: [0]. 3 enters behind it: [0, 1]. 4 pops index 1 (3 <= 4) but stops at 5: [0, 2]. 5 stays because it is larger, even though it is older."
+      - id: q4
+        kind: single
+        prompt: A queue built from two stacks moves all of inbox into outbox only when outbox is empty. What is the cost of n enqueues and n dequeues in total?
+        options: ["O(n)", "O(n log n)", "O(n²)", "O(1)"]
+        answer: [0]
+        explanation: "Each element is pushed to inbox once, moved to outbox once and popped once: 3n operations. A single dequeue can cost O(n), which is why the bound is amortised, not worst-case per operation."
+      - id: q5
+        kind: single
+        prompt: Why should BFS in Python use a deque rather than a list with pop(0)?
+        options:
+          - pop(0) shifts every remaining element, so BFS becomes O(V²) instead of O(V + E)
+          - Lists cannot hold node objects
+          - deque keeps nodes sorted by distance automatically
+          - pop(0) returns the last element
+        answer: [0]
+        explanation: "Lists are arrays; removing the first element moves the rest. The deque does it in O(1). Nodes come out in distance order because of FIFO, not because the deque sorts anything."
+      - id: q6
+        kind: short
+        prompt: Explain why the monotonic-deque window maximum runs in O(n) even though there is a while loop inside the for loop.
+        model_answer: "Every index is appended exactly once and can be removed at most once (either popped from the back when dominated or popped from the front when it expires). So the total number of pops over the whole run is at most n, and the for loop does O(1) other work per index: O(n) total."
+        explanation: Amortised counting of pushes and pops is the same argument as for sliding windows and monotonic stacks.
+- key: dsa.deque.exercise
+  type: coding_exercise
+  title: "Exercise: a sliding-window rate limiter with a deque"
+  skills: [queue.deque]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 900}
+  body:
+    prompt: |-
+      Implement `RateLimiter(limit, window_seconds)` with `allow(now) -> bool`. An event at time `now` (integer seconds, non-decreasing across calls) is allowed when fewer than `limit` events were **accepted** in the half-open interval `(now - window_seconds, now]`. Accepted events count against the limit; rejected ones do not.
+    examples:
+      - "limit 2, window 10: allow(1) True, allow(2) True, allow(3) False, allow(11) True, allow(12) True, allow(12) False"
+    constraints:
+      - Up to 10⁵ calls; each call should be amortised O(1).
+    hints:
+      - Keep the accepted timestamps in arrival order.
+      - Before deciding, drop timestamps that are no longer inside the window from the front.
+      - "A timestamp t is expired when t <= now - window_seconds."
+    solution:
+      language: python
+      code: |-
+        from collections import deque
+
+        class RateLimiter:
+            def __init__(self, limit: int, window_seconds: int) -> None:
+                self.limit = limit
+                self.window = window_seconds
+                self.accepted: deque[int] = deque()   # oldest first
+
+            def allow(self, now: int) -> bool:
+                while self.accepted and self.accepted[0] <= now - self.window:
+                    self.accepted.popleft()
+                if len(self.accepted) < self.limit:
+                    self.accepted.append(now)
+                    return True
+                return False
+      explanation: Each timestamp is appended once and popped once, so calls are amortised O(1); memory is O(limit) because at most `limit` accepted events are inside a window.
+    rubric:
+      - {key: correct, label: Matches the example sequence including the boundary at 11 and the duplicate 12, points: 4}
+      - {key: expiry, label: Expires from the front with the correct boundary comparison, points: 2}
+      - {key: rejected_not_counted, label: Only accepted events are stored, points: 1}
+      - {key: complexity, label: States amortised O(1) per call and O(limit) memory, points: 3}
+    follow_ups:
+      - prompt: Memory must not depend on the limit (limit can be 10⁶). What approximation would you use?
+        look_for: Fixed-window counters or a sliding-window counter that weights the previous window; mention the accuracy trade-off.
+      - prompt: Timestamps can arrive slightly out of order. What breaks?
+        look_for: Front expiry assumes order; buffer and sort a small delay, or use a structure ordered by time.
+- key: dsa.deque.guided
+  type: guided_problem
+  title: "Guided practice: a queue from two stacks"
+  skills: [queue.deque]
+  minutes: 15
+  difficulty: EASY
+  problems: [73]
+  body:
+    guidance:
+      - Draw both stacks and push 1, 2, 3; then pop once and redraw.
+      - Move elements from the input stack to the output stack only when the output stack is empty, and explain why moving earlier would break the order.
+      - State amortised O(1) per operation and explain it by counting how many times each element moves.
+    hints:
+      - Peek and pop both need the same "refill if empty" step; write it once.
+- key: dsa.deque.timed
+  type: timed_problem
+  title: "Timed practice: monotonic deques"
+  skills: [queue.deque]
+  minutes: 70
+  difficulty: HARD
+  problems: [14, 74]
+  body:
+    guidance:
+      - "Window maximum: indices in the deque, values decreasing; pop dominated from the back, expired from the front; output once the first window is full."
+      - "Shortest subarray with sum at least K (negatives allowed): prefix sums plus an increasing deque of prefix indices; pop from the front while the current prefix minus the front prefix reaches K (record), and from the back while the back prefix is >= the current one."
+      - State why each structure stays monotonic and why the total work is O(n).
+- key: dsa.deque.cards
+  type: revision_card
+  title: "Recall: queues and deques"
+  skills: [queue.deque]
+  minutes: 5
+  body:
+    cards:
+      - front: Why not list.pop(0) as a queue?
+        back: It shifts every element, O(n) per dequeue.
+      - front: Monotonic deque invariant for window maximum?
+        back: Increasing indices, decreasing values, all inside the window.
+      - front: Why store indices, not values, in the window deque?
+        back: To detect when the front has left the window.
+      - front: Queue from two stacks — cost?
+        back: Amortised O(1); each element moves from inbox to outbox once.
+      - front: deque(maxlen=3) is full and you appendleft?
+        back: The rightmost element is dropped.
+
+# ---------------------------------------------------------------------------------------------- monotonic stack
+- key: dsa.monotonic_stack.lesson
+  type: lesson
+  title: Monotonic stacks for next greater and next smaller
+  skills: [stack.monotonic]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Keep a stack of indices still waiting for an answer, in sorted value order; each new element resolves every waiting element it beats, so all next-greater answers come out in one O(n) pass.
+    what: |-
+      A monotonic stack is a stack whose values are kept in sorted order from bottom to top. Before pushing a new element you pop every element that would break the order. Each pop is a moment of discovery: the element being pushed is the **next greater** (or next smaller) element of the one being popped.
+
+      - Next greater to the right: keep values **decreasing**; pop while the top is smaller than the new value.
+      - Next smaller to the right: keep values **increasing**; pop while the top is larger.
+      - Previous greater or smaller: after popping, the element left on top is the answer for the new element.
+    why: |-
+      The brute force scans right from every index until it finds a larger value: O(n²) on a decreasing input. In the stack version every index is pushed once and popped at most once, so the whole pass is O(n). The same structure answers "how far can this bar extend" (largest rectangle in a histogram), "how many days until warmer", and the contribution of each element to subarray minima or maxima.
+    when: |-
+      - "For each element, find the nearest element to the left or right that is greater or smaller."
+      - "Spans: how many consecutive previous elements are smaller or equal."
+      - "Areas or widths bounded by the nearest smaller bar on each side."
+      - "Build the smallest or largest number by deleting digits (greedy with an increasing stack)."
+    how: |-
+      Next greater element to the right:
+
+      ```python
+      answer = [-1] * len(nums)
+      stack: list[int] = []                 # indices waiting for a greater value; values decreasing
+      for i, x in enumerate(nums):
+          while stack and nums[stack[-1]] < x:
+              answer[stack.pop()] = x       # x is the first greater value to the right
+          stack.append(i)
+      # indices left on the stack have no greater value to the right
+      ```
+
+      Variants:
+
+      - **Distance instead of value:** store `i - popped_index`.
+      - **Circular array:** loop `i` over `range(2 * n)` and use `nums[i % n]`, pushing only during the first pass.
+      - **Duplicates:** decide strict (`<`) or non-strict (`<=`) popping on purpose. In "sum of subarray minimums" style counting, use strict on one side and non-strict on the other so equal values are counted once.
+      - **Histogram:** with an increasing stack, when bar `j` is popped by bar `i`, its right boundary is `i` and its left boundary is the new top, so its maximal width is `i - top - 1`.
+    mental_model: |-
+      The stack is a waiting room of unanswered indices. Because a waiting element was not popped by anything after it, everything after it is smaller (for a next-greater stack), so the waiting room is sorted. A new arrival answers everyone in the room it beats, starting from the most recent. Invariant: values on the stack are monotonic, and every index on the stack has not yet seen its answer.
+    tradeoffs: |-
+      O(n) time and O(n) worst-case stack space (a strictly decreasing input never pops). The brute force uses O(1) space and is fine for tiny inputs. For window-limited queries ("greatest in the last k") a monotonic deque is needed, because elements must also expire from the old end.
+    mistakes:
+      - Storing values when you need distances or positions; store indices.
+      - Choosing the wrong monotonic direction (an increasing stack finds next smaller, not next greater).
+      - Mishandling duplicates (strict vs non-strict comparison) and double-counting equal values.
+      - Forgetting the elements still on the stack at the end; they need a default answer (-1, 0, or n as a boundary).
+      - In histogram problems, forgetting a final sentinel bar of height 0 to flush the stack.
+    interview: |-
+      The tell is "next", "previous", "nearest greater/smaller", "span" or "days until". State the brute force, then: "a smaller element that is still waiting will be answered by the first larger element after it; I keep waiting indices on a stack, decreasing, so each is pushed and popped once". Expect follow-ups on duplicates, circular arrays and the histogram area.
+    explain_it:
+      - Say what the stack holds (indices still waiting) and its order.
+      - Say when an index is popped and why that moment gives its answer.
+      - Say what remains on the stack at the end and what answer it gets.
+      - Prove O(n) with one push and at most one pop per index.
+    example:
+      language: python
+      code: |-
+        class StockSpanner:
+            """span(price) = number of consecutive days up to today with price <= today's."""
+
+            def __init__(self) -> None:
+                self.stack: list[tuple[int, int]] = []   # (price, span); prices strictly decreasing
+
+            def next(self, price: int) -> int:
+                span = 1
+                while self.stack and self.stack[-1][0] <= price:
+                    span += self.stack.pop()[1]          # absorb the days that price dominates
+                self.stack.append((price, span))
+                return span
+
+        s = StockSpanner()
+        assert [s.next(p) for p in [100, 80, 60, 70, 60, 75, 85]] == [1, 1, 1, 2, 1, 4, 6]
+      explanation: A previous-greater stack that stores each element's span, so a popped element hands over all the days it had already absorbed. Amortised O(1) per call, O(n) space.
+    complexity: O(n) time for n elements (each index pushed once, popped at most once); O(n) worst-case space.
+    edge_cases:
+      - Strictly increasing input (every element pops the previous one).
+      - Strictly decreasing input (nothing pops; the stack holds everything).
+      - All values equal (the duplicate rule decides the answer).
+      - Circular arrays.
+    misconceptions:
+      - "Nested while inside for means O(n²) — the pops are bounded by the pushes, n in total."
+- key: dsa.monotonic_stack.check
+  type: concept_check
+  title: "Concept check: monotonic stacks"
+  skills: [stack.monotonic]
+  minutes: 8
+  difficulty: MEDIUM
+  body:
+    intro: Trace the stack contents step by step.
+    questions:
+      - id: q1
+        kind: single
+        prompt: What does this return for `[2, 1, 2, 4, 3]`?
+        code:
+          language: python
+          code: |-
+            def f(nums):
+                answer = [-1] * len(nums)
+                stack = []
+                for i, x in enumerate(nums):
+                    while stack and nums[stack[-1]] < x:
+                        answer[stack.pop()] = x
+                    stack.append(i)
+                return answer
+        options: ["[4, 2, 4, -1, -1]", "[2, 2, 4, -1, -1]", "[4, 2, 4, -1, 3]", "[1, 2, 4, 3, -1]"]
+        answer: [0]
+        explanation: "Next strictly greater to the right. The first 2 is not popped by the second 2 (2 < 2 is false), so its answer is 4. The 1 is popped by the second 2. The 4 and the 3 never find a greater value. The second option would come from popping with <=."
+      - id: q2
+        kind: single
+        prompt: To find the next **greater** element, the stack values (bottom to top) are kept…
+        options: ["Decreasing", "Increasing", "Unordered", "Equal"]
+        answer: [0]
+        explanation: "Any waiting element is larger than or equal to everything pushed after it, otherwise it would have been popped. So values decrease toward the top. An increasing stack is the next-smaller variant."
+      - id: q3
+        kind: single
+        prompt: For "previous smaller element" of each index, which loop is right before pushing i?
+        options:
+          - "Pop while nums[top] >= nums[i]; then the top (if any) is the previous smaller"
+          - "Pop while nums[top] < nums[i]; then the top is the previous smaller"
+          - Do not pop; the top is always the previous smaller
+          - Pop everything, then push
+        answer: [0]
+        explanation: "Elements >= nums[i] can never be the previous smaller element of any later index, because nums[i] is closer and not larger, so they go. What remains on top is the nearest strictly smaller value. Popping the smaller ones throws away exactly the answers you need."
+      - id: q4
+        kind: single
+        prompt: How do you find next greater elements in a circular array of length n?
+        options:
+          - Iterate i over range(2 * n) using nums[i % n], pushing indices only in the first pass
+          - Sort the array first
+          - Run the linear algorithm twice on separate copies and take the max
+          - Append a sentinel of infinity at the end
+        answer: [0]
+        explanation: "The second pass lets elements near the end find answers that wrap around to the beginning, while pushing only in the first pass keeps each index on the stack once. Sorting destroys positions."
+      - id: q5
+        kind: multi
+        prompt: Which problems are a natural fit for a monotonic stack?
+        options:
+          - Days until a warmer temperature
+          - Largest rectangle in a histogram
+          - The k-th largest element in a stream
+          - Remove k digits to make the smallest possible number
+        answer: [0, 1, 3]
+        explanation: "Warmer days is next-greater distance; the histogram needs the nearest smaller bar on both sides; removing digits greedily keeps an increasing stack. The k-th largest in a stream is a size-k min-heap problem."
+      - id: q6
+        kind: short
+        prompt: In the largest-rectangle-in-a-histogram algorithm with an increasing stack of indices, when bar j is popped while processing index i, what is the width of the largest rectangle of height heights[j], and why?
+        model_answer: "Width = i - left - 1, where left is the index on top of the stack after popping j (or -1 if the stack is empty). i is the first bar to the right that is lower than heights[j] (that is why j is popped now), and left is the nearest bar to the left that is lower (the stack is increasing), so the rectangle spans exactly the bars strictly between them."
+        explanation: Both boundaries come from the stack at the moment of the pop; a final bar of height 0 flushes the remaining indices.
+- key: dsa.monotonic_stack.exercise
+  type: coding_exercise
+  title: "Exercise: next greater element in a circular array"
+  skills: [stack.monotonic]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 900}
+  body:
+    prompt: |-
+      The array is circular: after the last element comes the first. For each element return the first strictly greater value found by walking forward (wrapping around), or -1 if there is none.
+    examples:
+      - "[1, 2, 1] -> [2, -1, 2]"
+      - "[5, 4, 3, 2, 1] -> [-1, 5, 5, 5, 5]"
+      - "[3, 3] -> [-1, -1]"
+    constraints:
+      - Up to 10⁴ elements; values may be negative. O(n) time.
+    hints:
+      - Start from the non-circular next-greater template.
+      - Walk the indices twice using i % n.
+      - Push each index only during the first pass.
+    solution:
+      language: python
+      code: |-
+        def next_greater_circular(nums: list[int]) -> list[int]:
+            n = len(nums)
+            answer = [-1] * n
+            stack: list[int] = []            # indices waiting; values non-increasing
+            for i in range(2 * n):
+                x = nums[i % n]
+                while stack and nums[stack[-1]] < x:
+                    answer[stack.pop()] = x
+                if i < n:
+                    stack.append(i)
+            return answer
+      explanation: Every index is pushed once and popped at most once across both passes, so O(n) time and O(n) space. The maximum element stays on the stack and keeps -1.
+    rubric:
+      - {key: correct, label: Returns the right answers for all three examples, points: 4}
+      - {key: circular, label: Handles wrap-around with two passes and pushes only in the first, points: 2}
+      - {key: strict, label: Uses a strict comparison so equal values are not answers, points: 1}
+      - {key: complexity, label: Explains O(n) by counting pushes and pops, points: 3}
+    follow_ups:
+      - prompt: Return the distance (number of steps forward) instead of the value.
+        look_for: Store (i - popped) with i the unwrapped index in the second pass; same complexity.
+- key: dsa.monotonic_stack.guided
+  type: guided_problem
+  title: "Guided practice: next greater element"
+  skills: [stack.monotonic]
+  minutes: 15
+  difficulty: EASY
+  problems: [71]
+  body:
+    guidance:
+      - Write the O(n × m) brute force first and identify the repeated rightward scan.
+      - Run the next-greater stack over the second array once, storing each value's answer in a dict.
+      - Answer each query from the first array by dict lookup.
+      - State the invariant of the stack (waiting values, decreasing).
+    hints:
+      - Values are distinct, so a value-to-answer map is safe.
+- key: dsa.monotonic_stack.timed
+  type: timed_problem
+  title: "Timed practice: waiting days and histogram areas"
+  skills: [stack.monotonic]
+  minutes: 60
+  difficulty: HARD
+  problems: [12, 72]
+  body:
+    guidance:
+      - "Warmer days: next-greater stack of indices; the answer is the index difference at pop time."
+      - "Histogram: increasing stack; on each pop compute height × (i - new_top - 1); append a zero-height sentinel to flush."
+      - Solve both under the timer and prove O(n) aloud.
+- key: dsa.monotonic_stack.cards
+  type: revision_card
+  title: "Recall: monotonic stacks"
+  skills: [stack.monotonic]
+  minutes: 5
+  body:
+    cards:
+      - front: Stack order for next greater element?
+        back: Decreasing values from bottom to top; pop while top < new value.
+      - front: What does a pop mean in a next-greater stack?
+        back: The incoming element is the popped element's answer.
+      - front: Circular next greater?
+        back: Iterate 2n with i % n; push only in the first pass.
+      - front: Histogram width when bar j is popped at i?
+        back: i - (new top) - 1, or i if the stack is empty.
+      - front: Why is a monotonic stack O(n)?
+        back: Each index is pushed once and popped at most once.
+
+# ---------------------------------------------------------------------------------------------- linked lists
+- key: dsa.linked_list.lesson
+  type: lesson
+  title: Linked list pointer surgery with a dummy head
+  skills: [linked_list.manipulation]
+  minutes: 25
+  difficulty: MEDIUM
+  body:
+    summary: Linked list problems are about rewiring next pointers in the right order; save the next node before you overwrite a pointer, and use a dummy head so the first node is not a special case.
+    what: |-
+      A singly linked list is a chain of nodes, each with a value and a `next` reference; the last node points to `None`. There is no indexing: reaching the k-th node costs O(k). In exchange, inserting or removing a node **after a node you already hold** is O(1), with no shifting.
+
+      ```python
+      class ListNode:
+          def __init__(self, val=0, next=None):
+              self.val = val
+              self.next = next
+      ```
+
+      Core operations: reverse (whole list or a sublist), merge two sorted lists, remove nodes, split and reconnect, and find intersections.
+    why: |-
+      Linked lists test whether you can change a data structure without losing parts of it. A single pointer overwritten too early drops the rest of the list (in Python it is then garbage-collected); a missing `tail.next = None` creates a cycle. These are the same skills used in LRU caches (hash map plus doubly linked list), allocators and kernel lists.
+    when: |-
+      - The input is a linked list (you cannot index into it).
+      - You need O(1) splicing given a node reference (LRU cache, ordered dict internals).
+      - You merge or split sequences without copying.
+    how: |-
+      **Dummy head:** `dummy = ListNode(0, head)`; build or modify after `dummy`, return `dummy.next`. Removing or inserting at the front then needs no special case.
+
+      **Iterative reversal** with three references:
+
+      ```python
+      prev, curr = None, head
+      while curr:
+          nxt = curr.next      # 1. save the rest
+          curr.next = prev     # 2. reverse one pointer
+          prev = curr          # 3. advance prev
+          curr = nxt           # 4. advance curr
+      return prev              # new head
+      ```
+
+      **Merge two sorted lists:** a dummy and a `tail`; attach the smaller head, advance, and finally attach the leftover list.
+
+      **Intersection of two lists:** walk `a` and `b`; when one reaches the end, restart it at the other list's head. After at most m + n steps they meet at the intersection or both reach `None` together.
+    mental_model: |-
+      During reversal the list is cut in two: `prev` is the head of the already reversed part and `curr` is the head of the untouched rest. Each step moves one node from the rest to the front of the reversed part. Invariant: no node is reachable from neither `prev` nor `curr` (or `nxt`). Draw boxes and arrows for a three-node list before coding any rewiring.
+    tradeoffs: |-
+      Iterative solutions use O(1) extra space; recursive ones (reverse, merge) are shorter but use O(n) stack and hit Python's recursion limit (1000 by default) on long lists. Converting to a Python list, operating, and rebuilding is O(n) space and usually not what the interviewer wants, though it is a valid brute force to mention.
+    mistakes:
+      - Overwriting `curr.next` before saving it, which loses the rest of the list.
+      - Returning `head` instead of the new head (`prev` or `dummy.next`).
+      - Forgetting to terminate the new tail (`tail.next = None`), creating a cycle.
+      - Dereferencing `node.next.next` without checking `node.next`.
+      - Special-casing the head instead of using a dummy node.
+      - Comparing nodes with `==` when identity (`is`) is what matters for intersections.
+    interview: |-
+      Narrate the pointer order: "save next, reverse, advance prev, advance curr". Dry-run on a list of length 0, 1 and 2. Interviewers often ask for both iterative and recursive versions and their space costs, or extend reversal to sublists and k-groups.
+    explain_it:
+      - Name each pointer's role (prev, curr, nxt, dummy, tail).
+      - "State the invariant: what prev and curr are the heads of."
+      - Show the order of the four assignments and why it cannot change.
+      - O(n) time, O(1) extra space iteratively; O(n) stack recursively.
+    example:
+      language: python
+      code: |-
+        def reverse_between(head, left, right):
+            """Reverse the nodes at 1-based positions left..right."""
+            dummy = ListNode(0, head)
+            before = dummy
+            for _ in range(left - 1):              # node just before the sublist
+                before = before.next
+            prev, curr = None, before.next
+            for _ in range(right - left + 1):      # plain reversal of the sublist
+                nxt = curr.next
+                curr.next = prev
+                prev, curr = curr, nxt
+            sub_tail = before.next                 # old sublist head is the new sublist tail
+            sub_tail.next = curr                   # reconnect to the rest
+            before.next = prev                     # prev is the new sublist head
+            return dummy.next
+
+        # 1 -> 2 -> 3 -> 4 -> 5 with left = 2, right = 4 becomes 1 -> 4 -> 3 -> 2 -> 5
+      explanation: The dummy makes left = 1 work without a special case. Two reconnections close the gaps on both sides. O(n) time, O(1) extra space.
+    complexity: Traversal, reversal and merging are O(n) (or O(m + n)) time and O(1) extra space iteratively. Access by position is O(k).
+    edge_cases:
+      - Empty list and single node.
+      - Operation at the head (left = 1) or the tail.
+      - Lists of different lengths when merging.
+      - Two lists that do not intersect.
+    misconceptions:
+      - "Recursion is free for list problems — it uses O(n) stack and Python's default recursion limit is 1000 frames."
+- key: dsa.linked_list.check
+  type: concept_check
+  title: "Concept check: linked list manipulation"
+  skills: [linked_list.manipulation]
+  minutes: 8
+  difficulty: MEDIUM
+  body:
+    intro: Draw boxes and arrows for every trace.
+    questions:
+      - id: q1
+        kind: single
+        prompt: This reversal forgets to save the next node. What does it return for 1 -> 2 -> 3?
+        code:
+          language: python
+          code: |-
+            def reverse(head):
+                prev, curr = None, head
+                while curr:
+                    curr.next = prev
+                    prev = curr
+                    curr = curr.next
+                return prev
+        options: ["3 -> 2 -> 1", "1 (a single node)", "It loops forever", "None"]
+        answer: [1]
+        explanation: "After curr.next = prev (None) and prev = curr, curr.next is now None, so the loop ends after one step and returns node 1 alone. Nodes 2 and 3 are lost. That is why nxt is saved first."
+      - id: q2
+        kind: single
+        prompt: Why use a dummy node in front of the head?
+        options:
+          - So that inserting or removing at the front uses the same code as anywhere else
+          - Because Python requires a sentinel for linked lists
+          - It makes traversal O(1)
+          - It prevents cycles automatically
+        answer: [0]
+        explanation: "With a dummy, every real node has a predecessor, so 'remove the node after prev' covers the head too. It costs one extra node; it does not change complexity or prevent cycles."
+      - id: q3
+        kind: single
+        prompt: Iterative merge of two sorted lists of lengths m and n uses how much extra space, and the recursive version?
+        options:
+          - "O(1) iterative, O(m + n) recursive (call stack)"
+          - "O(m + n) for both"
+          - "O(1) for both"
+          - "O(log(m + n)) recursive"
+        answer: [0]
+        explanation: "Iteration only rewires existing nodes. Recursion adds one frame per attached node, which can reach m + n frames and exceed Python's default recursion limit on long lists."
+      - id: q4
+        kind: multi
+        prompt: Given a reference to a node in a singly linked list, which operations are O(1)?
+        options:
+          - Insert a new node after it
+          - Remove the node after it
+          - Find the k-th node from the head
+          - Find the node before it
+        answer: [0, 1]
+        explanation: "Inserting or removing after a node only rewires its next pointer. Reaching the k-th node or the predecessor requires walking from the head, O(n)."
+      - id: q5
+        kind: single
+        prompt: Two pointers walk lists A (length m) and B (length n), each switching to the other list's head at its end. If the lists do not intersect, what happens?
+        options:
+          - Both become None after m + n steps, and the loop ends
+          - They loop forever
+          - They meet at the last node
+          - The method requires equal lengths
+        answer: [0]
+        explanation: "Each pointer walks m + n nodes in total, so they reach the end of their second list at the same step; None == None ends the loop. With an intersection they meet there, because both have walked the same distance."
+      - id: q6
+        kind: short
+        prompt: State the invariant of iterative list reversal and the order of the four assignments.
+        model_answer: "prev is the head of the reversed part and curr the head of the remaining original part; together they cover every node. Order: nxt = curr.next; curr.next = prev; prev = curr; curr = nxt. Saving nxt must come before overwriting curr.next, and prev must advance before curr."
+        explanation: Interviewers listen for the invariant; it is what lets you adapt the loop to sublists and k-groups.
+- key: dsa.linked_list.exercise
+  type: coding_exercise
+  title: "Exercise: partition a linked list around a value"
+  skills: [linked_list.manipulation]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 900}
+  body:
+    prompt: |-
+      Rearrange a singly linked list so that all nodes with values less than `x` come before all nodes with values greater than or equal to `x`, keeping the original relative order inside each part. Reuse the existing nodes; O(1) extra space.
+    examples:
+      - "1 -> 4 -> 3 -> 2 -> 5 -> 2, x = 3  ->  1 -> 2 -> 2 -> 4 -> 3 -> 5"
+      - "2 -> 1, x = 2  ->  1 -> 2"
+      - "empty list -> empty list"
+    constraints:
+      - Up to 200 nodes; values and x may be negative.
+    hints:
+      - Build two lists, each with its own dummy head and tail.
+      - Append each node to one of them as you walk.
+      - Terminate the second list and join the first list's tail to the second list's first real node.
+    solution:
+      language: python
+      code: |-
+        def partition(head, x):
+            less_dummy, more_dummy = ListNode(), ListNode()
+            less, more = less_dummy, more_dummy
+            node = head
+            while node:
+                if node.val < x:
+                    less.next = node
+                    less = node
+                else:
+                    more.next = node
+                    more = node
+                node = node.next
+            more.next = None                  # the old next could point back into the list
+            less.next = more_dummy.next
+            return less_dummy.next
+      explanation: Two dummies remove all head special cases. Without more.next = None, the last node of the second list may still point at a node now in the first list, creating a cycle. O(n) time, O(1) extra space.
+    rubric:
+      - {key: correct, label: Produces the right order for all three examples, points: 4}
+      - {key: stable, label: Keeps the relative order inside both parts, points: 2}
+      - {key: terminate, label: Terminates the second list to avoid a cycle and explains why, points: 2}
+      - {key: complexity, label: States O(n) time and O(1) extra space, points: 2}
+    follow_ups:
+      - prompt: What if relative order does not matter? Can you do it in one list without dummies?
+        look_for: Yes, e.g. move small nodes to the front, but a dummy-based version is still simpler and less error-prone.
+- key: dsa.linked_list.guided
+  type: guided_problem
+  title: "Guided practice: reverse and merge"
+  skills: [linked_list.manipulation]
+  minutes: 25
+  difficulty: EASY
+  problems: [10, 65]
+  body:
+    guidance:
+      - "Reversal: draw three boxes, then write the four assignments in order (save next, reverse, advance prev, advance curr)."
+      - Try the recursive reversal too and state its O(n) stack cost.
+      - "Merge: use a dummy and a tail pointer; attach the leftover list in one step at the end."
+      - Test with empty lists and single nodes.
+    hints:
+      - The new head after reversal is prev, not head.
+      - In merging, only the smaller head moves forward each step.
+- key: dsa.linked_list.timed
+  type: timed_problem
+  title: "Timed practice: reverse in groups"
+  skills: [linked_list.manipulation]
+  minutes: 45
+  difficulty: HARD
+  problems: [66]
+  body:
+    guidance:
+      - "Use a dummy and a pointer to the tail of the previous group; for each group, first check that k nodes remain, then reverse exactly k nodes and reconnect both ends."
+      - Leave a final short group as it is.
+      - State O(n) time and O(1) extra space, and dry-run with k = 1 and k = n.
+- key: dsa.linked_list.cards
+  type: revision_card
+  title: "Recall: linked lists"
+  skills: [linked_list.manipulation]
+  minutes: 5
+  body:
+    cards:
+      - front: Order of assignments in iterative reversal?
+        back: nxt = curr.next; curr.next = prev; prev = curr; curr = nxt.
+      - front: Why a dummy head?
+        back: Every real node gets a predecessor, so the head is not a special case.
+      - front: Common cause of a cycle after rewiring?
+        back: Forgetting to set the new tail's next to None.
+      - front: Space of recursive list reversal?
+        back: O(n) call stack; limited by Python's recursion limit.
+      - front: Finding the intersection of two lists in O(1) space?
+        back: Walk both, switching to the other head at the end; they meet after at most m + n steps.
+
+# ---------------------------------------------------------------------------------------------- fast and slow pointers
+- key: dsa.fast_slow.lesson
+  type: lesson
+  title: Fast and slow pointers for middles and cycles
+  skills: [linked_list.fast_slow]
+  minutes: 20
+  difficulty: MEDIUM
+  body:
+    summary: One pointer moves two steps for every one step of the other; the speed difference finds the middle in one pass and detects cycles with O(1) memory.
+    what: |-
+      The fast/slow (tortoise and hare) technique runs two references through a sequence at different speeds, usually one and two steps per iteration.
+
+      - **Middle:** when fast reaches the end, slow is halfway.
+      - **Cycle detection (Floyd):** if there is a cycle, fast eventually laps slow and they meet; if not, fast reaches `None`.
+      - **Cycle start:** after they meet, move one pointer back to the head and advance both one step at a time; they meet at the first node of the cycle.
+      - **Gap pointers:** a fixed head start of n nodes finds the n-th node from the end in one pass.
+    why: |-
+      A visited set detects cycles in O(n) memory. Floyd's algorithm does it in O(1) memory and O(n) time, which matters when the "list" is implicit — for example the sequence `i -> nums[i]` in an array, where finding a duplicate value is the same as finding a cycle entrance.
+    when: |-
+      - Find the middle of a linked list in one pass (to split it, or to compare halves).
+      - Detect a cycle, find where it starts, or its length.
+      - A function `f` maps a finite set into itself and you need a repeated value (the sequence x, f(x), f(f(x)) must cycle).
+      - Find the k-th node from the end in one pass (gap of k).
+    how: |-
+      **Middle:**
+
+      ```python
+      slow = fast = head
+      while fast and fast.next:
+          slow = slow.next
+          fast = fast.next.next
+      # odd length: the middle; even length: the second of the two middles
+      ```
+
+      Use `while fast.next and fast.next.next` (with a non-empty list) to stop at the **first** middle instead.
+
+      **Cycle start (Floyd):** let `a` be the distance from the head to the cycle start, `b` from the start to the meeting point, and `c` the cycle length. When they meet, slow walked `a + b` and fast `2(a + b)`, and the difference is a whole number of laps: `a + b = k × c`. So `a = k × c - b`: walking `a` steps from the meeting point lands exactly on the start. Reset one pointer to the head and step both by one until they meet.
+    mental_model: |-
+      Inside a cycle, measure the gap from slow forward to fast. Every iteration fast gains one node on slow, so the gap shrinks by exactly one and cannot jump over zero: they must meet within one lap. Outside a cycle, fast simply runs off the end.
+    tradeoffs: |-
+      Floyd uses O(1) memory but is harder to explain than a visited set, which is O(n) memory and also gives the cycle start immediately (the first repeated node). On an interview, mention the set as the brute force, then give Floyd with the proof. Finding the middle with fast/slow is one pass; counting the length first and walking again is two passes with the same O(n) complexity, and equally acceptable unless one pass is required.
+    mistakes:
+      - "Checking `fast.next.next` without first checking `fast.next`, which raises AttributeError on None."
+      - Comparing values instead of node identity when checking whether the pointers met.
+      - Starting fast one step ahead and then using the head-reset trick, which breaks the distance argument.
+      - Returning the wrong middle for even lengths (decide which one the problem needs).
+      - Forgetting to restore a list you reversed in place when the caller still needs it.
+    interview: |-
+      Expect "detect a cycle", then "where does it start?", then "prove it". Give the a + b = k × c argument briefly. A common transfer question is finding a duplicate in an array of n + 1 values in 1..n without modifying it and with O(1) space: treat index -> value as next pointers.
+    explain_it:
+      - Explain why fast catches slow (gap shrinks by one per step).
+      - "Give the distance argument for the cycle start: a = k × c - b."
+      - Say which middle your loop condition returns for even lengths.
+      - O(n) time and O(1) space.
+    example:
+      language: python
+      code: |-
+        def is_palindrome(head) -> bool:
+            slow = fast = head
+            while fast and fast.next:          # slow ends at the middle (second middle if even)
+                slow = slow.next
+                fast = fast.next.next
+            prev = None                        # reverse the second half in place
+            while slow:
+                nxt = slow.next
+                slow.next = prev
+                prev, slow = slow, nxt
+            left, right = head, prev
+            while right:                       # the reversed half is never longer
+                if left.val != right.val:
+                    return False
+                left, right = left.next, right.next
+            return True
+      explanation: Fast/slow finds the middle, reversal makes the second half walkable backwards, and one comparison pass finishes. O(n) time and O(1) extra space; the input is modified, so reverse the second half again if the caller needs it intact.
+    complexity: O(n) time and O(1) space for middle, cycle detection and cycle start. A visited set is O(n) time and O(n) space.
+    edge_cases:
+      - Empty list and a single node.
+      - A cycle that includes the head (a = 0).
+      - A self-loop (cycle of length 1).
+      - Even versus odd length for the middle.
+    misconceptions:
+      - "Fast could jump over slow inside the cycle — the gap shrinks by exactly one per step, so it hits zero."
+- key: dsa.fast_slow.check
+  type: concept_check
+  title: "Concept check: fast and slow pointers"
+  skills: [linked_list.fast_slow]
+  minutes: 8
+  difficulty: MEDIUM
+  body:
+    intro: Trace node by node; write slow and fast positions after each iteration.
+    questions:
+      - id: q1
+        kind: single
+        prompt: "For 1 -> 2 -> 3 -> 4, where does slow end with `while fast and fast.next:` (both start at the head, steps of one and two)?"
+        options: ["Node 2", "Node 3", "Node 4", "None"]
+        answer: [1]
+        explanation: "Iteration 1: slow 2, fast 3. Iteration 2: slow 3, fast None (4.next). The loop stops with slow on node 3, the second middle. Node 2 is what the `fast.next and fast.next.next` variant returns."
+      - id: q2
+        kind: single
+        prompt: Why are slow and fast guaranteed to meet if the list has a cycle?
+        options:
+          - Once both are in the cycle, the gap from slow to fast shrinks by one each step, so it reaches zero
+          - Fast moves randomly and eventually hits slow
+          - Because the cycle length is always even
+          - They are not guaranteed to meet; you need a visited set
+        answer: [0]
+        explanation: "Fast gains exactly one node per iteration, so the gap goes c-1, c-2, …, 0 without skipping. That is also why the speeds 1 and 2 are used; other speed pairs need more care."
+      - id: q3
+        kind: single
+        prompt: After slow and fast meet inside a cycle, how do you find the first node of the cycle?
+        options:
+          - Move one pointer to the head, then advance both one step at a time until they meet
+          - Keep advancing fast by two until it reaches the head
+          - The meeting node is always the start
+          - Count the cycle length and divide by two
+        answer: [0]
+        explanation: "From a + b = k × c, the head is a steps from the start and so is the meeting point (going forward around the cycle). The meeting node is generally not the start unless b = 0."
+      - id: q4
+        kind: multi
+        prompt: Which problems can fast/slow pointers solve in O(1) extra space?
+        options:
+          - Detect whether a linked list has a cycle
+          - Find the middle node in one pass
+          - Find the duplicate in an array of n + 1 values from 1..n without modifying it
+          - Merge two sorted linked lists
+        answer: [0, 1, 2]
+        explanation: "The duplicate problem treats i -> nums[i] as a linked list whose cycle entrance is the duplicate. Merging is a plain two-list pointer walk, not a speed-difference technique."
+      - id: q5
+        kind: single
+        prompt: Compared with a visited set, Floyd's cycle detection is…
+        options:
+          - O(n) time and O(1) space, versus O(n) time and O(n) space
+          - Faster asymptotically, O(log n) versus O(n)
+          - O(n²) time but O(1) space
+          - Only correct for cycles of even length
+        answer: [0]
+        explanation: "Both are linear in time; the gain is memory. Slow meets fast before finishing its first lap of the cycle, so fast takes at most about 2n steps."
+      - id: q6
+        kind: short
+        prompt: Prove that resetting one pointer to the head finds the cycle start.
+        model_answer: "Let a = head to cycle start, b = start to meeting point, c = cycle length. At the meeting, slow has walked a + b and fast 2(a + b); fast is ahead by whole laps, so a + b = k × c for some k >= 1. Hence a = k × c - b. A pointer at the meeting point that walks a steps covers (c - b) to reach the start plus (k - 1) full laps, so it is at the start exactly when the pointer from the head arrives there."
+        explanation: The algebra is short; saying it cleanly is what turns a memorised trick into a defended answer.
+- key: dsa.fast_slow.exercise
+  type: coding_exercise
+  title: "Exercise: remove the n-th node from the end in one pass"
+  skills: [linked_list.fast_slow, linked_list.manipulation]
+  minutes: 15
+  difficulty: MEDIUM
+  observation: {kind: CODE_EXERCISE, time_limit_seconds: 900}
+  body:
+    prompt: |-
+      Remove the n-th node from the end of a singly linked list (n = 1 is the last node) in a single pass and return the head. Assume 1 <= n <= length.
+    examples:
+      - "1 -> 2 -> 3 -> 4 -> 5, n = 2  ->  1 -> 2 -> 3 -> 5"
+      - "1, n = 1  ->  empty list"
+      - "1 -> 2, n = 2  ->  2"
+    constraints:
+      - Up to 30 nodes; one pass, O(1) extra space.
+    hints:
+      - To delete a node you need the node before it.
+      - Give one pointer a head start so that when it reaches the end, the other is just before the target.
+      - Start both at a dummy node and give fast a head start of n + 1 steps.
+    solution:
+      language: python
+      code: |-
+        def remove_nth_from_end(head, n):
+            dummy = ListNode(0, head)
+            fast = slow = dummy
+            for _ in range(n + 1):        # gap of n + 1 nodes
+                fast = fast.next
+            while fast:
+                fast = fast.next
+                slow = slow.next
+            slow.next = slow.next.next    # slow is just before the target
+            return dummy.next
+      explanation: When fast is None, slow is n + 1 nodes behind the end, i.e. right before the n-th from the end. The dummy handles deleting the head (second and third examples). O(L) time, O(1) space.
+    rubric:
+      - {key: correct, label: Handles all three examples including removing the head, points: 4}
+      - {key: gap, label: Explains why the gap is n + 1 when starting from a dummy, points: 2}
+      - {key: dummy, label: Uses a dummy (or equivalent) instead of a head special case, points: 2}
+      - {key: complexity, label: "States one pass, O(L) time and O(1) space", points: 2}
+    follow_ups:
+      - prompt: How would you find the middle and the n-th from the end at the same time?
+        look_for: Separate pointer pairs (speed 1/2 and gap n) in one loop; or explain that two passes are equally O(L).
+- key: dsa.fast_slow.guided
+  type: guided_problem
+  title: "Guided practice: detect a cycle"
+  skills: [linked_list.fast_slow]
+  minutes: 15
+  difficulty: EASY
+  problems: [67]
+  body:
+    guidance:
+      - Mention the visited-set solution first with its O(n) space.
+      - "Then use slow and fast; the loop condition must check `fast and fast.next` before stepping."
+      - Compare nodes with `is`, not values.
+      - Test with an empty list, a self-loop and a list without a cycle.
+    hints:
+      - If fast reaches None, there is no cycle.
+- key: dsa.fast_slow.timed
+  type: timed_problem
+  title: "Timed practice: cycle entrance and duplicate number"
+  skills: [linked_list.fast_slow]
+  minutes: 50
+  difficulty: MEDIUM
+  problems: [11, 68]
+  body:
+    guidance:
+      - "Cycle entrance: detect the meeting point, reset one pointer to the head, step both by one; be ready to prove why."
+      - "Duplicate number: treat index -> nums[index] as next pointers starting from index 0; the cycle entrance is the duplicate."
+      - Solve both under the timer, then give the a + b = k × c argument aloud.
+- key: dsa.fast_slow.cards
+  type: revision_card
+  title: "Recall: fast and slow pointers"
+  skills: [linked_list.fast_slow]
+  minutes: 5
+  body:
+    cards:
+      - front: Which middle does `while fast and fast.next` return for even length?
+        back: The second middle.
+      - front: Why must fast meet slow inside a cycle?
+        back: The gap shrinks by exactly one node per step.
+      - front: Find the cycle start after the meeting?
+        back: Reset one pointer to head; step both by one until they meet.
+      - front: Floyd's distance identity?
+        back: "a + b = k × c, so a = k × c - b."
+      - front: Duplicate in n + 1 values from 1..n with O(1) space?
+        back: Floyd on i -> nums[i]; the cycle entrance is the duplicate.

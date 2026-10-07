@@ -253,6 +253,17 @@ class StepResultOut(BaseModel):
 # --------------------------------------------------------------------------------------------- coverage
 
 
+class MockKitOut(BaseModel):
+    """One round of the interview loop with timed prompts from the library, weakest skills first (D-083)."""
+
+    round: str
+    round_type: str
+    minutes: int
+    components: list[str]
+    focus_skills: list[dict[str, Any]]  # key, name, gap status: what this round should probe first
+    items: list[ContentSummary]
+
+
 class CoverageRowOut(BaseModel):
     skill_key: str
     skill_name: str

@@ -151,10 +151,19 @@ def test_story_creates_revision_item_and_edits_are_audited(
         "task": "t",
         "action": "a",
         "result": "r",
+        "metric": "p95 2 s -> 300 ms",
+        "tradeoffs": "Shipped a cache before the query rewrite.",
+        "learning": "Alert on symptoms first.",
         "competencies": ["behavioral.ownership", "communication.structured_answers"],
     }
     body = post(activity_client, "/stories", story)
     sid = body["data"]["id"]
+    # the seven parts of an evidence-based story (MASTER_SPEC_V3 §19)
+    assert (body["data"]["metric"], body["data"]["tradeoffs"], body["data"]["learning"]) == (
+        "p95 2 s -> 300 ms",
+        "Shipped a cache before the query rewrite.",
+        "Alert on symptoms first.",
+    )
     assert body["data"]["competencies"] == ["behavioral.ownership", "communication.structured_answers"]
     change = {c["item_key"]: c for c in body["effects"]["revision_changes"]}[f"STORY:{sid}"]
     assert change["due_date"] == "2026-10-05"

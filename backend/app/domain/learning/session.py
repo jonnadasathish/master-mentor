@@ -155,6 +155,9 @@ def _pick(
     used: Collection[str],
     timed: bool,
 ) -> ContentItem | None:
+    # ``content`` arrives primary-skill items first (LearningCatalog.for_skill): keep that order as the last
+    # tiebreaker so a skill's own lesson beats a lesson that only lists it as a supporting skill.
+    order = {c.key: i for i, c in enumerate(content)}
     candidates = [c for c in content if c.type in types and c.key not in used]
     if timed:
         candidates = [c for c in candidates if c.type == "timed_problem" or c.time_limit_seconds]
@@ -162,7 +165,7 @@ def _pick(
         return None
 
     def rank(c: ContentItem) -> tuple[int, int, int, int]:
-        return (int(stage not in c.stages), int(c.key in done), types.index(c.type), c.position)
+        return (int(stage not in c.stages), int(c.key in done), types.index(c.type), order[c.key])
 
     return min(candidates, key=rank)
 
